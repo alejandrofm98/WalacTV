@@ -39,8 +39,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.History
@@ -159,38 +157,7 @@ class ComposeMainFragment : Fragment() {
 
         scope.launch {
             errorMessage = null
-            runCatching { repository.loadEventsOnly() }
-                .onSuccess { catalog ->
-                    homeCatalog = catalog
-                    updateStateFromCatalog(catalog)
-                    isEventsLoaded = true
-                    loadSummaryPlaylist()
-                }
-                .onFailure {
-                    loadSummaryPlaylist()
-                }
-        }
-    }
-
-    private fun loadSummaryPlaylist(forceRefresh: Boolean = false) {
-        scope.launch {
-            runCatching {
-                repository.loadHomeCatalog(
-                    forceRefreshPlaylist = forceRefresh,
-                    useSummaryPlaylist = true,
-                )
-            }
-                .onSuccess { catalog ->
-                    homeCatalog = catalog
-                    updateStateFromCatalog(catalog)
-                    isEventsLoaded = true
-                    loadFullPlaylist()
-                }
-                .onFailure {
-                    if (!isEventsLoaded) {
-                        errorMessage = it.message ?: "Error al cargar la aplicacion"
-                    }
-                }
+            loadFullPlaylist()
         }
     }
 
@@ -199,12 +166,12 @@ class ComposeMainFragment : Fragment() {
             runCatching {
                 repository.loadHomeCatalog(
                     forceRefreshPlaylist = forceRefresh,
-                    useSummaryPlaylist = false,
                 )
             }
                 .onSuccess { catalog ->
                     homeCatalog = catalog
                     updateStateFromCatalog(catalog)
+                    isEventsLoaded = true
                     isFullLoaded = true
                     triggerBackgroundRefreshIfNeeded()
                 }
@@ -425,11 +392,18 @@ class ComposeMainFragment : Fragment() {
                     Text(detail, color = IptvTextPrimary, fontSize = 15.sp)
                     Spacer(Modifier.height(8.dp))
                 }
+                playlistProgress?.elapsedMs?.let { elapsedMs ->
+                    Text(
+                        "Tiempo transcurrido: ${formatElapsedMillis(elapsedMs)}",
+                        color = IptvTextPrimary,
+                        fontSize = 14.sp,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 Text(
                     when (playlistProgress?.stage) {
                         PlaylistLoadStage.DOWNLOADING -> "Descarga de la lista en curso"
-                        PlaylistLoadStage.PARSING_SUMMARY -> "Preparando la vista inicial"
-                        PlaylistLoadStage.PARSING_FULL -> "Indexando todos los canales y VOD"
+                        PlaylistLoadStage.PARSING_FULL -> "Cargando lista completa de canales y VOD"
                         PlaylistLoadStage.SAVING_CACHE -> "Guardando cache para el siguiente arranque"
                         PlaylistLoadStage.READY -> "Lista lista"
                         else -> "Leyendo cache local"
@@ -462,6 +436,15 @@ class ComposeMainFragment : Fragment() {
     private fun formatProgressLabel(progress: PlaylistLoadProgress): String {
         val suffix = progress.percent?.let { " $it%" }.orEmpty()
         return progress.message + suffix
+    }
+
+    private fun formatElapsedMillis(value: Long): String {
+        val seconds = value / 1000f
+        return if (seconds >= 60f) {
+            String.format(Locale.US, "%.1f min", seconds / 60f)
+        } else {
+            String.format(Locale.US, "%.1f s", seconds)
+        }
     }
 
     @Composable
@@ -524,19 +507,14 @@ class ComposeMainFragment : Fragment() {
                 .background(IptvSurface)
                 .border(1.dp, IptvSurfaceVariant),
         ) {
-            Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 16.dp)) {
-                RailToggleButton(
-                    expanded = isRailExpanded,
-                    onClick = { isRailExpanded = !isRailExpanded },
-                )
-            }
-
             if (isRailExpanded) {
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
                     Text("WalacTV", color = IptvTextPrimary, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     Text("Navegacion pensada para mando", color = IptvTextMuted, fontSize = 14.sp)
                 }
+            } else {
+                Spacer(Modifier.height(24.dp))
             }
 
             Column(
@@ -551,6 +529,7 @@ class ComposeMainFragment : Fragment() {
                         label = item.label,
                         selected = item.mode != null && currentMode == item.mode,
                         expanded = isRailExpanded,
+                        onFocused = { isRailExpanded = true },
                     ) {
                         item.onClick?.invoke() ?: item.mode?.let(::changeMode)
                     }
@@ -563,6 +542,7 @@ class ComposeMainFragment : Fragment() {
                     label = "Ajustes",
                     selected = currentMode == MainMode.Settings,
                     expanded = isRailExpanded,
+                    onFocused = { isRailExpanded = true },
                 ) {
                     changeMode(MainMode.Settings)
                 }
@@ -575,6 +555,7 @@ class ComposeMainFragment : Fragment() {
         currentMode = newMode
         selectedGroup = ALL_CHANNELS_GROUP
         selectedHero = defaultItemForMode(newMode)
+        isRailExpanded = false
     }
 
     private fun defaultItemForMode(mode: MainMode): CatalogItem? {
@@ -589,6 +570,7 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun openSearch() {
+        isRailExpanded = false
         val searchFragment = SearchFragment().apply {
             setSearchData(searchableItems)
         }
@@ -604,6 +586,7 @@ class ComposeMainFragment : Fragment() {
         label: String,
         selected: Boolean,
         expanded: Boolean,
+        onFocused: () -> Unit,
         onClick: () -> Unit,
     ) {
         var isFocused by remember { mutableStateOf(false) }
@@ -629,7 +612,9 @@ class ComposeMainFragment : Fragment() {
                 .focusable()
                 .onFocusChanged {
                     isFocused = it.isFocused
-                    if (it.isFocused) onClick()
+                    if (it.isFocused) {
+                        onFocused()
+                    }
                 }
                 .padding(horizontal = if (expanded) 14.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -640,34 +625,6 @@ class ComposeMainFragment : Fragment() {
                 Spacer(Modifier.width(14.dp))
                 Text(label, color = contentColor, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             }
-        }
-    }
-
-    @Composable
-    private fun RailToggleButton(expanded: Boolean, onClick: () -> Unit) {
-        var isFocused by remember { mutableStateOf(false) }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp)
-                .background(if (isFocused) IptvFocusBg else Color.Transparent, RoundedCornerShape(8.dp))
-                .border(1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(8.dp))
-                .clickable { onClick() }
-                .focusable()
-                .onFocusChanged { isFocused = it.isFocused }
-                .padding(horizontal = if (expanded) 12.dp else 0.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = if (expanded) Arrangement.SpaceBetween else Arrangement.Center,
-        ) {
-            if (expanded) {
-                Text("Menu", color = IptvTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            }
-            Icon(
-                imageVector = if (expanded) Icons.AutoMirrored.Outlined.KeyboardArrowLeft else Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                contentDescription = if (expanded) "Colapsar menu" else "Expandir menu",
-                tint = IptvTextPrimary,
-                modifier = Modifier.size(20.dp),
-            )
         }
     }
 
@@ -1302,7 +1259,7 @@ class ComposeMainFragment : Fragment() {
         isEventsLoaded = false
         isFullLoaded = false
         repository.clearHomeMemoryCache()
-        loadSummaryPlaylist(forceRefresh = true)
+        loadFullPlaylist(forceRefresh = true)
     }
 
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])

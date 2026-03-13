@@ -4,10 +4,10 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedReader
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStreamReader
@@ -18,6 +18,7 @@ import java.util.Locale
 class M3uCatalogStore(private val context: Context) {
 
     private val credentialStore = CredentialStore(context)
+    private val providerHttpBaseUrl = BuildConfig.IPTV_BASE_URL.removePrefix("https://").removePrefix("http://")
     var progressListener: ((PlaylistLoadProgress) -> Unit)? = null
 
     suspend fun getCatalog(forceRefresh: Boolean = false): M3uCatalogSnapshot = withContext(Dispatchers.IO) {
@@ -51,53 +52,17 @@ class M3uCatalogStore(private val context: Context) {
         }
     }
 
-    suspend fun getHomeSnapshot(forceRefresh: Boolean = false): M3uCatalogSnapshot = withContext(Dispatchers.IO) {
-        reportProgress(PlaylistLoadStage.CHECKING_CACHE, "Comprobando cache rapida", 0)
-        if (!forceRefresh) {
-            summaryMemorySnapshot?.let {
-                Log.d(TAG, "Usando resumen M3U en memoria")
-                reportProgress(PlaylistLoadStage.READY, "Resumen cargado desde memoria", 100)
-                return@withContext it
-            }
-
-            loadPersistedSnapshot(summarySnapshotFile)?.let {
-                Log.d(TAG, "Usando resumen M3U persistido")
-                summaryMemorySnapshot = it
-                reportProgress(PlaylistLoadStage.READY, "Resumen cargado desde cache guardada", 100)
-                return@withContext it
-            }
-        }
-
-        ensureCacheReady(forceRefresh)
-        Log.d(TAG, "Usando resumen M3U desde cache local: ${cacheFile.absolutePath}")
-        loadSummaryFromCache().also {
-            summaryMemorySnapshot = it
-            persistSnapshot(summarySnapshotFile, it)
-            reportProgress(
-                PlaylistLoadStage.READY,
-                "Resumen de lista listo",
-                100,
-                detail = buildSnapshotDetail(it),
-            )
-        }
-    }
-
     suspend fun refreshNow(): M3uCatalogSnapshot = withContext(Dispatchers.IO) {
         Log.d(TAG, "Refrescando playlist M3U ahora")
         reportProgress(PlaylistLoadStage.DOWNLOADING, "Descargando lista IPTV", 0)
         downloadPlaylistToCache()
         saveLastUpdated(System.currentTimeMillis())
         fullMemorySnapshot = null
-        summaryMemorySnapshot = null
         deletePersistedSnapshots()
 
         val fullSnapshot = loadFromCache().also {
             fullMemorySnapshot = it
             persistSnapshot(fullSnapshotFile, it)
-        }
-        loadSummaryFromCache().also {
-            summaryMemorySnapshot = it
-            persistSnapshot(summarySnapshotFile, it)
         }
 
         fullSnapshot
@@ -105,7 +70,6 @@ class M3uCatalogStore(private val context: Context) {
 
     fun clearAllCache() {
         fullMemorySnapshot = null
-        summaryMemorySnapshot = null
         cacheFile.delete()
         deletePersistedSnapshots()
         preferences.edit().remove(KEY_LAST_UPDATED).apply()
@@ -127,7 +91,6 @@ class M3uCatalogStore(private val context: Context) {
             downloadPlaylistToCache()
             saveLastUpdated(System.currentTimeMillis())
             fullMemorySnapshot = null
-            summaryMemorySnapshot = null
             deletePersistedSnapshots()
         }
     }
@@ -143,22 +106,8 @@ class M3uCatalogStore(private val context: Context) {
         return cacheFile.bufferedReader().use {
             parsePlaylist(
                 reader = it,
-                limits = null,
                 stage = PlaylistLoadStage.PARSING_FULL,
                 progressLabel = "Parseando lista completa",
-                totalBytes = cacheFile.length(),
-            )
-        }
-    }
-
-    private fun loadSummaryFromCache(): M3uCatalogSnapshot {
-        if (!cacheFile.exists()) return M3uCatalogSnapshot(emptyList(), emptyList(), emptyList())
-        return cacheFile.bufferedReader().use {
-            parsePlaylist(
-                reader = it,
-                limits = HOME_LIMITS,
-                stage = PlaylistLoadStage.PARSING_SUMMARY,
-                progressLabel = "Parseando vista rapida",
                 totalBytes = cacheFile.length(),
             )
         }
@@ -168,8 +117,7 @@ class M3uCatalogStore(private val context: Context) {
         if (!file.exists() || isCacheExpired()) return null
 
         return runCatching {
-            val payload = JSONObject(file.readText())
-            snapshotFromJson(payload)
+            DataInputStream(file.inputStream().buffered()).use(::readSnapshot)
         }.onFailure {
             Log.w(TAG, "No se pudo leer snapshot persistido ${file.name}", it)
             file.delete()
@@ -178,7 +126,7 @@ class M3uCatalogStore(private val context: Context) {
 
     private fun persistSnapshot(file: File, snapshot: M3uCatalogSnapshot) {
         runCatching {
-            file.writeText(snapshotToJson(snapshot).toString())
+            DataOutputStream(file.outputStream().buffered()).use { writeSnapshot(it, snapshot) }
         }.onFailure {
             Log.w(TAG, "No se pudo guardar snapshot persistido ${file.name}", it)
         }
@@ -186,97 +134,91 @@ class M3uCatalogStore(private val context: Context) {
 
     private fun deletePersistedSnapshots() {
         fullSnapshotFile.delete()
-        summarySnapshotFile.delete()
     }
 
-    private fun snapshotToJson(snapshot: M3uCatalogSnapshot): JSONObject {
-        return JSONObject()
-            .put("channels", itemsToJson(snapshot.channels))
-            .put("movies", itemsToJson(snapshot.movies))
-            .put("series", itemsToJson(snapshot.series))
+    private fun writeSnapshot(output: DataOutputStream, snapshot: M3uCatalogSnapshot) {
+        output.writeInt(SNAPSHOT_VERSION)
+        writeItems(output, snapshot.channels)
+        writeItems(output, snapshot.movies)
+        writeItems(output, snapshot.series)
+        output.flush()
     }
 
-    private fun snapshotFromJson(payload: JSONObject): M3uCatalogSnapshot {
+    private fun readSnapshot(input: DataInputStream): M3uCatalogSnapshot {
+        val version = input.readInt()
+        check(version == SNAPSHOT_VERSION) { "Version de snapshot no compatible: $version" }
         return M3uCatalogSnapshot(
-            channels = itemsFromJson(payload.optJSONArray("channels")),
-            movies = itemsFromJson(payload.optJSONArray("movies")),
-            series = itemsFromJson(payload.optJSONArray("series")),
+            channels = readItems(input),
+            movies = readItems(input),
+            series = readItems(input),
         )
     }
 
-    private fun itemsToJson(items: List<CatalogItem>): JSONArray {
-        return JSONArray().apply {
-            items.forEach { item ->
-                put(
-                    JSONObject()
-                        .put("stableId", item.stableId)
-                        .put("title", item.title)
-                        .put("subtitle", item.subtitle)
-                        .put("description", item.description)
-                        .put("imageUrl", item.imageUrl)
-                        .put("kind", item.kind.name)
-                        .put("group", item.group)
-                        .put("badgeText", item.badgeText)
-                        .put("channelNumber", item.channelNumber)
-                        .put("streamOptions", JSONArray().apply {
-                            item.streamOptions.forEach { option ->
-                                put(
-                                    JSONObject()
-                                        .put("label", option.label)
-                                        .put("url", option.url),
-                                )
-                            }
-                        }),
-                )
+    private fun writeItems(output: DataOutputStream, items: List<CatalogItem>) {
+        output.writeInt(items.size)
+        items.forEach { item ->
+            output.writeUTF(item.stableId)
+            output.writeUTF(item.title)
+            output.writeUTF(item.subtitle)
+            output.writeUTF(item.description)
+            output.writeUTF(item.imageUrl)
+            output.writeInt(item.kind.ordinal)
+            output.writeUTF(item.group)
+            output.writeUTF(item.badgeText)
+            output.writeBoolean(item.channelNumber != null)
+            item.channelNumber?.let(output::writeInt)
+            output.writeInt(item.streamOptions.size)
+            item.streamOptions.forEach { option ->
+                output.writeUTF(option.label)
+                output.writeUTF(option.url)
             }
         }
     }
 
-    private fun itemsFromJson(array: JSONArray?): List<CatalogItem> {
-        if (array == null) return emptyList()
-
-        return buildList {
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
-                add(
-                    CatalogItem(
-                        stableId = item.optString("stableId"),
-                        title = item.optString("title"),
-                        subtitle = item.optString("subtitle"),
-                        description = item.optString("description"),
-                        imageUrl = item.optString("imageUrl"),
-                        kind = runCatching { ContentKind.valueOf(item.optString("kind")) }.getOrDefault(ContentKind.CHANNEL),
-                        group = item.optString("group"),
-                        badgeText = item.optString("badgeText"),
-                        channelNumber = item.takeIf { !it.isNull("channelNumber") }?.optInt("channelNumber"),
-                        streamOptions = buildList {
-                            val streamArray = item.optJSONArray("streamOptions") ?: JSONArray()
-                            for (streamIndex in 0 until streamArray.length()) {
-                                val stream = streamArray.optJSONObject(streamIndex) ?: continue
-                                add(
-                                    StreamOption(
-                                        label = stream.optString("label"),
-                                        url = stream.optString("url"),
-                                    ),
-                                )
-                            }
-                        },
-                    ),
-                )
-            }
+    private fun readItems(input: DataInputStream): List<CatalogItem> {
+        val count = input.readInt()
+        return List(count) {
+            val stableId = input.readUTF()
+            val title = input.readUTF()
+            val subtitle = input.readUTF()
+            val description = input.readUTF()
+            val imageUrl = input.readUTF()
+            val kind = ContentKind.entries[input.readInt()]
+            val group = input.readUTF()
+            val badgeText = input.readUTF()
+            val hasChannelNumber = input.readBoolean()
+            val channelNumber = if (hasChannelNumber) input.readInt() else null
+            val streamCount = input.readInt()
+            CatalogItem(
+                stableId = stableId,
+                title = title,
+                subtitle = subtitle,
+                description = description,
+                imageUrl = imageUrl,
+                kind = kind,
+                group = group,
+                badgeText = badgeText,
+                channelNumber = channelNumber,
+                streamOptions = List(streamCount) {
+                    StreamOption(
+                        label = input.readUTF(),
+                        url = input.readUTF(),
+                    )
+                },
+            )
         }
     }
 
     private fun parsePlaylist(
         reader: BufferedReader,
-        limits: ParseLimits?,
         stage: PlaylistLoadStage,
         progressLabel: String,
         totalBytes: Long,
     ): M3uCatalogSnapshot {
-        val channels = mutableListOf<CatalogItem>()
-        val movies = mutableListOf<CatalogItem>()
-        val series = mutableListOf<CatalogItem>()
+        val startedAt = System.currentTimeMillis()
+        val channels = ArrayList<CatalogItem>(4096)
+        val movies = ArrayList<CatalogItem>(512)
+        val series = ArrayList<CatalogItem>(512)
         var pendingInfo: ExtInfEntry? = null
         var channelNumber = 1
         var processedBytes = 0L
@@ -284,7 +226,7 @@ class M3uCatalogStore(private val context: Context) {
 
         while (true) {
             val rawLine = reader.readLine() ?: break
-            processedBytes += rawLine.toByteArray().size + 1L
+            processedBytes += rawLine.length + 1L
             val line = rawLine.trim()
             when {
                 line.startsWith("#EXTINF", ignoreCase = true) -> pendingInfo = parseExtInf(line)
@@ -296,24 +238,12 @@ class M3uCatalogStore(private val context: Context) {
                     val item = buildItemFromM3u(info, line, kind, channelNumber.takeIf { kind == ContentKind.CHANNEL })
                     when (kind) {
                         ContentKind.CHANNEL -> {
-                            if (limits == null || channels.size < limits.channels) {
-                                channels += item
-                            }
+                            channels += item
                             channelNumber += 1
                         }
-                        ContentKind.MOVIE -> if (limits == null || movies.size < limits.movies) movies += item
-                        ContentKind.SERIES -> if (limits == null || series.size < limits.series) series += item
+                        ContentKind.MOVIE -> movies += item
+                        ContentKind.SERIES -> series += item
                         ContentKind.EVENT -> Unit
-                    }
-
-                    if (limits != null && channels.size >= limits.channels && movies.size >= limits.movies && series.size >= limits.series) {
-                        reportProgress(
-                            stage,
-                            progressLabel,
-                            100,
-                            detail = buildParseDetail(channels.size, movies.size, series.size),
-                        )
-                        break
                     }
                 }
             }
@@ -330,6 +260,7 @@ class M3uCatalogStore(private val context: Context) {
                     progressLabel,
                     percent,
                     detail = buildParseDetail(channels.size, movies.size, series.size),
+                    elapsedMs = System.currentTimeMillis() - startedAt,
                 )
             }
         }
@@ -340,6 +271,7 @@ class M3uCatalogStore(private val context: Context) {
             "$progressLabel completado",
             100,
             detail = buildParseDetail(channels.size, movies.size, series.size),
+            elapsedMs = System.currentTimeMillis() - startedAt,
         )
         return M3uCatalogSnapshot(channels, movies, series)
     }
@@ -410,23 +342,28 @@ class M3uCatalogStore(private val context: Context) {
 
     private fun cleanChannelTitle(value: String): String {
         return cleanTitle(value)
-            .replace(Regex("^[A-Z]{2,4}\\|\\s*"), "")
-            .replace(Regex("\\b(UHD|FHD|HD|SD|4K|HEVC|H265|50FPS|60FPS|VIP)\\b", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("\\s+"), " ")
+            .replace(CHANNEL_PREFIX_REGEX, "")
+            .replace(CHANNEL_QUALITY_REGEX, "")
+            .replace(MULTIPLE_SPACES_REGEX, " ")
             .trim()
     }
 
     private fun cleanVodTitle(value: String): String {
         return cleanTitle(value)
-            .replace(Regex("^[A-Z]{2,4}\\|\\s*"), "")
-            .replace(Regex("\\b(UHD|FHD|HD|SD|4K|HEVC|H265)\\b", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("\\s+"), " ")
+            .replace(CHANNEL_PREFIX_REGEX, "")
+            .replace(VOD_QUALITY_REGEX, "")
+            .replace(MULTIPLE_SPACES_REGEX, " ")
             .trim()
     }
 
     private fun extractAttribute(source: String, attribute: String): String {
-        val regex = Regex("$attribute=\"([^\"]*)\"", RegexOption.IGNORE_CASE)
-        return regex.find(source)?.groupValues?.getOrNull(1).orEmpty()
+        val key = "$attribute=\""
+        val start = source.indexOf(key, ignoreCase = true)
+        if (start == -1) return ""
+        val valueStart = start + key.length
+        val valueEnd = source.indexOf('"', valueStart)
+        if (valueEnd == -1) return ""
+        return source.substring(valueStart, valueEnd)
     }
 
     private fun classify(url: String): ContentKind {
@@ -497,6 +434,7 @@ class M3uCatalogStore(private val context: Context) {
                             } else {
                                 formatBytes(downloadedBytes)
                             },
+                            elapsedMs = null,
                         )
                     }
                 }
@@ -522,23 +460,30 @@ class M3uCatalogStore(private val context: Context) {
 
     private fun simplifyGroup(group: String): String {
         if (group.isBlank()) return "Sin grupo"
-        return group.replace(Regex("\\s+"), " ").trim()
+        return group.replace(MULTIPLE_SPACES_REGEX, " ").trim()
     }
 
     private fun normalizeImageUrl(url: String): String {
         if (url.isBlank() || url == "null") return ""
         return url
-            .replace("http://${BuildConfig.IPTV_BASE_URL.removePrefix("https://").removePrefix("http://")}", BuildConfig.IPTV_BASE_URL)
+            .replace("http://$providerHttpBaseUrl", BuildConfig.IPTV_BASE_URL)
             .replace("http://image.tmdb.org", "https://image.tmdb.org")
     }
 
-    private fun reportProgress(stage: PlaylistLoadStage, message: String, percent: Int?, detail: String? = null) {
+    private fun reportProgress(
+        stage: PlaylistLoadStage,
+        message: String,
+        percent: Int?,
+        detail: String? = null,
+        elapsedMs: Long? = null,
+    ) {
         progressListener?.invoke(
             PlaylistLoadProgress(
                 stage = stage,
                 message = message,
                 percent = percent,
                 detail = detail,
+                elapsedMs = elapsedMs,
             ),
         )
     }
@@ -592,17 +537,17 @@ class M3uCatalogStore(private val context: Context) {
         File(context.filesDir, FULL_SNAPSHOT_FILE_NAME)
     }
 
-    private val summarySnapshotFile: File by lazy {
-        File(context.filesDir, SUMMARY_SNAPSHOT_FILE_NAME)
-    }
-
     companion object {
         private const val TAG = "M3uCatalogStore"
+        private val CHANNEL_PREFIX_REGEX = Regex("^[A-Z]{2,4}\\|\\s*")
+        private val CHANNEL_QUALITY_REGEX = Regex("\\b(UHD|FHD|HD|SD|4K|HEVC|H265|50FPS|60FPS|VIP)\\b", RegexOption.IGNORE_CASE)
+        private val VOD_QUALITY_REGEX = Regex("\\b(UHD|FHD|HD|SD|4K|HEVC|H265)\\b", RegexOption.IGNORE_CASE)
+        private val MULTIPLE_SPACES_REGEX = Regex("\\s+")
         private const val PREFS_NAME = "m3u_catalog_store"
         private const val KEY_LAST_UPDATED = "last_updated"
         private const val CACHE_FILE_NAME = "playlist_cache.m3u"
-        private const val FULL_SNAPSHOT_FILE_NAME = "playlist_snapshot_full.json"
-        private const val SUMMARY_SNAPSHOT_FILE_NAME = "playlist_snapshot_summary.json"
+        private const val FULL_SNAPSHOT_FILE_NAME = "playlist_snapshot_full.bin"
+        private const val SNAPSHOT_VERSION = 1
         private const val USER_AGENT = "WalacTV AndroidTV"
         private const val CACHE_TTL_MS = 24L * 60L * 60L * 1000L
         private data class StoredCredentials(
@@ -612,15 +557,6 @@ class M3uCatalogStore(private val context: Context) {
 
         @Volatile
         private var fullMemorySnapshot: M3uCatalogSnapshot? = null
-
-        @Volatile
-        private var summaryMemorySnapshot: M3uCatalogSnapshot? = null
-
-        private val HOME_LIMITS = ParseLimits(
-            channels = 100,
-            movies = 50,
-            series = 50,
-        )
     }
 }
 
@@ -629,12 +565,12 @@ data class PlaylistLoadProgress(
     val message: String,
     val percent: Int? = null,
     val detail: String? = null,
+    val elapsedMs: Long? = null,
 )
 
 enum class PlaylistLoadStage {
     CHECKING_CACHE,
     DOWNLOADING,
-    PARSING_SUMMARY,
     PARSING_FULL,
     SAVING_CACHE,
     READY,
@@ -651,10 +587,4 @@ private data class ExtInfEntry(
     val tvgName: String,
     val logoUrl: String,
     val groupTitle: String,
-)
-
-private data class ParseLimits(
-    val channels: Int,
-    val movies: Int,
-    val series: Int,
 )

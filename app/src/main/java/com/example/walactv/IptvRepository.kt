@@ -72,7 +72,7 @@ class IptvRepository(context: Context) {
         coroutineScope {
             val token = getAccessToken()
             val eventSectionsDeferred = async { safeSectionLoad("eventos") { fetchEventSections(token) } }
-            val playlistDeferred = async { safePlaylistLoad(forceRefresh = false, useSummaryPlaylist = true) }
+            val playlistDeferred = async { safePlaylistLoad(forceRefresh = false) }
 
             val eventSections = eventSectionsDeferred.await()
             val playlist = playlistDeferred.await()
@@ -87,18 +87,16 @@ class IptvRepository(context: Context) {
 
     suspend fun loadHomeCatalog(
         forceRefreshPlaylist: Boolean = false,
-        useSummaryPlaylist: Boolean = false,
     ): HomeCatalog = withContext(Dispatchers.IO) {
         if (!forceRefreshPlaylist) {
-            val cached = if (useSummaryPlaylist) memoryHomeSummaryCatalog else memoryHomeCatalog
-            cached?.let { return@withContext it }
+            memoryHomeCatalog?.let { return@withContext it }
         }
 
         coroutineScope {
             val token = getAccessToken()
 
             val eventSectionsDeferred = async { safeSectionLoad("eventos") { fetchEventSections(token) } }
-            val playlistDeferred = async { safePlaylistLoad(forceRefreshPlaylist, useSummaryPlaylist) }
+            val playlistDeferred = async { safePlaylistLoad(forceRefreshPlaylist) }
 
             val eventSections = eventSectionsDeferred.await()
             val playlist = playlistDeferred.await()
@@ -119,20 +117,13 @@ class IptvRepository(context: Context) {
                     addAll(playlist.movies)
                     addAll(playlist.series)
                 }.distinctBy(CatalogItem::stableId),
-            ).also {
-                if (useSummaryPlaylist) {
-                    memoryHomeSummaryCatalog = it
-                } else {
-                    memoryHomeCatalog = it
-                }
-            }
+            ).also { memoryHomeCatalog = it }
         }
     }
 
     suspend fun refreshPlaylistNow(): Long {
         m3uCatalogStore.refreshNow()
         memoryHomeCatalog = null
-        memoryHomeSummaryCatalog = null
         return m3uCatalogStore.getLastUpdatedMillis()
     }
 
@@ -146,19 +137,17 @@ class IptvRepository(context: Context) {
 
     fun clearHomeMemoryCache() {
         memoryHomeCatalog = null
-        memoryHomeSummaryCatalog = null
     }
 
     suspend fun refreshPlaylistInBackground() {
         m3uCatalogStore.refreshNow()
         memoryHomeCatalog = null
-        memoryHomeSummaryCatalog = null
     }
 
     suspend fun resolveEventItem(eventItem: CatalogItem): CatalogItem = withContext(Dispatchers.IO) {
         if (eventItem.kind != ContentKind.EVENT) return@withContext eventItem
 
-        val playlist = safePlaylistLoad(forceRefresh = false, useSummaryPlaylist = false)
+        val playlist = safePlaylistLoad(forceRefresh = false)
         reconcileEventItem(eventItem, playlist.channels)
     }
 
@@ -442,13 +431,9 @@ class IptvRepository(context: Context) {
             .getOrDefault(emptyList())
     }
 
-    private suspend fun safePlaylistLoad(forceRefresh: Boolean, useSummaryPlaylist: Boolean): M3uCatalogSnapshot {
+    private suspend fun safePlaylistLoad(forceRefresh: Boolean): M3uCatalogSnapshot {
         return runCatching {
-            if (useSummaryPlaylist) {
-                m3uCatalogStore.getHomeSnapshot(forceRefresh)
-            } else {
-                m3uCatalogStore.getCatalog(forceRefresh)
-            }
+            m3uCatalogStore.getCatalog(forceRefresh)
         }
             .onFailure { Log.e(TAG, "Fallo cargando playlist M3U completa", it) }
             .getOrDefault(M3uCatalogSnapshot(emptyList(), emptyList(), emptyList()))
@@ -481,9 +466,6 @@ class IptvRepository(context: Context) {
 
         @Volatile
         private var memoryHomeCatalog: HomeCatalog? = null
-
-        @Volatile
-        private var memoryHomeSummaryCatalog: HomeCatalog? = null
 
         private data class StoredCredentials(
             val username: String,
