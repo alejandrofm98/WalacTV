@@ -1,0 +1,487 @@
+package com.example.walactv
+
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import android.view.KeyEvent
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.fragment.app.Fragment
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.PlayerView
+
+@UnstableApi
+class PlayerFragment(
+    private val streamUrl: String,
+    private val overlayNumber: String,
+    private val overlayTitle: String,
+    private val overlayMeta: String,
+    private val onNavigateChannel: (direction: Int) -> Unit,
+    private val onNavigateOption: (direction: Int) -> Unit,
+    private val onDirectChannelNumber: (Int) -> Boolean,
+    private val onToggleFavorite: () -> Boolean,
+    private val onOpenFavorites: () -> Boolean,
+    private val onOpenRecents: () -> Boolean,
+) : Fragment() {
+
+    private var player: ExoPlayer? = null
+    private lateinit var playerView: PlayerView
+    private lateinit var overlayView: LinearLayout
+    private lateinit var overlayNumberView: TextView
+    private lateinit var overlayTitleView: TextView
+    private lateinit var overlayMetaView: TextView
+    private lateinit var bottomPanelView: LinearLayout
+    private lateinit var bottomTitleView: TextView
+    private lateinit var bottomMetaView: TextView
+    private lateinit var bottomGuideView: TextView
+    private lateinit var bottomHistoryView: TextView
+    private lateinit var bottomActionOneView: TextView
+    private lateinit var bottomActionTwoView: TextView
+    private lateinit var bottomActionThreeView: TextView
+    private val handler = Handler(Looper.getMainLooper())
+    private val digitBuffer = StringBuilder()
+
+    private var retryCount: Int = 0
+    private var isPlayerInitialized: Boolean = false
+    private var isReleasing: Boolean = false
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
+    ): View {
+        val view = inflater.inflate(R.layout.player_view, container, false)
+        playerView = view.findViewById(R.id.playerView)
+        playerView.useController = false
+        overlayView = view.findViewById(R.id.channel_overlay)
+        overlayNumberView = view.findViewById(R.id.channel_number)
+        overlayTitleView = view.findViewById(R.id.channel_title)
+        overlayMetaView = view.findViewById(R.id.channel_meta)
+        bottomPanelView = view.findViewById(R.id.player_bottom_panel)
+        bottomTitleView = view.findViewById(R.id.bottom_now_title)
+        bottomMetaView = view.findViewById(R.id.bottom_now_meta)
+        bottomGuideView = view.findViewById(R.id.bottom_action_guide)
+        bottomHistoryView = view.findViewById(R.id.bottom_action_history)
+        bottomActionOneView = view.findViewById(R.id.bottom_action_one)
+        bottomActionTwoView = view.findViewById(R.id.bottom_action_two)
+        bottomActionThreeView = view.findViewById(R.id.bottom_action_three)
+        bindOverlay()
+
+        view.isFocusable = true
+        view.isFocusableInTouchMode = true
+        view.requestFocus()
+
+        return view
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        view.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                handleKeyPress(keyCode)
+            } else {
+                false
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!isPlayerInitialized) {
+            initializePlayer()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (player == null && !isReleasing) {
+            Log.d(TAG, "Reinicializando player en onResume")
+            initializePlayer()
+        }
+    }
+
+    private fun initializePlayer() {
+        if (isPlayerInitialized || player != null) {
+            Log.w(TAG, "Player ya inicializado, liberando antes de recrearlo")
+            releasePlayer()
+        }
+
+        handler.removeCallbacksAndMessages(null)
+        retryCount = 0
+        isReleasing = false
+
+        try {
+            val dataSourceFactory = DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(30_000)
+                .setReadTimeoutMs(30_000)
+                .setUserAgent("WalacTV/AndroidTV")
+                .setDefaultRequestProperties(
+                    mapOf(
+                        "Accept" to "*/*",
+                        "Accept-Encoding" to "gzip, deflate",
+                        "Connection" to "keep-alive",
+                    ),
+                )
+
+            val mediaSourceFactory = DefaultMediaSourceFactory(requireContext())
+                .setDataSourceFactory(dataSourceFactory)
+
+            player = ExoPlayer.Builder(requireContext())
+                .setMediaSourceFactory(mediaSourceFactory)
+                .build()
+                .also { exoPlayer ->
+                    playerView.player = exoPlayer
+                    exoPlayer.addListener(PlayerListener())
+                    exoPlayer.setMediaItem(createMediaItem(streamUrl))
+                    exoPlayer.prepare()
+                    exoPlayer.playWhenReady = true
+                }
+        } catch (exception: Exception) {
+            Log.e(TAG, "Error al inicializar el player", exception)
+            isPlayerInitialized = false
+        }
+    }
+
+    private fun bindOverlay() {
+        updateOverlay(overlayNumber, overlayTitle, overlayMeta)
+        bottomTitleView.text = overlayTitle
+        bottomMetaView.text = overlayMeta
+        bottomGuideView.text = "TV guide"
+        bottomHistoryView.text = "History"
+        bottomActionOneView.text = "Favorites"
+        bottomActionTwoView.text = "Recent"
+        bottomActionThreeView.text = overlayNumber
+        showOverlayTemporarily()
+    }
+
+    private fun updateOverlay(number: String, title: String, meta: String) {
+        overlayNumberView.text = number
+        overlayTitleView.text = title
+        overlayMetaView.text = meta
+    }
+
+    private fun showOverlayTemporarily() {
+        if (!::overlayView.isInitialized) return
+        overlayView.visibility = View.VISIBLE
+        if (::bottomPanelView.isInitialized) {
+            bottomPanelView.visibility = View.VISIBLE
+        }
+        handler.removeCallbacks(hideOverlayRunnable)
+        handler.postDelayed(hideOverlayRunnable, OVERLAY_DURATION_MS)
+    }
+
+    private fun createMediaItem(url: String): MediaItem {
+        return when {
+            url.contains(".m3u8", ignoreCase = true) -> {
+                MediaItem.Builder()
+                    .setUri(url)
+                    .setMimeType(MimeTypes.APPLICATION_M3U8)
+                    .build()
+            }
+
+            isChannelProxyUrl(url) -> {
+                MediaItem.Builder()
+                    .setUri(url)
+                    .setMimeType(MimeTypes.APPLICATION_M3U8)
+                    .build()
+            }
+
+            url.contains("/live/", ignoreCase = true) -> {
+                MediaItem.Builder()
+                    .setUri(url)
+                    .setMimeType(MimeTypes.VIDEO_MP2T)
+                    .build()
+            }
+
+            url.contains("stream-proxy", ignoreCase = true) || url.endsWith(".ts", ignoreCase = true) -> {
+                MediaItem.Builder()
+                    .setUri(url)
+                    .setMimeType(MimeTypes.VIDEO_MP2T)
+                    .build()
+            }
+
+            url.contains("/movie/", ignoreCase = true) ||
+                url.contains("/series/", ignoreCase = true) ||
+                url.endsWith(".mp4", ignoreCase = true) ||
+                url.endsWith(".mkv", ignoreCase = true) ||
+                url.endsWith(".avi", ignoreCase = true) -> {
+                MediaItem.Builder()
+                    .setUri(url)
+                    .build()
+            }
+
+            else -> MediaItem.fromUri(url)
+        }
+    }
+
+    private fun isChannelProxyUrl(url: String): Boolean {
+        val normalized = url.substringBefore('?')
+        return CHANNEL_PROXY_REGEX.containsMatchIn(normalized)
+    }
+
+    private fun handlePlaybackError() {
+        if (isReleasing) return
+
+        if (retryCount < MAX_RETRIES) {
+            retryCount += 1
+            handler.postDelayed({
+                if (player != null && !isReleasing) {
+                    try {
+                        player?.let { exoPlayer ->
+                            exoPlayer.stop()
+                            exoPlayer.clearMediaItems()
+                            exoPlayer.setMediaItem(createMediaItem(streamUrl))
+                            exoPlayer.prepare()
+                            exoPlayer.play()
+                        }
+                    } catch (exception: Exception) {
+                        Log.e(TAG, "Error al reintentar reproduccion", exception)
+                    }
+                }
+            }, RETRY_DELAY_MS)
+        } else {
+            handler.postDelayed({
+                if (!isReleasing) {
+                    releasePlayer()
+                    initializePlayer()
+                }
+            }, FORCE_RESTART_DELAY_MS)
+        }
+    }
+
+    private fun handleKeyPress(keyCode: Int): Boolean {
+        mapDigit(keyCode)?.let { digit ->
+            appendDigit(digit)
+            return true
+        }
+
+        return when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                showOverlayTemporarily()
+                onNavigateChannel(1)
+                true
+            }
+
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                showOverlayTemporarily()
+                onNavigateChannel(-1)
+                true
+            }
+
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                showOverlayTemporarily()
+                onNavigateOption(-1)
+                true
+            }
+
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                showOverlayTemporarily()
+                onNavigateOption(1)
+                true
+            }
+
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            -> {
+                showOverlayTemporarily()
+                player?.let { exoPlayer ->
+                    if (exoPlayer.isPlaying) {
+                        exoPlayer.pause()
+                    } else {
+                        exoPlayer.play()
+                    }
+                }
+                true
+            }
+
+            KeyEvent.KEYCODE_MENU,
+            KeyEvent.KEYCODE_BOOKMARK,
+            -> {
+                val favoriteEnabled = onToggleFavorite()
+                updateOverlay(
+                    overlayNumber,
+                    overlayTitle,
+                    if (favoriteEnabled) "Guardado en favoritos" else "Quitado de favoritos",
+                )
+                showOverlayTemporarily()
+                true
+            }
+
+            KeyEvent.KEYCODE_GUIDE -> {
+                val opened = onOpenFavorites()
+                if (!opened) {
+                    updateOverlay(overlayNumber, overlayTitle, "No tienes favoritos guardados")
+                    showOverlayTemporarily()
+                }
+                true
+            }
+
+            KeyEvent.KEYCODE_INFO -> {
+                val opened = onOpenRecents()
+                if (!opened) {
+                    updateOverlay(overlayNumber, overlayTitle, "No hay ultimos canales guardados")
+                    showOverlayTemporarily()
+                }
+                true
+            }
+
+            KeyEvent.KEYCODE_BACK -> {
+                releasePlayer()
+                true
+            }
+
+            else -> false
+        }
+    }
+
+    private fun mapDigit(keyCode: Int): Int? {
+        return when (keyCode) {
+            KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_NUMPAD_0 -> 0
+            KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_NUMPAD_1 -> 1
+            KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_NUMPAD_2 -> 2
+            KeyEvent.KEYCODE_3, KeyEvent.KEYCODE_NUMPAD_3 -> 3
+            KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_NUMPAD_4 -> 4
+            KeyEvent.KEYCODE_5, KeyEvent.KEYCODE_NUMPAD_5 -> 5
+            KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_NUMPAD_6 -> 6
+            KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_NUMPAD_7 -> 7
+            KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_NUMPAD_8 -> 8
+            KeyEvent.KEYCODE_9, KeyEvent.KEYCODE_NUMPAD_9 -> 9
+            else -> null
+        }
+    }
+
+    private fun appendDigit(digit: Int) {
+        if (digitBuffer.length >= 4) {
+            digitBuffer.clear()
+        }
+
+        digitBuffer.append(digit)
+        updateOverlay(
+            "CH ${digitBuffer}",
+            "Cambio directo",
+            "Suelta y espera para sintonizar",
+        )
+        showOverlayTemporarily()
+        handler.removeCallbacks(commitDigitsRunnable)
+        handler.postDelayed(commitDigitsRunnable, DIRECT_ZAP_DELAY_MS)
+    }
+
+    private val commitDigitsRunnable = Runnable {
+        val value = digitBuffer.toString().toIntOrNull()
+        digitBuffer.clear()
+        if (value == null || value <= 0) return@Runnable
+
+        val changed = onDirectChannelNumber(value)
+        if (!changed) {
+            updateOverlay("CH $value", "Canal no encontrado", "Prueba con otra numeracion")
+            showOverlayTemporarily()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        player?.pause()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        releasePlayer()
+    }
+
+    private fun releasePlayer() {
+        isReleasing = true
+        isPlayerInitialized = false
+        handler.removeCallbacksAndMessages(null)
+
+        player?.let { exoPlayer ->
+            try {
+                exoPlayer.stop()
+                exoPlayer.clearMediaItems()
+                exoPlayer.release()
+            } catch (exception: Exception) {
+                Log.e(TAG, "Error al liberar player", exception)
+            }
+        }
+
+        if (::playerView.isInitialized) {
+            playerView.player = null
+        }
+        player = null
+        retryCount = 0
+
+        activity?.findViewById<FrameLayout>(R.id.player_container)?.visibility = View.GONE
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        releasePlayer()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        handler.removeCallbacksAndMessages(null)
+        isReleasing = false
+    }
+
+    private val hideOverlayRunnable = Runnable {
+        if (::overlayView.isInitialized) {
+            overlayView.visibility = View.GONE
+        }
+        if (::bottomPanelView.isInitialized) {
+            bottomPanelView.visibility = View.GONE
+        }
+    }
+
+    private inner class PlayerListener : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            when (playbackState) {
+                Player.STATE_READY -> {
+                    retryCount = 0
+                    isPlayerInitialized = true
+                }
+
+                Player.STATE_BUFFERING -> retryCount = 0
+                else -> Unit
+            }
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            Log.e(TAG, "Error de reproduccion: ${error.message}", error)
+            handlePlaybackError()
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (!isPlaying && player?.playbackState == Player.STATE_READY && !isReleasing) {
+                handler.postDelayed({
+                    if (player != null && !isReleasing) {
+                        player?.play()
+                    }
+                }, 1_000)
+            }
+        }
+    }
+
+    companion object {
+        private const val TAG = "PlayerFragment"
+        private const val MAX_RETRIES = 8
+        private const val RETRY_DELAY_MS = 2_000L
+        private const val FORCE_RESTART_DELAY_MS = 3_000L
+        private const val OVERLAY_DURATION_MS = 3_000L
+        private const val DIRECT_ZAP_DELAY_MS = 1_500L
+        private val CHANNEL_PROXY_REGEX = Regex("https?://[^/]+/[^/]+/[^/]+/\\d+$", RegexOption.IGNORE_CASE)
+    }
+}

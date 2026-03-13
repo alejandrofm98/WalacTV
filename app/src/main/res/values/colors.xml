@@ -1,0 +1,8 @@
+<resources>
+    <color name="brand_surface">#102A43</color>
+    <color name="brand_accent">#28C7B7</color>
+    <color name="card_surface">#162432</color>
+    <color name="card_info_surface">#CC0A1118</color>
+    <color name="guide_row_dark">#99101922</color>
+    <color name="guide_row_darker">#80101922</color>
+</resources>

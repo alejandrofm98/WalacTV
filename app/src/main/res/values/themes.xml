@@ -1,0 +1,20 @@
+<resources>
+
+    <style name="Theme.WalacTV" parent="Theme.Leanback.Browse">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+
+    <style name="PlayerActionCard">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">110dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginEnd">12dp</item>
+        <item name="android:background">#D9202730</item>
+        <item name="android:gravity">center</item>
+        <item name="android:padding">16dp</item>
+        <item name="android:textColor">#FFFFFFFF</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+</resources>
