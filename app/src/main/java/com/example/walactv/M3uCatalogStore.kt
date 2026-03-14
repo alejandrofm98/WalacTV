@@ -114,7 +114,9 @@ class M3uCatalogStore(private val context: Context) {
     }
 
     private fun loadPersistedSnapshot(file: File): M3uCatalogSnapshot? {
-        if (!file.exists() || isCacheExpired()) return null
+        // Load persisted binary snapshot regardless of TTL expiration.
+        // Stale data is shown immediately; background refresh handles re-download.
+        if (!file.exists()) return null
 
         return runCatching {
             DataInputStream(file.inputStream().buffered()).use(::readSnapshot)

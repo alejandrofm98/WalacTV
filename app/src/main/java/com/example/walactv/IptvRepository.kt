@@ -70,8 +70,12 @@ class IptvRepository(context: Context) {
 
     suspend fun loadEventsOnly(): HomeCatalog = withContext(Dispatchers.IO) {
         coroutineScope {
-            val token = getAccessToken()
-            val eventSectionsDeferred = async { safeSectionLoad("eventos") { fetchEventSections(token) } }
+            val eventSectionsDeferred = async {
+                safeSectionLoad("eventos") {
+                    val token = getAccessToken()
+                    fetchEventSections(token)
+                }
+            }
             val playlistDeferred = async { safePlaylistLoad(forceRefresh = false) }
 
             val eventSections = eventSectionsDeferred.await()
@@ -93,9 +97,15 @@ class IptvRepository(context: Context) {
         }
 
         coroutineScope {
-            val token = getAccessToken()
-
-            val eventSectionsDeferred = async { safeSectionLoad("eventos") { fetchEventSections(token) } }
+            // Load playlist and events in parallel. The access token fetch is
+            // inside the events block so that a slow or failing auth endpoint
+            // does NOT block loading the cached playlist.
+            val eventSectionsDeferred = async {
+                safeSectionLoad("eventos") {
+                    val token = getAccessToken()
+                    fetchEventSections(token)
+                }
+            }
             val playlistDeferred = async { safePlaylistLoad(forceRefreshPlaylist) }
 
             val eventSections = eventSectionsDeferred.await()
