@@ -12,6 +12,12 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ImageView.ScaleType
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -500,21 +506,34 @@ class ComposeMainFragment : Fragment() {
             NavItem(Icons.Outlined.Tv, "Series", MainMode.Series),
         )
 
+        val railWidth by animateDpAsState(
+            targetValue = if (isRailExpanded) 248.dp else 78.dp,
+            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+            label = "railWidthAnim"
+        )
+
         Column(
             modifier = Modifier
-                .width(if (isRailExpanded) 248.dp else 78.dp)
+                .width(railWidth)
                 .fillMaxHeight()
                 .background(IptvSurface)
-                .border(1.dp, IptvSurfaceVariant),
+                .border(1.dp, IptvSurfaceVariant)
+                .onFocusChanged { state ->
+                    isRailExpanded = state.hasFocus
+                },
         ) {
-            if (isRailExpanded) {
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
-                    Text("WalacTV", color = IptvTextPrimary, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(6.dp))
-                    Text("Navegacion pensada para mando", color = IptvTextMuted, fontSize = 14.sp)
+            Box(modifier = Modifier.height(100.dp)) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = isRailExpanded,
+                    enter = fadeIn(tween(300)),
+                    exit = fadeOut(tween(150))
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
+                        Text("WalacTV", color = IptvTextPrimary, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(6.dp))
+                        Text("Navegacion", color = IptvTextMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
-            } else {
-                Spacer(Modifier.height(24.dp))
             }
 
             Column(
@@ -529,7 +548,6 @@ class ComposeMainFragment : Fragment() {
                         label = item.label,
                         selected = item.mode != null && currentMode == item.mode,
                         expanded = isRailExpanded,
-                        onFocused = { isRailExpanded = true },
                     ) {
                         item.onClick?.invoke() ?: item.mode?.let(::changeMode)
                     }
@@ -542,7 +560,6 @@ class ComposeMainFragment : Fragment() {
                     label = "Ajustes",
                     selected = currentMode == MainMode.Settings,
                     expanded = isRailExpanded,
-                    onFocused = { isRailExpanded = true },
                 ) {
                     changeMode(MainMode.Settings)
                 }
@@ -555,7 +572,6 @@ class ComposeMainFragment : Fragment() {
         currentMode = newMode
         selectedGroup = ALL_CHANNELS_GROUP
         selectedHero = defaultItemForMode(newMode)
-        isRailExpanded = false
     }
 
     private fun defaultItemForMode(mode: MainMode): CatalogItem? {
@@ -586,7 +602,6 @@ class ComposeMainFragment : Fragment() {
         label: String,
         selected: Boolean,
         expanded: Boolean,
-        onFocused: () -> Unit,
         onClick: () -> Unit,
     ) {
         var isFocused by remember { mutableStateOf(false) }
@@ -612,18 +627,21 @@ class ComposeMainFragment : Fragment() {
                 .focusable()
                 .onFocusChanged {
                     isFocused = it.isFocused
-                    if (it.isFocused) {
-                        onFocused()
-                    }
                 }
                 .padding(horizontal = if (expanded) 14.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
         ) {
             Icon(icon, contentDescription = label, tint = contentColor, modifier = Modifier.size(20.dp))
-            if (expanded) {
-                Spacer(Modifier.width(14.dp))
-                Text(label, color = contentColor, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(tween(300)),
+                exit = fadeOut(tween(150))
+            ) {
+                Row {
+                    Spacer(Modifier.width(14.dp))
+                    Text(label, color = contentColor, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }
