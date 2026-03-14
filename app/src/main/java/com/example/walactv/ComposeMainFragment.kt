@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
@@ -56,6 +57,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,13 +66,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -96,6 +101,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 class ComposeMainFragment : Fragment() {
@@ -725,13 +732,24 @@ class ComposeMainFragment : Fragment() {
 
     @Composable
     private fun ContentSection(section: BrowseSection, onFocused: (CatalogItem) -> Unit) {
+        val lazyListState = rememberLazyListState()
+        
+        LaunchedEffect(section.items) {
+            if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
+                val index = section.items.indexOfFirst { isLikelyLiveNow(it) }
+                if (index > 0) {
+                    lazyListState.scrollToItem(index)
+                }
+            }
+        }
+
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(section.title, color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(10.dp))
                 Text(countLabel(section.items.size), color = IptvTextMuted, fontSize = 14.sp)
             }
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            LazyRow(state = lazyListState, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(section.items) { item ->
                     MediaCard(item = item, onFocused = { onFocused(item) }) {
                         handleCardClick(item)
@@ -748,8 +766,16 @@ class ComposeMainFragment : Fragment() {
         onClick: () -> Unit,
     ) {
         var isFocused by remember { mutableStateOf(false) }
-        val cardWidth = if (item.kind == ContentKind.CHANNEL) 230.dp else 190.dp
-        val imageHeight = if (item.kind == ContentKind.CHANNEL) 128.dp else 260.dp
+        val cardWidth = when (item.kind) {
+            ContentKind.CHANNEL -> 180.dp
+            ContentKind.EVENT -> 220.dp
+            else -> 140.dp
+        }
+        val imageHeight = when (item.kind) {
+            ContentKind.CHANNEL -> 100.dp
+            ContentKind.EVENT -> 120.dp
+            else -> 200.dp
+        }
 
         Column(
             modifier = Modifier
@@ -771,7 +797,9 @@ class ComposeMainFragment : Fragment() {
                     .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                if (item.imageUrl.isNotBlank()) {
+                if (item.kind == ContentKind.EVENT) {
+                    EventSportPlaceholder(item)
+                } else if (item.imageUrl.isNotBlank()) {
                     RemoteImage(
                         url = item.imageUrl,
                         width = 600,
@@ -795,11 +823,17 @@ class ComposeMainFragment : Fragment() {
                 }
             }
 
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(68.dp)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
                     text = buildCardTitle(item),
                     color = IptvTextPrimary,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -807,8 +841,8 @@ class ComposeMainFragment : Fragment() {
                 Text(
                     text = item.subtitle.ifBlank { item.group.ifBlank { kindLabel(item.kind) } },
                     color = IptvTextMuted,
-                    fontSize = 13.sp,
-                    maxLines = 2,
+                    fontSize = 12.sp,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -852,6 +886,17 @@ class ComposeMainFragment : Fragment() {
         val previewItem = selectedHero?.takeIf { displayItems.any { candidate -> candidate.stableId == it.stableId } }
             ?: displayItems.firstOrNull()
 
+        val lazyListState = rememberLazyListState()
+        
+        LaunchedEffect(displayItems) {
+            if (kind == ContentKind.EVENT) {
+                val index = displayItems.indexOfFirst { isLikelyLiveNow(it) }
+                if (index > 0) {
+                    lazyListState.scrollToItem(index)
+                }
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -877,6 +922,7 @@ class ComposeMainFragment : Fragment() {
                 }
 
                 LazyColumn(
+                    state = lazyListState,
                     modifier = Modifier.width(if (kind == ContentKind.CHANNEL) 430.dp else 500.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -1069,7 +1115,9 @@ class ComposeMainFragment : Fragment() {
                     .clip(RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                if (item.imageUrl.isNotBlank()) {
+                if (item.kind == ContentKind.EVENT) {
+                    EventSportPlaceholder(item, emojiSize = 28.sp)
+                } else if (item.imageUrl.isNotBlank()) {
                     RemoteImage(item.imageUrl, 160, 160, ScaleType.FIT_CENTER)
                 } else {
                     PlaceholderIcon(kind = item.kind, size = 22.dp)
@@ -1123,7 +1171,9 @@ class ComposeMainFragment : Fragment() {
                         .clip(RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (item.imageUrl.isNotBlank()) {
+                    if (item.kind == ContentKind.EVENT) {
+                        EventSportPlaceholder(item, emojiSize = 72.sp)
+                    } else if (item.imageUrl.isNotBlank()) {
                         RemoteImage(
                             url = item.imageUrl,
                             width = 720,
@@ -1197,6 +1247,51 @@ class ComposeMainFragment : Fragment() {
             ContentKind.SERIES -> Icons.Outlined.Tv
         }
         Icon(icon, contentDescription = null, tint = IptvTextMuted, modifier = Modifier.size(size))
+    }
+
+    @Composable
+    private fun EventSportPlaceholder(item: CatalogItem, emojiSize: TextUnit = 48.sp) {
+        val rawText = item.title.lowercase() + " " + item.group.lowercase()
+        val text = java.text.Normalizer.normalize(rawText, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{Mn}+"), "")
+            
+        val emoji = when {
+            text.contains("fut") || text.contains("champ") || text.contains("liga") || text.contains("uefa") || text.contains("soccer") || text.contains("madrid") || text.contains("barca") || text.contains("barcelona") || text.contains("atletico") -> "⚽"
+            text.contains("basket") || text.contains("nba") || text.contains("lakers") || text.contains("warriors") || text.contains("celtics") -> "🏀"
+            text.contains("tenis") || text.contains("atp") || text.contains("wta") || text.contains("grand slam") || text.contains("wimbledon") || text.contains("nadal") || text.contains("alcaraz") || text.contains("djokovic") -> "🎾"
+            text.contains("motor") || text.contains("f1") || text.contains("moto") || text.contains("nascar") || text.contains("rally") || text.contains("dakar") -> "🏎️"
+            text.contains("mma") || text.contains("ufc") || text.contains("box") || text.contains("bellator") -> "🥊"
+            text.contains("nfl") || text.contains("rugby") || text.contains("americano") || text.contains("super bowl") -> "🏈"
+            text.contains("beisbol") || text.contains("mlb") -> "⚾"
+            text.contains("golf") || text.contains("pga") -> "⛳"
+            text.contains("ciclismo") || text.contains("tour") || text.contains("vuelta") || text.contains("giro") -> "🚴"
+            text.contains("juegos") || text.contains("olimpi") -> "🏅"
+            text.contains("esport") || text.contains("gaming") || text.contains("lol") || text.contains("valorant") || text.contains("csgo") -> "🎮"
+            else -> "🏆"
+        }
+        
+        val colors = when {
+            text.contains("fut") || text.contains("champ") || text.contains("liga") || text.contains("madrid") || text.contains("barca") -> listOf(Color(0xFF0B6E4F), Color(0xFF1A936F))
+            text.contains("tenis") || text.contains("wta") || text.contains("atp") -> listOf(Color(0xFF254441), Color(0xFF43AA8B))
+            text.contains("mma") || text.contains("box") || text.contains("ufc") -> listOf(Color(0xFF5F0F40), Color(0xFF9A031E))
+            text.contains("basket") || text.contains("nba") -> listOf(Color(0xFF7F4F24), Color(0xFFD68C45))
+            text.contains("motor") || text.contains("f1") || text.contains("moto") -> listOf(Color(0xFF1D3557), Color(0xFF457B9D))
+            text.contains("esport") || text.contains("gaming") -> listOf(Color(0xFF3B1E54), Color(0xFF9B59B6))
+            else -> listOf(Color(0xFF102A43), Color(0xFFD64550))
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.linearGradient(colors)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = emoji,
+                fontSize = emojiSize,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 
     @Composable
@@ -1512,9 +1607,24 @@ class ComposeMainFragment : Fragment() {
         val activatesOnFocus: Boolean = true,
         val onClick: (() -> Unit)? = null,
     )
+    
+    private fun isLikelyLiveNow(item: CatalogItem): Boolean {
+        if (item.kind != ContentKind.EVENT) return false
+        val parsed = runCatching { EVENT_TIME_FORMAT.parse(item.badgeText) }.getOrNull() ?: return false
+        val now = Calendar.getInstance()
+        val eventCalendar = Calendar.getInstance().apply {
+            time = parsed
+            set(Calendar.YEAR, now.get(Calendar.YEAR))
+            set(Calendar.MONTH, now.get(Calendar.MONTH))
+            set(Calendar.DAY_OF_MONTH, now.get(Calendar.DAY_OF_MONTH))
+        }
+        val deltaMinutes = (now.timeInMillis - eventCalendar.timeInMillis) / 60_000L
+        return deltaMinutes in -20..180
+    }
 
     companion object {
         private const val ALL_CHANNELS_GROUP = "Todos"
         private const val FAVORITES_GROUP = "Favoritos"
+        private val EVENT_TIME_FORMAT = SimpleDateFormat("HH:mm", Locale.getDefault())
     }
 }
