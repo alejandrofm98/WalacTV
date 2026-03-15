@@ -883,9 +883,6 @@ class ComposeMainFragment : Fragment() {
                 else -> sourceItems.filter { it.group == selectedGroup }
             }
         }
-        val previewItem = selectedHero?.takeIf { displayItems.any { candidate -> candidate.stableId == it.stableId } }
-            ?: displayItems.firstOrNull()
-
         val lazyListState = rememberLazyListState()
         
         LaunchedEffect(displayItems) {
@@ -923,23 +920,13 @@ class ComposeMainFragment : Fragment() {
 
                 LazyColumn(
                     state = lazyListState,
-                    modifier = Modifier.width(if (kind == ContentKind.CHANNEL) 430.dp else 500.dp),
+                    modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(displayItems) { item ->
                         GuideRow(item = item, onFocused = { selectedHero = item }) {
                             handleCardClick(item)
                         }
-                    }
-                }
-
-                previewItem?.let { item ->
-                    DetailPanel(
-                        item = item,
-                        modifier = Modifier.weight(1f),
-                        primaryActionLabel = if (kind == ContentKind.CHANNEL) "Ver canal" else "Abrir",
-                    ) {
-                        handleCardClick(item)
                     }
                 }
             }
