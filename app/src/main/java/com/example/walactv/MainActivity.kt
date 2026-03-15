@@ -378,6 +378,7 @@ class MainFragment : BrowseSupportFragment() {
             overlayNumber = buildOverlayNumber(item),
             overlayTitle = item.title,
             overlayMeta = buildOverlayMeta(item, stream),
+            contentKind = item.kind,
             onNavigateChannel = ::navigateChannel,
             onNavigateOption = ::navigateOption,
             onDirectChannelNumber = ::navigateToChannelNumber,
@@ -703,6 +704,7 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
                 .filter { it.isNotBlank() }
                 .joinToString("  •  ")
                 .ifBlank { item.description },
+            contentKind = item.kind,
             onNavigateChannel = ::navigateChannel,
             onNavigateOption = ::navigateOption,
             onDirectChannelNumber = ::navigateToChannelNumber,

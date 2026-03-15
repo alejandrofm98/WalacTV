@@ -1416,6 +1416,7 @@ class ComposeMainFragment : Fragment() {
             },
             overlayTitle = item.title,
             overlayMeta = listOf(item.subtitle, stream.label).filter { it.isNotBlank() }.joinToString("  •  ").ifBlank { item.description },
+            contentKind = item.kind,
             onNavigateChannel = ::navigateChannel,
             onNavigateOption = ::navigateOption,
             onDirectChannelNumber = ::navigateToChannelNumber,

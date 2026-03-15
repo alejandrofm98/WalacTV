@@ -53,4 +53,13 @@
     <string name="guide_section_description">Abre una vista inspirada en TiviMate para recorrer la parrilla de canales por grupos.</string>
     <string name="guide_badge">GUIDE</string>
     <string name="guide_now_playing_placeholder">Canal listo para reproducir</string>
+
+    <!-- VOD player controls -->
+    <string name="vod_subtitles">Subtitulos</string>
+    <string name="vod_rewind">Retroceder 10 segundos</string>
+    <string name="vod_forward">Avanzar 10 segundos</string>
+    <string name="vod_play_pause">Reproducir / Pausar</string>
+    <string name="vod_subtitle_off">Desactivados</string>
+    <string name="vod_subtitle_dialog_title">Subtitulos</string>
+    <string name="vod_no_subtitles_available">No hay subtitulos disponibles</string>
 </resources>

@@ -10,6 +10,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="#FF05070B"
+        app:controller_layout_id="@layout/vod_player_control_view"
         app:show_buffering="when_playing"
         app:use_controller="false" />
 
