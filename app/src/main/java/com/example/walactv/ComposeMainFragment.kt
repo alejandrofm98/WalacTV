@@ -655,8 +655,6 @@ class ComposeMainFragment : Fragment() {
 
     @Composable
     private fun HomeContent() {
-        val previewItem = selectedHero ?: homeSections.firstNotNullOfOrNull { it.items.firstOrNull() }
-
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 24.dp),
@@ -667,21 +665,6 @@ class ComposeMainFragment : Fragment() {
                     title = "Inicio",
                     subtitle = "Acceso rapido a TV, eventos y ultimos canales",
                 )
-            }
-
-            previewItem?.let { item ->
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        DetailPanel(
-                            item = item,
-                            modifier = Modifier.weight(1.1f),
-                            primaryActionLabel = "Reproducir",
-                        ) {
-                            handleCardClick(item)
-                        }
-                        HomeSummaryPanel(modifier = Modifier.weight(0.9f))
-                    }
-                }
             }
 
             items(homeSections) { section ->
