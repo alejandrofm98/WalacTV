@@ -418,7 +418,7 @@ class ComposeMainFragment : Fragment() {
                         PlaylistLoadStage.DOWNLOADING -> "Descarga de la lista en curso"
                         PlaylistLoadStage.PARSING_FULL -> "Cargando lista completa de canales y VOD"
                         PlaylistLoadStage.SAVING_CACHE -> "Guardando cache para el siguiente arranque"
-                        PlaylistLoadStage.READY -> "Lista lista"
+                        PlaylistLoadStage.READY -> "Todo listo"
                         else -> "Leyendo cache local"
                     },
                     color = IptvTextMuted,
@@ -937,9 +937,6 @@ class ComposeMainFragment : Fragment() {
                 else -> sourceItems.filter { it.group == selectedGroup }
             }
         }
-        val previewItem = selectedHero?.takeIf { displayItems.any { candidate -> candidate.stableId == it.stableId } }
-            ?: displayItems.firstOrNull()
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -950,12 +947,6 @@ class ComposeMainFragment : Fragment() {
                 title = screenTitle(kind),
                 subtitle = "Catalogo visual con grupos simples y foco claro",
             )
-
-            previewItem?.let { item ->
-                DetailPanel(item = item, modifier = Modifier.fillMaxWidth(), primaryActionLabel = "Reproducir") {
-                    handleCardClick(item)
-                }
-            }
 
             Row(
                 modifier = Modifier.fillMaxSize(),
@@ -1221,32 +1212,33 @@ class ComposeMainFragment : Fragment() {
 
     @Composable
     private fun EventSportPlaceholder(item: CatalogItem, emojiSize: TextUnit = 48.sp) {
-        val rawText = item.title.lowercase() + " " + item.group.lowercase()
-        val text = java.text.Normalizer.normalize(rawText, java.text.Normalizer.Form.NFD)
+        val category = item.group.lowercase()
+        val text = java.text.Normalizer.normalize(category, java.text.Normalizer.Form.NFD)
             .replace(Regex("\\p{Mn}+"), "")
             
         val emoji = when {
-            text.contains("fut") || text.contains("champ") || text.contains("liga") || text.contains("uefa") || text.contains("soccer") || text.contains("madrid") || text.contains("barca") || text.contains("barcelona") || text.contains("atletico") -> "⚽"
-            text.contains("basket") || text.contains("nba") || text.contains("lakers") || text.contains("warriors") || text.contains("celtics") -> "🏀"
-            text.contains("tenis") || text.contains("atp") || text.contains("wta") || text.contains("grand slam") || text.contains("wimbledon") || text.contains("nadal") || text.contains("alcaraz") || text.contains("djokovic") -> "🎾"
-            text.contains("motor") || text.contains("f1") || text.contains("moto") || text.contains("nascar") || text.contains("rally") || text.contains("dakar") -> "🏎️"
-            text.contains("mma") || text.contains("ufc") || text.contains("box") || text.contains("bellator") -> "🥊"
-            text.contains("nfl") || text.contains("rugby") || text.contains("americano") || text.contains("super bowl") -> "🏈"
-            text.contains("beisbol") || text.contains("mlb") -> "⚾"
-            text.contains("golf") || text.contains("pga") -> "⛳"
-            text.contains("ciclismo") || text.contains("tour") || text.contains("vuelta") || text.contains("giro") -> "🚴"
-            text.contains("juegos") || text.contains("olimpi") -> "🏅"
-            text.contains("esport") || text.contains("gaming") || text.contains("lol") || text.contains("valorant") || text.contains("csgo") -> "🎮"
+            text.contains("futbol") || text.contains("fútbol") -> "⚽"
+            text.contains("baloncesto") -> "🏀"
+            text.contains("tenis") -> "🎾"
+            text.contains("motociclismo") || text.contains("automovilismo") -> "🏎️"
+            text.contains("mma") || text.contains("boxeo") || text.contains("box") -> "🥊"
+            text.contains("rugby") -> "🏈"
+            text.contains("balonmano") -> "🤾"
+            text.contains("ishockey") || text.contains("hockey") -> "🏒"
+            text.contains("padel") -> "🏸"
             else -> "🏆"
         }
         
         val colors = when {
-            text.contains("fut") || text.contains("champ") || text.contains("liga") || text.contains("madrid") || text.contains("barca") -> listOf(Color(0xFF0B6E4F), Color(0xFF1A936F))
-            text.contains("tenis") || text.contains("wta") || text.contains("atp") -> listOf(Color(0xFF254441), Color(0xFF43AA8B))
-            text.contains("mma") || text.contains("box") || text.contains("ufc") -> listOf(Color(0xFF5F0F40), Color(0xFF9A031E))
-            text.contains("basket") || text.contains("nba") -> listOf(Color(0xFF7F4F24), Color(0xFFD68C45))
-            text.contains("motor") || text.contains("f1") || text.contains("moto") -> listOf(Color(0xFF1D3557), Color(0xFF457B9D))
-            text.contains("esport") || text.contains("gaming") -> listOf(Color(0xFF3B1E54), Color(0xFF9B59B6))
+            text.contains("futbol") || text.contains("fútbol") -> listOf(Color(0xFF0B6E4F), Color(0xFF1A936F))
+            text.contains("baloncesto") -> listOf(Color(0xFF7F4F24), Color(0xFFD68C45))
+            text.contains("tenis") -> listOf(Color(0xFF254441), Color(0xFF43AA8B))
+            text.contains("motociclismo") || text.contains("automovilismo") -> listOf(Color(0xFF1D3557), Color(0xFF457B9D))
+            text.contains("mma") || text.contains("boxeo") -> listOf(Color(0xFF5F0F40), Color(0xFF9A031E))
+            text.contains("rugby") -> listOf(Color(0xFF4A1942), Color(0xFF893642))
+            text.contains("balonmano") -> listOf(Color(0xFF1E3A5F), Color(0xFF3D5A80))
+            text.contains("padel") -> listOf(Color(0xFF2E7D32), Color(0xFF66BB6A))
+            text.contains("ishockey") || text.contains("hockey") -> listOf(Color(0xFF37474F), Color(0xFF78909C))
             else -> listOf(Color(0xFF102A43), Color(0xFFD64550))
         }
 

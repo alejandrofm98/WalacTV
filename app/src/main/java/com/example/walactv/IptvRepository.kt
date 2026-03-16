@@ -195,7 +195,7 @@ class IptvRepository(context: Context) {
             )
         }
 
-        val items = rawEvents.mapNotNull(::buildEventItem).sortedBy(::eventSortScore)
+        val items = rawEvents.mapNotNull(::buildEventItem).toList()
         if (items.isEmpty()) return emptyList()
 
         return buildList {
@@ -315,10 +315,12 @@ class IptvRepository(context: Context) {
     }
 
     private fun normalizeChannelName(name: String): String {
-        return name.lowercase(Locale.ROOT)
-            .replace(Regex("\\b(hd|fhd|uhd|sd|4k)\\b", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("[^a-z0-9]+"), " ")
-            .replace(Regex("\\s+"), " ")
+        if (name.isBlank()) return ""
+        val truncated = if (name.length > 100) name.take(100) else name
+        return truncated.lowercase(Locale.ROOT)
+            .replace(QUALITY_REGEX, "")
+            .replace(NON_ALPHANUMERIC_REGEX, " ")
+            .replace(EXTRA_SPACES_REGEX, " ")
             .trim()
     }
 
@@ -473,6 +475,9 @@ class IptvRepository(context: Context) {
         private const val FEATURED_SERIES = 30
         private val DATE_FORMATTER = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         private val TIME_FORMATTER = SimpleDateFormat("HH:mm", Locale.getDefault())
+        private val QUALITY_REGEX = Regex("\\b(hd|fhd|uhd|sd|4k)\\b", RegexOption.IGNORE_CASE)
+        private val NON_ALPHANUMERIC_REGEX = Regex("[^a-z0-9]+")
+        private val EXTRA_SPACES_REGEX = Regex("\\s+")
 
         @Volatile
         private var memoryHomeCatalog: HomeCatalog? = null

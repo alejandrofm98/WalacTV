@@ -45,10 +45,6 @@ class GuideFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         groupsContainer = view.findViewById(R.id.guide_groups_container)
         channelListView = view.findViewById(R.id.guide_channel_list)
-        /*heroLogoView = view.findViewById(R.id.guide_hero_logo)
-        heroTitleView = view.findViewById(R.id.guide_hero_title)
-        heroMetaView = view.findViewById(R.id.guide_hero_meta)
-        heroDescriptionView = view.findViewById(R.id.guide_hero_description)*/
 
         renderGroups()
         applyGroup(ALL_CHANNELS_GROUP)
