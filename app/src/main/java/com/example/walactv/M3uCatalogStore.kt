@@ -169,6 +169,12 @@ class M3uCatalogStore(private val context: Context) {
             output.writeUTF(item.badgeText)
             output.writeBoolean(item.channelNumber != null)
             item.channelNumber?.let(output::writeInt)
+            output.writeBoolean(item.seriesName != null)
+            item.seriesName?.let(output::writeUTF)
+            output.writeBoolean(item.seasonNumber != null)
+            item.seasonNumber?.let(output::writeInt)
+            output.writeBoolean(item.episodeNumber != null)
+            item.episodeNumber?.let(output::writeInt)
             output.writeInt(item.streamOptions.size)
             item.streamOptions.forEach { option ->
                 output.writeUTF(option.label)
@@ -190,6 +196,12 @@ class M3uCatalogStore(private val context: Context) {
             val badgeText = input.readUTF()
             val hasChannelNumber = input.readBoolean()
             val channelNumber = if (hasChannelNumber) input.readInt() else null
+            val hasSeriesName = input.readBoolean()
+            val seriesName = if (hasSeriesName) input.readUTF() else null
+            val hasSeasonNumber = input.readBoolean()
+            val seasonNumber = if (hasSeasonNumber) input.readInt() else null
+            val hasEpisodeNumber = input.readBoolean()
+            val episodeNumber = if (hasEpisodeNumber) input.readInt() else null
             val streamCount = input.readInt()
             CatalogItem(
                 stableId = stableId,
@@ -201,6 +213,9 @@ class M3uCatalogStore(private val context: Context) {
                 group = group,
                 badgeText = badgeText,
                 channelNumber = channelNumber,
+                seriesName = seriesName,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
                 streamOptions = List(streamCount) {
                     StreamOption(
                         label = input.readUTF(),
@@ -287,6 +302,7 @@ class M3uCatalogStore(private val context: Context) {
         val group = simplifyGroup(info.groupTitle)
         val streamId = url.substringBefore('?').substringAfterLast('/').substringBefore('.')
         val title = buildDisplayTitle(info, kind)
+        val seriesMetadata = parseSeriesMetadata(title, kind)
         return CatalogItem(
             stableId = "${kind.name.lowercase(Locale.US)}:$streamId",
             title = title,
@@ -297,6 +313,9 @@ class M3uCatalogStore(private val context: Context) {
             group = group,
             badgeText = buildBadge(kind, group),
             channelNumber = channelNumber,
+            seriesName = seriesMetadata.seriesName,
+            seasonNumber = seriesMetadata.seasonNumber,
+            episodeNumber = seriesMetadata.episodeNumber,
             streamOptions = listOf(StreamOption(defaultLabel(kind), url.replace("http://", "https://"))),
         )
     }
@@ -549,7 +568,7 @@ class M3uCatalogStore(private val context: Context) {
         private const val KEY_LAST_UPDATED = "last_updated"
         private const val CACHE_FILE_NAME = "playlist_cache.m3u"
         private const val FULL_SNAPSHOT_FILE_NAME = "playlist_snapshot_full.bin"
-        private const val SNAPSHOT_VERSION = 1
+        private const val SNAPSHOT_VERSION = 2
         private const val USER_AGENT = "WalacTV AndroidTV"
         private const val CACHE_TTL_MS = 24L * 60L * 60L * 1000L
         private data class StoredCredentials(

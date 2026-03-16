@@ -918,25 +918,78 @@ class ComposeMainFragment : Fragment() {
 
     @Composable
     private fun VodGridContent(kind: ContentKind) {
+        var selectedIdioma by remember { mutableStateOf(ALL_CHANNELS_GROUP) }
+        var selectedGrupo by remember { mutableStateOf(ALL_CHANNELS_GROUP) }
+        
+        var showIdiomaDialog by remember { mutableStateOf(false) }
+        var showGrupoDialog by remember { mutableStateOf(false) }
+        
+        val idiomaFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+        val grupoFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+
         val sourceItems = remember(searchableItems, kind) {
             searchableItems.filter { it.kind == kind }
         }
-        val groups = remember(sourceItems) {
+
+        val idiomas = remember(sourceItems) {
             buildList {
                 add(ALL_CHANNELS_GROUP)
-                sourceItems.map(CatalogItem::group)
-                    .filter { it.isNotBlank() }
+                sourceItems.map(CatalogItem::idioma)
+                    .filter { it.isNotBlank() && it != "Todos" }
                     .distinct()
                     .sorted()
                     .forEach(::add)
             }
         }
-        val displayItems = remember(selectedGroup, sourceItems) {
-            when (selectedGroup) {
-                ALL_CHANNELS_GROUP -> sourceItems
-                else -> sourceItems.filter { it.group == selectedGroup }
+
+        val gruposForIdioma = remember(selectedIdioma, sourceItems) {
+            val filteredByIdioma = if (selectedIdioma == ALL_CHANNELS_GROUP) {
+                sourceItems
+            } else {
+                sourceItems.filter { it.idioma == selectedIdioma }
+            }
+            buildList {
+                add(ALL_CHANNELS_GROUP)
+                filteredByIdioma.map(CatalogItem::subgrupo)
+                    .filter { it.isNotBlank() && it != "Todos" }
+                    .distinct()
+                    .sorted()
+                    .forEach(::add)
             }
         }
+
+        val displayItems = remember(selectedIdioma, selectedGrupo, sourceItems) {
+            var items = sourceItems
+            if (selectedIdioma != ALL_CHANNELS_GROUP) {
+                items = items.filter { it.idioma == selectedIdioma }
+            }
+            if (selectedGrupo != ALL_CHANNELS_GROUP) {
+                items = items.filter { it.subgrupo == selectedGrupo }
+            }
+            
+            if (kind == ContentKind.SERIES) {
+                val (groupedEps, ungroupedEps) = items.partition { it.seasonNumber != null }
+                val groups = groupedEps.groupBy { it.seriesName ?: it.title }.map { (seriesName, episodes) ->
+                    val firstEp = episodes.first()
+                    CatalogItem(
+                        stableId = "series_group:$seriesName",
+                        title = seriesName,
+                        subtitle = "${episodes.size} episodios",
+                        description = firstEp.description,
+                        imageUrl = firstEp.imageUrl,
+                        kind = ContentKind.SERIES,
+                        group = firstEp.group,
+                        badgeText = "SERIE",
+                        streamOptions = emptyList()
+                    )
+                }.sortedBy { it.title }
+                
+                groups + ungroupedEps.sortedBy { it.title }
+            } else {
+                items
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -945,24 +998,24 @@ class ComposeMainFragment : Fragment() {
         ) {
             ScreenHeader(
                 title = screenTitle(kind),
-                subtitle = "Catalogo visual con grupos simples y foco claro",
+                subtitle = "Catalogo visual con filtros superiores",
             )
 
-            Row(
+            Column(
                 modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                FilterColumn(
-                    groups = groups,
-                    selected = selectedGroup,
-                    modifier = Modifier.width(248.dp),
-                ) {
-                    selectedGroup = it
-                    selectedHero = null
-                }
+                FilterTopBar(
+                    selectedIdioma = selectedIdioma,
+                    selectedGrupo = selectedGrupo,
+                    onIdiomaClicked = { showIdiomaDialog = true },
+                    onGrupoClicked = { showGrupoDialog = true },
+                    idiomaFocusRequester = idiomaFocusRequester,
+                    grupoFocusRequester = grupoFocusRequester
+                )
 
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(190.dp),
+                    columns = GridCells.Fixed(5),
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(bottom = 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -973,6 +1026,47 @@ class ComposeMainFragment : Fragment() {
                             handleCardClick(item)
                         }
                     }
+                }
+            }
+
+            if (showIdiomaDialog) {
+                FilterDialog(
+                    title = "Selecciona Idioma",
+                    options = idiomas,
+                    selectedOption = selectedIdioma,
+                    onOptionSelected = {
+                        selectedIdioma = it
+                        selectedGrupo = ALL_CHANNELS_GROUP
+                        selectedHero = null
+                        showIdiomaDialog = false
+                    },
+                    onDismiss = { showIdiomaDialog = false }
+                )
+            }
+            
+            LaunchedEffect(showIdiomaDialog) {
+                if (!showIdiomaDialog) {
+                    runCatching { idiomaFocusRequester.requestFocus() }
+                }
+            }
+
+            if (showGrupoDialog) {
+                FilterDialog(
+                    title = "Selecciona Grupo",
+                    options = gruposForIdioma,
+                    selectedOption = selectedGrupo,
+                    onOptionSelected = {
+                        selectedGrupo = it
+                        selectedHero = null
+                        showGrupoDialog = false
+                    },
+                    onDismiss = { showGrupoDialog = false }
+                )
+            }
+
+            LaunchedEffect(showGrupoDialog) {
+                if (!showGrupoDialog) {
+                    runCatching { grupoFocusRequester.requestFocus() }
                 }
             }
         }
@@ -1322,6 +1416,15 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun handleCardClick(item: CatalogItem) {
+        if (item.stableId.startsWith("series_group:")) {
+            val seriesName = item.stableId.removePrefix("series_group:")
+            val fragment = SeriesDetailFragment.newInstance(seriesName)
+            requireActivity().supportFragmentManager.beginTransaction()
+                .replace(R.id.main_browse_fragment, fragment)
+                .addToBackStack("SeriesDetailFragment")
+                .commit()
+            return
+        }
         playCatalogItem(item, 0)
     }
 
