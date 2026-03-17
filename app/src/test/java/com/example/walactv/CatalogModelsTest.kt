@@ -84,4 +84,41 @@ class CatalogModelsTest {
         assertEquals(null, metadata.seasonNumber)
         assertEquals(null, metadata.episodeNumber)
     }
+
+    @Test
+    fun `extracts normalized metadata from walac attributes`() {
+        val metadata = parseNormalizedMetadata(
+            kind = ContentKind.SERIES,
+            groupTitle = "|EN| TOP SERIES",
+            tvgName = "EN - The Good Doctor (2017) S07 E09",
+            displayName = "EN - The Good Doctor (2017) S07 E09",
+            walacLanguage = "EN",
+            walacNameNormalized = "The Good Doctor (2017) S07 E09",
+            walacGroupNormalized = "TOP SERIES",
+            walacSeriesNameNormalized = "The Good Doctor (2017)",
+        )
+
+        assertEquals("EN", metadata.languageLabel)
+        assertEquals("The Good Doctor (2017) S07 E09", metadata.displayTitle)
+        assertEquals("TOP SERIES", metadata.groupTitle)
+        assertEquals("The Good Doctor (2017)", metadata.seriesName)
+    }
+
+    @Test
+    fun `falls back to heuristics when walac attributes are missing`() {
+        val metadata = parseNormalizedMetadata(
+            kind = ContentKind.MOVIE,
+            groupTitle = "|LATAM| TOP MOVIES",
+            tvgName = "LATAM - Movie Name",
+            displayName = "LATAM - Movie Name",
+            walacLanguage = "",
+            walacNameNormalized = "",
+            walacGroupNormalized = "",
+            walacSeriesNameNormalized = "",
+        )
+
+        assertEquals("LATAM", metadata.languageLabel)
+        assertEquals("Movie Name", metadata.displayTitle)
+        assertEquals("TOP MOVIES", metadata.groupTitle)
+    }
 }

@@ -169,6 +169,12 @@ class M3uCatalogStore(private val context: Context) {
             output.writeUTF(item.badgeText)
             output.writeBoolean(item.channelNumber != null)
             item.channelNumber?.let(output::writeInt)
+            output.writeBoolean(item.languageLabel != null)
+            item.languageLabel?.let(output::writeUTF)
+            output.writeBoolean(item.normalizedTitle != null)
+            item.normalizedTitle?.let(output::writeUTF)
+            output.writeBoolean(item.normalizedGroup != null)
+            item.normalizedGroup?.let(output::writeUTF)
             output.writeBoolean(item.seriesName != null)
             item.seriesName?.let(output::writeUTF)
             output.writeBoolean(item.seasonNumber != null)
@@ -196,6 +202,12 @@ class M3uCatalogStore(private val context: Context) {
             val badgeText = input.readUTF()
             val hasChannelNumber = input.readBoolean()
             val channelNumber = if (hasChannelNumber) input.readInt() else null
+            val hasLanguageLabel = input.readBoolean()
+            val languageLabel = if (hasLanguageLabel) input.readUTF() else null
+            val hasNormalizedTitle = input.readBoolean()
+            val normalizedTitle = if (hasNormalizedTitle) input.readUTF() else null
+            val hasNormalizedGroup = input.readBoolean()
+            val normalizedGroup = if (hasNormalizedGroup) input.readUTF() else null
             val hasSeriesName = input.readBoolean()
             val seriesName = if (hasSeriesName) input.readUTF() else null
             val hasSeasonNumber = input.readBoolean()
@@ -213,6 +225,9 @@ class M3uCatalogStore(private val context: Context) {
                 group = group,
                 badgeText = badgeText,
                 channelNumber = channelNumber,
+                languageLabel = languageLabel,
+                normalizedTitle = normalizedTitle,
+                normalizedGroup = normalizedGroup,
                 seriesName = seriesName,
                 seasonNumber = seasonNumber,
                 episodeNumber = episodeNumber,
@@ -299,10 +314,25 @@ class M3uCatalogStore(private val context: Context) {
         kind: ContentKind,
         channelNumber: Int?,
     ): CatalogItem {
-        val group = simplifyGroup(info.groupTitle)
+        val normalized = parseNormalizedMetadata(
+            kind = kind,
+            groupTitle = info.groupTitle,
+            tvgName = info.tvgName,
+            displayName = info.displayName,
+            walacLanguage = info.walacLanguage,
+            walacNameNormalized = info.walacNameNormalized,
+            walacGroupNormalized = info.walacGroupNormalized,
+            walacSeriesNameNormalized = info.walacSeriesNameNormalized,
+        )
+        val group = simplifyGroup(normalized.groupTitle)
         val streamId = url.substringBefore('?').substringAfterLast('/').substringBefore('.')
-        val title = buildDisplayTitle(info, kind)
-        val seriesMetadata = parseSeriesMetadata(title, kind)
+        val title = buildDisplayTitle(info, kind, normalized.displayTitle)
+        val parsedSeriesMetadata = parseSeriesMetadata(title, kind)
+        val seriesMetadata = if (kind == ContentKind.SERIES && !normalized.seriesName.isNullOrBlank()) {
+            parsedSeriesMetadata.copy(seriesName = normalized.seriesName)
+        } else {
+            parsedSeriesMetadata
+        }
         return CatalogItem(
             stableId = "${kind.name.lowercase(Locale.US)}:$streamId",
             title = title,
@@ -313,6 +343,9 @@ class M3uCatalogStore(private val context: Context) {
             group = group,
             badgeText = buildBadge(kind, group),
             channelNumber = channelNumber,
+            languageLabel = normalized.languageLabel,
+            normalizedTitle = normalized.displayTitle,
+            normalizedGroup = normalized.groupTitle,
             seriesName = seriesMetadata.seriesName,
             seasonNumber = seriesMetadata.seasonNumber,
             episodeNumber = seriesMetadata.episodeNumber,
@@ -340,13 +373,18 @@ class M3uCatalogStore(private val context: Context) {
             tvgName = extractAttribute(attributesPart, "tvg-name"),
             logoUrl = extractAttribute(attributesPart, "tvg-logo"),
             groupTitle = extractAttribute(attributesPart, "group-title"),
+            walacLanguage = extractAttribute(attributesPart, "walac-language"),
+            walacNameNormalized = extractAttribute(attributesPart, "walac-name-normalized"),
+            walacGroupNormalized = extractAttribute(attributesPart, "walac-group-normalized"),
+            walacSeriesNameNormalized = extractAttribute(attributesPart, "walac-series-name-normalized"),
         )
     }
 
-    private fun buildDisplayTitle(info: ExtInfEntry, kind: ContentKind): String {
+    private fun buildDisplayTitle(info: ExtInfEntry, kind: ContentKind, preferredTitle: String): String {
         // Prefer displayName if present, as it is the real channel name. 
         // Fallback to tvgName if displayName is totally empty.
         val rawTitle = when {
+            preferredTitle.isNotBlank() -> preferredTitle
             info.displayName.isNotBlank() -> info.displayName
             info.tvgName.isNotBlank() -> info.tvgName
             else -> "Canal Sin Nombre"
@@ -568,7 +606,7 @@ class M3uCatalogStore(private val context: Context) {
         private const val KEY_LAST_UPDATED = "last_updated"
         private const val CACHE_FILE_NAME = "playlist_cache.m3u"
         private const val FULL_SNAPSHOT_FILE_NAME = "playlist_snapshot_full.bin"
-        private const val SNAPSHOT_VERSION = 2
+        private const val SNAPSHOT_VERSION = 3
         private const val USER_AGENT = "WalacTV AndroidTV"
         private const val CACHE_TTL_MS = 24L * 60L * 60L * 1000L
         private data class StoredCredentials(
@@ -608,4 +646,8 @@ private data class ExtInfEntry(
     val tvgName: String,
     val logoUrl: String,
     val groupTitle: String,
+    val walacLanguage: String,
+    val walacNameNormalized: String,
+    val walacGroupNormalized: String,
+    val walacSeriesNameNormalized: String,
 )
