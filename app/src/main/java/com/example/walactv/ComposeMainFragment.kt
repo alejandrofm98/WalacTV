@@ -117,7 +117,6 @@ class ComposeMainFragment : Fragment() {
     private var channelLineup by mutableStateOf<List<CatalogItem>>(emptyList())
     private var selectedHero by mutableStateOf<CatalogItem?>(null)
     private var currentMode by mutableStateOf(MainMode.Home)
-    private var selectedGroup by mutableStateOf(ALL_CHANNELS_GROUP)
     private var isRailExpanded by mutableStateOf(false)
     private var isSignedIn by mutableStateOf(false)
     private var loginUsername by mutableStateOf("")
@@ -381,7 +380,6 @@ class ComposeMainFragment : Fragment() {
         currentItem = null
         currentStreamIndex = 0
         currentMode = MainMode.Home
-        selectedGroup = ALL_CHANNELS_GROUP
     }
 
     @Composable
@@ -577,7 +575,6 @@ class ComposeMainFragment : Fragment() {
     private fun changeMode(newMode: MainMode) {
         if (currentMode == newMode) return
         currentMode = newMode
-        selectedGroup = ALL_CHANNELS_GROUP
         selectedHero = defaultItemForMode(newMode)
     }
 
@@ -842,30 +839,66 @@ class ComposeMainFragment : Fragment() {
 
     @Composable
     private fun GuideContent(kind: ContentKind) {
+        var selectedIdioma by remember { mutableStateOf(ALL_CHANNELS_GROUP) }
+        var selectedGrupo by remember { mutableStateOf(ALL_CHANNELS_GROUP) }
+        
+        var showIdiomaDialog by remember { mutableStateOf(false) }
+        var showGrupoDialog by remember { mutableStateOf(false) }
+        
+        val idiomaFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+        val grupoFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+
         val sourceItems = remember(searchableItems, kind) {
             searchableItems.filter { it.kind == kind }
         }
-        val groups = remember(sourceItems, kind) {
+
+        val idiomas = remember(sourceItems, kind) {
             buildList {
                 add(ALL_CHANNELS_GROUP)
                 if (kind == ContentKind.CHANNEL) add(FAVORITES_GROUP)
-                sourceItems.map(CatalogItem::group)
-                    .filter { it.isNotBlank() }
+                sourceItems.map(CatalogItem::idioma)
+                    .filter { it.isNotBlank() && it != "Todos" }
                     .distinct()
                     .sorted()
                     .forEach(::add)
             }
         }
-        val displayItems = remember(selectedGroup, sourceItems, kind) {
-            when (selectedGroup) {
+
+        val gruposForIdioma = remember(selectedIdioma, sourceItems) {
+            val filteredByIdioma = when (selectedIdioma) {
                 ALL_CHANNELS_GROUP -> sourceItems
                 FAVORITES_GROUP -> {
                     val favoriteIds = channelStateStore.favoriteIds()
                     sourceItems.filter { favoriteIds.contains(it.stableId) }
                 }
-                else -> sourceItems.filter { it.group == selectedGroup }
+                else -> sourceItems.filter { it.idioma == selectedIdioma }
+            }
+            buildList {
+                add(ALL_CHANNELS_GROUP)
+                filteredByIdioma.map(CatalogItem::subgrupo)
+                    .filter { it.isNotBlank() && it != "Todos" }
+                    .distinct()
+                    .sorted()
+                    .forEach(::add)
             }
         }
+
+        val displayItems = remember(selectedIdioma, selectedGrupo, sourceItems) {
+            var items = sourceItems
+            if (selectedIdioma == FAVORITES_GROUP) {
+                val favoriteIds = channelStateStore.favoriteIds()
+                items = items.filter { favoriteIds.contains(it.stableId) }
+            } else if (selectedIdioma != ALL_CHANNELS_GROUP) {
+                items = items.filter { it.idioma == selectedIdioma }
+            }
+            
+            if (selectedGrupo != ALL_CHANNELS_GROUP) {
+                items = items.filter { it.subgrupo == selectedGrupo }
+            }
+            
+            items
+        }
+
         val lazyListState = rememberLazyListState()
         
         LaunchedEffect(displayItems) {
@@ -885,21 +918,21 @@ class ComposeMainFragment : Fragment() {
         ) {
             ScreenHeader(
                 title = screenTitle(kind),
-                subtitle = "Filtra por grupo y entra directo con el mando",
+                subtitle = "Filtra por idioma y grupo, y entra directo con el mando",
             )
 
-            Row(
+            Column(
                 modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                FilterColumn(
-                    groups = groups,
-                    selected = selectedGroup,
-                    modifier = Modifier.width(248.dp),
-                ) {
-                    selectedGroup = it
-                    selectedHero = null
-                }
+                FilterTopBar(
+                    selectedIdioma = selectedIdioma,
+                    selectedGrupo = selectedGrupo,
+                    onIdiomaClicked = { showIdiomaDialog = true },
+                    onGrupoClicked = { showGrupoDialog = true },
+                    idiomaFocusRequester = idiomaFocusRequester,
+                    grupoFocusRequester = grupoFocusRequester
+                )
 
                 LazyColumn(
                     state = lazyListState,
@@ -913,6 +946,43 @@ class ComposeMainFragment : Fragment() {
                     }
                 }
             }
+        }
+
+        if (showIdiomaDialog) {
+            FilterDialog(
+                title = "Selecciona Idioma",
+                options = idiomas,
+                selectedOption = selectedIdioma,
+                onOptionSelected = {
+                    selectedIdioma = it
+                    selectedGrupo = ALL_CHANNELS_GROUP // Reset group on language change
+                    selectedHero = null
+                    showIdiomaDialog = false
+                    idiomaFocusRequester.requestFocus()
+                },
+                onDismiss = {
+                    showIdiomaDialog = false
+                    idiomaFocusRequester.requestFocus()
+                }
+            )
+        }
+
+        if (showGrupoDialog) {
+            FilterDialog(
+                title = "Selecciona Grupo",
+                options = gruposForIdioma,
+                selectedOption = selectedGrupo,
+                onOptionSelected = {
+                    selectedGrupo = it
+                    selectedHero = null
+                    showGrupoDialog = false
+                    grupoFocusRequester.requestFocus()
+                },
+                onDismiss = {
+                    showGrupoDialog = false
+                    grupoFocusRequester.requestFocus()
+                }
+            )
         }
     }
 
@@ -1069,69 +1139,6 @@ class ComposeMainFragment : Fragment() {
                     runCatching { grupoFocusRequester.requestFocus() }
                 }
             }
-        }
-    }
-
-    @Composable
-    private fun FilterColumn(
-        groups: List<String>,
-        selected: String,
-        modifier: Modifier = Modifier,
-        onSelected: (String) -> Unit,
-    ) {
-        Column(
-            modifier = modifier
-                .fillMaxHeight()
-                .background(IptvSurface, RoundedCornerShape(10.dp))
-                .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(10.dp))
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Grupos", color = IptvTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(8.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(groups) { group ->
-                    FilterItem(label = group, selected = group == selected) {
-                        onSelected(group)
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun FilterItem(label: String, selected: Boolean, onClick: () -> Unit) {
-        var isFocused by remember { mutableStateOf(false) }
-        val backgroundColor = when {
-            isFocused -> IptvFocusBg
-            selected -> IptvCard
-            else -> Color.Transparent
-        }
-        val borderColor = when {
-            isFocused -> IptvFocusBorder
-            selected -> IptvSurfaceVariant
-            else -> Color.Transparent
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(backgroundColor, RoundedCornerShape(8.dp))
-                .border(1.dp, borderColor, RoundedCornerShape(8.dp))
-                .clickable { onClick() }
-                .focusable()
-                .onFocusChanged {
-                    isFocused = it.isFocused
-                    if (it.isFocused) onClick()
-                }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-        ) {
-            Text(
-                label,
-                color = if (isFocused || selected) IptvTextPrimary else IptvTextMuted,
-                fontSize = 15.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 
