@@ -42,6 +42,43 @@ fun CatalogItem.searchableText(): List<String> {
     }
 }
 
+private data class SeriesEpisodeKey(
+    val seriesName: String,
+    val seasonNumber: Int?,
+    val episodeNumber: Int?,
+)
+
+fun List<CatalogItem>.uniqueSeriesEpisodes(preferredLanguage: String? = null): List<CatalogItem> {
+    val normalizedPreferredLanguage = normalizeLanguageCode(preferredLanguage)
+    return this
+        .groupBy {
+            SeriesEpisodeKey(
+                seriesName = it.seriesName ?: it.title,
+                seasonNumber = it.seasonNumber,
+                episodeNumber = it.episodeNumber,
+            )
+        }
+        .values
+        .map { episodes ->
+            episodes.firstOrNull { normalizeLanguageCode(it.idioma) == normalizedPreferredLanguage }
+                ?: episodes.firstOrNull { normalizeLanguageCode(it.languageLabel) == normalizedPreferredLanguage }
+                ?: episodes.first()
+        }
+        .sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }, { it.title }))
+}
+
+fun List<CatalogItem>.findEquivalentSeriesEpisode(current: CatalogItem, targetLanguage: String): CatalogItem? {
+    val normalizedTargetLanguage = normalizeLanguageCode(targetLanguage)
+    return this.firstOrNull { episode ->
+        episode.stableId != current.stableId &&
+            episode.seriesName == current.seriesName &&
+            episode.seasonNumber == current.seasonNumber &&
+            episode.episodeNumber == current.episodeNumber &&
+            (normalizeLanguageCode(episode.idioma) == normalizedTargetLanguage ||
+                normalizeLanguageCode(episode.languageLabel) == normalizedTargetLanguage)
+    }
+}
+
 data class BrowseSection(
     val title: String,
     val items: List<CatalogItem>,
@@ -89,7 +126,7 @@ data class NormalizedMetadata(
     val seriesName: String?,
 )
 
-private val LANGUAGE_ALIASES = mapOf(
+val LANGUAGE_ALIASES = mapOf(
     "ENG" to "EN",
     "ENGLISH" to "EN",
     "EN" to "EN",
@@ -107,6 +144,29 @@ private val LANGUAGE_ALIASES = mapOf(
     "SUB" to "SUB",
     "SUBTITULADO" to "SUB",
 )
+
+fun normalizeLanguageCode(value: String?): String {
+    val normalized = value?.trim()?.uppercase().orEmpty()
+    return when {
+        normalized.isBlank() -> "ES"
+        normalized == "LAT" -> "LATAM"
+        normalized == "LATINO" -> "LATAM"
+        normalized.startsWith("EN") -> "EN"
+        normalized.startsWith("ES") -> "ES"
+        normalized.contains("LAT") -> "LATAM"
+        else -> normalized
+    }
+}
+
+fun languageDisplayLabel(value: String?): String {
+    return when (normalizeLanguageCode(value)) {
+        "EN" -> "Inglés"
+        "LATAM" -> "Español Latinoamericano"
+        else -> "Español"
+    }
+}
+
+fun isAudioSelectorEnabled(trackCount: Int): Boolean = trackCount > 1
 
 private val LANGUAGE_TOKEN_REGEX = Regex(
     pattern = "(?i)(?<![A-Z0-9])(LATAM|LATINO|LAT|LA|ENGLISH|ENG|EN|ESPANOL|SPANISH|ESP|ES|VOSE|CASTELLANO|CAST|SUBTITULADO|SUB)(?![A-Z0-9])",
@@ -191,7 +251,7 @@ fun parseNormalizedMetadata(
 
     val seriesName = when {
         walacSeriesNameNormalized.isNotBlank() -> walacSeriesNameNormalized
-        kind == ContentKind.SERIES -> parseSeriesMetadata(normalizedTitle, kind).seriesName
+        kind == ContentKind.SERIES -> parseSeriesMetadata(normalizedTitle, kind, language).seriesName
         else -> null
     }
 
@@ -203,7 +263,7 @@ fun parseNormalizedMetadata(
     )
 }
 
-fun parseSeriesMetadata(title: String, kind: ContentKind): SeriesMetadata {
+fun parseSeriesMetadata(title: String, kind: ContentKind, language: String? = null): SeriesMetadata {
     if (kind != ContentKind.SERIES) {
         return SeriesMetadata(
             seriesName = title,
@@ -212,16 +272,17 @@ fun parseSeriesMetadata(title: String, kind: ContentKind): SeriesMetadata {
         )
     }
 
-    val match = SERIES_REGEX.find(title)
+    val cleanedTitle = removeLanguagePrefix(title, language)
+    val match = SERIES_REGEX.find(cleanedTitle)
     return if (match != null) {
         SeriesMetadata(
-            seriesName = title.substring(0, match.range.first).trim().removeSuffix("-").trim(),
+            seriesName = cleanedTitle.substring(0, match.range.first).trim().removeSuffix("-").trim(),
             seasonNumber = match.groupValues.getOrNull(1)?.toIntOrNull(),
             episodeNumber = match.groupValues.getOrNull(2)?.toIntOrNull(),
         )
     } else {
         SeriesMetadata(
-            seriesName = title,
+            seriesName = cleanedTitle,
             seasonNumber = null,
             episodeNumber = null,
         )

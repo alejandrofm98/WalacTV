@@ -45,7 +45,11 @@ class PlayerFragment(
     private val onOpenFavorites: () -> Boolean,
     private val onOpenRecents: () -> Boolean,
     private val onNextEpisode: (() -> Unit)? = null,
+    private val allSeriesEpisodes: List<CatalogItem> = emptyList(),
+    private val currentEpisode: CatalogItem? = null,
 ) : Fragment() {
+
+    private var currentSeriesEpisode: CatalogItem? = currentEpisode
 
     private var player: ExoPlayer? = null
     private lateinit var playerView: PlayerView
@@ -313,9 +317,10 @@ class PlayerFragment(
     private fun updateTrackButtonStates() {
         val exoPlayer = player ?: return
 
-        val hasAudioTracks = exoPlayer.currentTracks.groups.any { group ->
-            group.type == C.TRACK_TYPE_AUDIO && group.length > 0
-        }
+        val audioTrackCount = exoPlayer.currentTracks.groups
+            .filter { group -> group.type == C.TRACK_TYPE_AUDIO }
+            .sumOf { group -> group.length }
+        val hasSelectableAudioTracks = isAudioSelectorEnabled(audioTrackCount)
 
         val hasSubtitleTracks = exoPlayer.currentTracks.groups.any { group ->
             group.type == C.TRACK_TYPE_TEXT && group.length > 0
@@ -333,8 +338,8 @@ class PlayerFragment(
             liveBtnSubtitles
         }
 
-        audioButton?.isEnabled = hasAudioTracks
-        audioButton?.alpha = if (hasAudioTracks) 1.0f else 0.4f
+        audioButton?.isEnabled = hasSelectableAudioTracks
+        audioButton?.alpha = if (hasSelectableAudioTracks) 1.0f else 0.4f
 
         subtitleButton?.isEnabled = hasSubtitleTracks
         subtitleButton?.alpha = if (hasSubtitleTracks) 1.0f else 0.4f
@@ -388,12 +393,13 @@ class PlayerFragment(
         audioGroups.forEachIndexed { groupIdx, group ->
             for (trackIdx in 0 until group.length) {
                 val format = group.getTrackFormat(trackIdx)
-                val lang = format.language?.uppercase() ?: "???"
+                val lang = normalizeLanguageCode(format.language)
                 val channelCount = format.channelCount
+                val displayLanguage = languageDisplayLabel(lang)
                 val label = if (channelCount > 0) {
-                    "$lang ($channelCount ch)"
+                    "$displayLanguage ($channelCount ch)"
                 } else {
-                    format.label ?: lang
+                    format.label ?: displayLanguage
                 }
                 val selected = group.isTrackSelected(trackIdx)
                 choices.add(AudioTrackChoice(label, groupIdx, trackIdx, selected))
@@ -422,15 +428,76 @@ class PlayerFragment(
         groupIndex: Int,
         trackIndex: Int,
     ) {
-        val paramsBuilder = exoPlayer.trackSelectionParameters.buildUpon()
-
-        paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
         val group = audioGroups[groupIndex]
+        if (contentKind == ContentKind.SERIES && allSeriesEpisodes.isNotEmpty()) {
+            val selectedFormat = group.getTrackFormat(trackIndex)
+            val trackLanguage = selectedFormat.language ?: return
+            val languageCode = normalizeLanguageCode(trackLanguage)
+
+            val current = currentSeriesEpisode
+            if (current != null && languageCode != normalizeLanguageCode(current.idioma)) {
+                val switched = switchToEpisodeWithLanguage(languageCode)
+                if (switched) return
+            }
+        }
+
+        val paramsBuilder = exoPlayer.trackSelectionParameters.buildUpon()
+        paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
         paramsBuilder.setOverrideForType(
             TrackSelectionOverride(group.mediaTrackGroup, trackIndex),
         )
-
         exoPlayer.trackSelectionParameters = paramsBuilder.build()
+    }
+
+    private fun switchToEpisodeWithLanguage(targetLanguage: String): Boolean {
+        val current = currentSeriesEpisode ?: return false
+        val equivalentEpisode = allSeriesEpisodes.findEquivalentSeriesEpisode(current, targetLanguage)
+
+        if (equivalentEpisode != null) {
+            val stream = equivalentEpisode.streamOptions.firstOrNull() ?: return false
+            currentSeriesEpisode = equivalentEpisode
+
+            player?.let { exoPlayer ->
+                val wasPlaying = exoPlayer.isPlaying
+                val position = exoPlayer.currentPosition
+
+                exoPlayer.setMediaItem(createMediaItem(stream.url))
+                exoPlayer.prepare()
+                exoPlayer.seekTo(position)
+                exoPlayer.playWhenReady = wasPlaying
+
+                updateDisplayedMetadata(
+                    title = equivalentEpisode.title,
+                    meta = equivalentEpisode.description.ifBlank { stream.label },
+                )
+            }
+            return true
+        } else {
+            val ctx = context ?: return false
+            Toast.makeText(ctx, R.string.episode_not_available_in_language, Toast.LENGTH_SHORT).show()
+            return false
+        }
+    }
+
+    private fun updateDisplayedMetadata(title: String, meta: String) {
+        if (isVodMode) {
+            playerView.findViewById<TextView>(R.id.vod_title)?.text = title
+            playerView.findViewById<TextView>(R.id.vod_subtitle)?.text = meta
+            return
+        }
+
+        if (::overlayTitleView.isInitialized) {
+            overlayTitleView.text = title
+        }
+        if (::overlayMetaView.isInitialized) {
+            overlayMetaView.text = meta
+        }
+        if (::bottomTitleView.isInitialized) {
+            bottomTitleView.text = title
+        }
+        if (::bottomMetaView.isInitialized) {
+            bottomMetaView.text = meta
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -469,8 +536,8 @@ class PlayerFragment(
         textGroups.forEachIndexed { groupIdx, group ->
             for (trackIdx in 0 until group.length) {
                 val format = group.getTrackFormat(trackIdx)
-                val lang = format.language?.uppercase() ?: "???"
-                val trackLabel = format.label ?: lang
+                val lang = normalizeLanguageCode(format.language)
+                val trackLabel = format.label ?: languageDisplayLabel(lang)
                 val selected = group.isTrackSelected(trackIdx)
                 choices.add(TrackChoice(trackLabel, groupIdx, trackIdx, selected))
             }

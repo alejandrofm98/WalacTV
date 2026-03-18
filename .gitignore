@@ -15,3 +15,6 @@
 local.properties
 *.jks
 *.keystore
+.superpowers/
+replace_vod_grid.py
+docs/superpowers/plans/

@@ -2,8 +2,17 @@
 
 package com.example.walactv
 
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color as AndroidColor
+import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -109,6 +118,7 @@ class ComposeMainFragment : Fragment() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var repository: IptvRepository
+    private lateinit var appUpdateRepository: AppUpdateRepository
     private lateinit var channelStateStore: ChannelStateStore
 
     private var homeCatalog by mutableStateOf<HomeCatalog?>(null)
@@ -129,9 +139,27 @@ class ComposeMainFragment : Fragment() {
     private var errorMessage by mutableStateOf<String?>(null)
     private var isRefreshingInBackground by mutableStateOf(false)
     private var playlistProgress by mutableStateOf<PlaylistLoadProgress?>(null)
+    private var installedAppVersion by mutableStateOf<InstalledAppVersion?>(null)
+    private var availableUpdate by mutableStateOf<AppUpdateInfo?>(null)
+    private var mandatoryUpdate by mutableStateOf<AppUpdateInfo?>(null)
+    private var updateStatusMessage by mutableStateOf("No comprobado")
+    private var updateErrorMessage by mutableStateOf<String?>(null)
+    private var isCheckingUpdates by mutableStateOf(false)
+    private var isUpdateDownloading by mutableStateOf(false)
+    private var pendingInstallPermission by mutableStateOf(false)
 
     private var currentItem: CatalogItem? = null
     private var currentStreamIndex: Int = 0
+    private var pendingUpdateDownloadId: Long? = null
+
+    private val updateDownloadReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+            val downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+            if (downloadId == -1L || downloadId != pendingUpdateDownloadId) return
+            handleCompletedUpdateDownload(downloadId)
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -139,12 +167,14 @@ class ComposeMainFragment : Fragment() {
         savedInstanceState: Bundle?,
     ): View {
         repository = IptvRepository(requireContext())
+        appUpdateRepository = AppUpdateRepository(requireContext())
         repository.setPlaylistProgressListener { progress ->
             scope.launch(Dispatchers.Main) {
                 playlistProgress = progress
             }
         }
         channelStateStore = ChannelStateStore(requireContext())
+        installedAppVersion = appUpdateRepository.installedVersion()
         isSignedIn = repository.hasStoredCredentials()
         loginUsername = repository.currentUsername()
 
@@ -159,9 +189,34 @@ class ComposeMainFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        restoreCachedUpdateState()
+        checkForAppUpdates()
         if (isSignedIn) {
             startProgressiveLoad()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requireContext().registerReceiver(updateDownloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            requireContext().registerReceiver(updateDownloadReceiver, filter)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (pendingInstallPermission && canRequestPackageInstalls()) {
+            pendingInstallPermission = false
+            startUpdateDownload(mandatoryUpdate ?: availableUpdate)
+        }
+    }
+
+    override fun onStop() {
+        runCatching { requireContext().unregisterReceiver(updateDownloadReceiver) }
+        super.onStop()
     }
 
     private fun startProgressiveLoad() {
@@ -221,6 +276,162 @@ class ComposeMainFragment : Fragment() {
         }
     }
 
+    private fun restoreCachedUpdateState() {
+        val installed = installedAppVersion ?: return
+        val cachedUpdate = appUpdateRepository.loadCachedUpdate() ?: return
+        availableUpdate = cachedUpdate
+        when (evaluateAppUpdate(installed, cachedUpdate)) {
+            AppUpdateAvailability.REQUIRED -> {
+                mandatoryUpdate = cachedUpdate
+                updateStatusMessage = "Actualizacion obligatoria disponible"
+            }
+            AppUpdateAvailability.OPTIONAL -> {
+                mandatoryUpdate = null
+                updateStatusMessage = "Nueva version ${cachedUpdate.latestVersionName} disponible"
+            }
+            AppUpdateAvailability.UP_TO_DATE -> {
+                mandatoryUpdate = null
+                updateStatusMessage = "Aplicacion actualizada"
+            }
+        }
+    }
+
+    private fun checkForAppUpdates(showToast: Boolean = false) {
+        if (!isValidUpdateUrl(resolveAppUpdateUrl(BuildConfig.APP_UPDATE_URL))) {
+            updateStatusMessage = "Actualizaciones no configuradas"
+            return
+        }
+
+        scope.launch {
+            isCheckingUpdates = true
+            updateErrorMessage = null
+
+            val remoteUpdate = runCatching { appUpdateRepository.fetchRemoteUpdate() }.getOrNull()
+            if (remoteUpdate == null) {
+                if (mandatoryUpdate != null) {
+                    updateStatusMessage = "Actualizacion obligatoria pendiente"
+                } else {
+                    updateStatusMessage = "No se pudo comprobar"
+                    if (showToast) {
+                        Toast.makeText(requireContext(), "No se pudo comprobar la actualizacion", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                isCheckingUpdates = false
+                return@launch
+            }
+
+            appUpdateRepository.cacheUpdate(remoteUpdate)
+            availableUpdate = remoteUpdate
+
+            when (evaluateAppUpdate(installedAppVersion ?: return@launch, remoteUpdate)) {
+                AppUpdateAvailability.REQUIRED -> {
+                    mandatoryUpdate = remoteUpdate
+                    updateStatusMessage = "Actualizacion obligatoria disponible"
+                }
+                AppUpdateAvailability.OPTIONAL -> {
+                    mandatoryUpdate = null
+                    updateStatusMessage = "Nueva version ${remoteUpdate.latestVersionName} disponible"
+                }
+                AppUpdateAvailability.UP_TO_DATE -> {
+                    mandatoryUpdate = null
+                    updateStatusMessage = "Aplicacion actualizada"
+                }
+            }
+
+            if (showToast) {
+                Toast.makeText(requireContext(), updateStatusMessage, Toast.LENGTH_SHORT).show()
+            }
+            isCheckingUpdates = false
+        }
+    }
+
+    private fun startUpdateFlow() {
+        val updateInfo = mandatoryUpdate ?: availableUpdate ?: return
+        if (!canRequestPackageInstalls()) {
+            pendingInstallPermission = true
+            updateStatusMessage = "Permite instalar apps desconocidas para continuar"
+            val intent = Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:${requireContext().packageName}"),
+            )
+            val packageManager = requireContext().packageManager
+            val canOpenSettings = intent.resolveActivity(packageManager) != null
+            if (canOpenSettings) {
+                runCatching { startActivity(intent) }
+                    .onFailure {
+                        updateErrorMessage = "No se pudo abrir la configuracion de instalacion"
+                    }
+            } else {
+                updateErrorMessage = "Activa manualmente la instalacion desde origenes desconocidos para WalacTV"
+            }
+            return
+        }
+        startUpdateDownload(updateInfo)
+    }
+
+    private fun canRequestPackageInstalls(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O || requireContext().packageManager.canRequestPackageInstalls()
+    }
+
+    private fun startUpdateDownload(updateInfo: AppUpdateInfo?) {
+        val info = updateInfo ?: return
+        val request = DownloadManager.Request(Uri.parse(info.apkUrl))
+            .setTitle("WalacTV ${info.latestVersionName}")
+            .setDescription("Descargando actualizacion")
+            .setMimeType("application/vnd.android.package-archive")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalFilesDir(
+                requireContext(),
+                Environment.DIRECTORY_DOWNLOADS,
+                "WalacTV-${info.latestVersionName}.apk",
+            )
+
+        val downloadManager = requireContext().getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        pendingUpdateDownloadId = downloadManager.enqueue(request)
+        isUpdateDownloading = true
+        updateStatusMessage = "Descargando actualizacion ${info.latestVersionName}"
+        Toast.makeText(requireContext(), updateStatusMessage, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun handleCompletedUpdateDownload(downloadId: Long) {
+        val downloadManager = requireContext().getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val query = DownloadManager.Query().setFilterById(downloadId)
+        downloadManager.query(query).use { cursor ->
+            if (!cursor.moveToFirst()) return
+            val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            when (status) {
+                DownloadManager.STATUS_SUCCESSFUL -> {
+                    isUpdateDownloading = false
+                    pendingUpdateDownloadId = null
+                    val uri = downloadManager.getUriForDownloadedFile(downloadId)
+                    if (uri != null) {
+                        launchApkInstaller(uri)
+                    } else {
+                        updateErrorMessage = "La descarga termino pero no se pudo abrir el APK"
+                    }
+                }
+                DownloadManager.STATUS_FAILED -> {
+                    isUpdateDownloading = false
+                    pendingUpdateDownloadId = null
+                    updateErrorMessage = "No se pudo descargar la actualizacion"
+                    updateStatusMessage = "Error al descargar la actualizacion"
+                }
+            }
+        }
+    }
+
+    private fun launchApkInstaller(apkUri: Uri) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(apkUri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(intent) }
+            .onFailure {
+                updateErrorMessage = "No se pudo abrir el instalador"
+            }
+    }
+
     @Composable
     private fun ComposeRoot() {
         Box(
@@ -228,14 +439,18 @@ class ComposeMainFragment : Fragment() {
                 .fillMaxSize()
                 .background(IptvBackground),
         ) {
-            when {
-                !isSignedIn -> LoginScreen()
-                errorMessage != null -> ErrorScreen(errorMessage.orEmpty())
-                !isEventsLoaded && !isFullLoaded -> LoadingScreen()
-                else -> MainShell()
+            if (mandatoryUpdate != null) {
+                MandatoryUpdateScreen(mandatoryUpdate!!)
+            } else {
+                when {
+                    !isSignedIn -> LoginScreen()
+                    errorMessage != null -> ErrorScreen(errorMessage.orEmpty())
+                    !isEventsLoaded && !isFullLoaded -> LoadingScreen()
+                    else -> MainShell()
+                }
             }
 
-            if (isRefreshingInBackground) {
+            if (isRefreshingInBackground && mandatoryUpdate == null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -291,6 +506,48 @@ class ComposeMainFragment : Fragment() {
                     icon = Icons.Outlined.PlayArrow,
                 ) {
                     if (!isSigningIn) performSignIn()
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun MandatoryUpdateScreen(updateInfo: AppUpdateInfo) {
+        val installed = installedAppVersion
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(
+                modifier = Modifier
+                    .width(700.dp)
+                    .background(IptvSurface, RoundedCornerShape(12.dp))
+                    .border(1.dp, IptvFocusBorder, RoundedCornerShape(12.dp))
+                    .padding(32.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                Text("Actualizacion obligatoria", color = IptvTextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Debes instalar la nueva version para seguir usando WalacTV.",
+                    color = IptvTextMuted,
+                    fontSize = 18.sp,
+                )
+                installed?.let {
+                    SettingsRow("Version instalada", "${it.versionName} (${it.versionCode})")
+                }
+                SettingsRow("Version requerida", "${updateInfo.latestVersionName} (${updateInfo.latestVersionCode})")
+                if (updateInfo.changelog.isNotBlank()) {
+                    Text(updateInfo.changelog, color = IptvTextPrimary, fontSize = 16.sp)
+                }
+                Text(updateStatusMessage, color = IptvAccent, fontSize = 15.sp)
+                updateErrorMessage?.let {
+                    Text(it, color = IptvLive, fontSize = 14.sp)
+                }
+                if (isUpdateDownloading) {
+                    Text("La descarga esta en curso. Al terminar se abrira el instalador.", color = IptvTextMuted, fontSize = 14.sp)
+                }
+                FocusButton(label = if (isUpdateDownloading) "Descargando..." else "Descargar actualizacion", icon = Icons.Outlined.PlayArrow) {
+                    if (!isUpdateDownloading) startUpdateFlow()
+                }
+                FocusButton(label = if (isCheckingUpdates) "Comprobando..." else "Reintentar", icon = Icons.Outlined.History) {
+                    if (!isCheckingUpdates) checkForAppUpdates(showToast = true)
                 }
             }
         }
@@ -1077,10 +1334,11 @@ class ComposeMainFragment : Fragment() {
                 val (groupedEps, ungroupedEps) = items.partition { it.seasonNumber != null }
                 val groups = groupedEps.groupBy { it.seriesName ?: it.title }.map { (seriesName, episodes) ->
                     val firstEp = episodes.first()
+                    val uniqueEpisodeCount = episodes.uniqueSeriesEpisodes().size
                     CatalogItem(
                         stableId = "series_group:$seriesName",
                         title = seriesName,
-                        subtitle = "${episodes.size} episodios",
+                        subtitle = "$uniqueEpisodeCount episodios",
                         description = firstEp.description,
                         imageUrl = firstEp.imageUrl,
                         kind = ContentKind.SERIES,
@@ -1366,6 +1624,23 @@ class ComposeMainFragment : Fragment() {
         val cacheExists = repository.hasPlaylistCache()
         val cacheSize = formatBytes(repository.getPlaylistCacheSizeBytes())
         val isCatalogReady = if (isFullLoaded) "Cargada" else "Cargando"
+        
+        var preferredLanguage by remember { mutableStateOf(PreferencesManager.getPreferredLanguageOrDefault()) }
+        var showLanguageDialog by remember { mutableStateOf(false) }
+        val languageFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+
+        val availableLanguages = listOf(
+            "ES" to "Español",
+            "EN" to "Inglés",
+            "LATAM" to "Español Latinoamericano",
+        )
+        val installedVersionLabel = installedAppVersion?.let { "${it.versionName} (${it.versionCode})" } ?: "Desconocida"
+        val updateActionLabel = when {
+            isUpdateDownloading -> "Descargando actualizacion"
+            availableUpdate != null && evaluateAppUpdate(installedAppVersion ?: InstalledAppVersion("0", 0), availableUpdate!!) != AppUpdateAvailability.UP_TO_DATE -> "Descargar actualizacion"
+            isCheckingUpdates -> "Comprobando actualizaciones"
+            else -> "Buscar actualizaciones"
+        }
 
         Column(
             modifier = Modifier
@@ -1375,7 +1650,7 @@ class ComposeMainFragment : Fragment() {
         ) {
             ScreenHeader(
                 title = "Ajustes",
-                subtitle = "Control de cache, ultima actualizacion y recarga manual",
+                subtitle = "Control de cache, idioma preferido y recarga manual",
             )
 
             Column(
@@ -1388,14 +1663,59 @@ class ComposeMainFragment : Fragment() {
             ) {
                 SettingsRow("Estado de la lista", isCatalogReady)
                 SettingsRow("Ultima actualizacion", formatElapsed(repository.getLastPlaylistUpdateMillis()))
+                SettingsRow("Version de la app", installedVersionLabel)
+                SettingsRow("Estado de actualizacion", updateStatusMessage)
                 SettingsRow("Cache local", if (cacheExists) "Disponible ($cacheSize)" else "No disponible")
                 SettingsRow("Canales cargados", channelLineup.size.toString())
                 SettingsRow("Contenido indexado", searchableItems.size.toString())
+                updateErrorMessage?.let {
+                    Text(it, color = IptvLive, fontSize = 14.sp)
+                }
+                availableUpdate?.takeIf {
+                    evaluateAppUpdate(installedAppVersion ?: InstalledAppVersion("0", 0), it) != AppUpdateAvailability.UP_TO_DATE
+                }?.let {
+                    Text(
+                        "Ultima disponible: ${it.latestVersionName} (${it.latestVersionCode})",
+                        color = IptvTextPrimary,
+                        fontSize = 15.sp,
+                    )
+                    if (it.changelog.isNotBlank()) {
+                        Text(it.changelog, color = IptvTextMuted, fontSize = 14.sp)
+                    }
+                }
+                
+                Spacer(Modifier.height(8.dp))
+                
+                val selectedLanguageLabel = availableLanguages.find { it.first == preferredLanguage }?.second ?: "Español"
+                SettingsRowClickable(
+                    label = "Idioma preferido de series",
+                    value = selectedLanguageLabel,
+                    onClick = { showLanguageDialog = true }
+                )
+                Text(
+                    "Usado al reproducir series. Puedes cambiar el idioma desde el reproductor.",
+                    color = IptvTextMuted,
+                    fontSize = 14.sp,
+                )
+                
+                Spacer(Modifier.height(8.dp))
+                
                 Text(
                     "La lista M3U se guarda en local y solo se vuelve a descargar cuando hace falta o cuando la fuerzas desde aqui.",
                     color = IptvTextMuted,
                     fontSize = 15.sp,
                 )
+                FocusButton(label = updateActionLabel, icon = Icons.Outlined.PlayArrow) {
+                    if (isUpdateDownloading) return@FocusButton
+                    val hasPendingUpdate = availableUpdate?.let {
+                        evaluateAppUpdate(installedAppVersion ?: InstalledAppVersion("0", 0), it) != AppUpdateAvailability.UP_TO_DATE
+                    } == true
+                    if (hasPendingUpdate) {
+                        startUpdateFlow()
+                    } else if (!isCheckingUpdates) {
+                        checkForAppUpdates(showToast = true)
+                    }
+                }
                 FocusButton(label = "Refrescar lista ahora", icon = Icons.Outlined.History) {
                     refreshPlaylist()
                 }
@@ -1403,6 +1723,45 @@ class ComposeMainFragment : Fragment() {
                     performSignOut()
                 }
             }
+        }
+
+        if (showLanguageDialog) {
+            FilterDialog(
+                title = "Idioma preferido",
+                options = availableLanguages.map { it.second },
+                selectedOption = availableLanguages.find { it.first == preferredLanguage }?.second ?: "Español",
+                onOptionSelected = { selected ->
+                    val code = availableLanguages.find { it.second == selected }?.first ?: "ES"
+                    PreferencesManager.preferredLanguage = code
+                    preferredLanguage = code
+                    showLanguageDialog = false
+                },
+                onDismiss = {
+                    showLanguageDialog = false
+                    runCatching { languageFocusRequester.requestFocus() }
+                }
+            )
+        }
+    }
+
+    @Composable
+    private fun SettingsRowClickable(label: String, value: String, onClick: () -> Unit) {
+        var isFocused by remember { mutableStateOf(false) }
+        
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(if (isFocused) IptvFocusBg else Color.Transparent, RoundedCornerShape(8.dp))
+                .border(1.dp, if (isFocused) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
+                .clickable { onClick() }
+                .focusable()
+                .onFocusChanged { isFocused = it.isFocused }
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, color = IptvTextPrimary, fontSize = 16.sp)
+            Text("$value ▸", color = IptvAccent, fontSize = 16.sp)
         }
     }
 

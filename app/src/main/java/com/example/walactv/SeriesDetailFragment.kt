@@ -55,6 +55,10 @@ class SeriesDetailFragment : Fragment() {
             .sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
     }
 
+    private val displayEpisodes: List<CatalogItem> by lazy {
+        sortedEpisodes.uniqueSeriesEpisodes(PreferencesManager.getPreferredLanguageOrDefault())
+    }
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val seriesName = arguments?.getString(ARG_SERIES_NAME) ?: ""
         return ComposeView(requireContext()).apply {
@@ -70,11 +74,27 @@ class SeriesDetailFragment : Fragment() {
 
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
     private fun playEpisode(item: CatalogItem) {
-        val stream = item.streamOptions.firstOrNull() ?: return
+        val allEpisodesForSeries = sortedEpisodes
+        val logicalEpisodes = displayEpisodes
+        
+        val preferredLanguage = PreferencesManager.getPreferredLanguageOrDefault()
+        val episodeToPlay = allEpisodesForSeries.find { 
+            it.stableId == item.stableId || 
+            (it.seriesName == item.seriesName && 
+             it.seasonNumber == item.seasonNumber && 
+             it.episodeNumber == item.episodeNumber &&
+             normalizeLanguageCode(it.idioma) == normalizeLanguageCode(preferredLanguage))
+        } ?: item
 
-        val currentIndex = sortedEpisodes.indexOfFirst { it.stableId == item.stableId }
-        val nextEpisodeCallback: (() -> Unit)? = if (currentIndex >= 0 && currentIndex < sortedEpisodes.size - 1) {
-            { playEpisode(sortedEpisodes[currentIndex + 1]) }
+        val stream = episodeToPlay.streamOptions.firstOrNull() ?: return
+
+        val currentIndex = logicalEpisodes.indexOfFirst {
+            it.seriesName == episodeToPlay.seriesName &&
+                it.seasonNumber == episodeToPlay.seasonNumber &&
+                it.episodeNumber == episodeToPlay.episodeNumber
+        }
+        val nextEpisodeCallback: (() -> Unit)? = if (currentIndex >= 0 && currentIndex < logicalEpisodes.size - 1) {
+            { playEpisode(logicalEpisodes[currentIndex + 1]) }
         } else {
             null
         }
@@ -82,8 +102,8 @@ class SeriesDetailFragment : Fragment() {
         val playerFragment = PlayerFragment(
             streamUrl = stream.url,
             overlayNumber = item.kind.name,
-            overlayTitle = item.title,
-            overlayMeta = item.description.ifBlank { stream.label },
+            overlayTitle = episodeToPlay.title,
+            overlayMeta = episodeToPlay.description.ifBlank { stream.label },
             contentKind = item.kind,
             onNavigateChannel = { false },
             onNavigateOption = { false },
@@ -92,6 +112,8 @@ class SeriesDetailFragment : Fragment() {
             onOpenFavorites = { false },
             onOpenRecents = { false },
             onNextEpisode = nextEpisodeCallback,
+            allSeriesEpisodes = allEpisodesForSeries,
+            currentEpisode = episodeToPlay,
         )
         requireActivity().supportFragmentManager.beginTransaction()
             .replace(R.id.main_browse_fragment, playerFragment)
@@ -102,22 +124,27 @@ class SeriesDetailFragment : Fragment() {
 
 @Composable
 fun SeriesDetailScreen(seriesName: String, onEpisodeClick: (CatalogItem) -> Unit) {
+    val preferredLanguage = remember { PreferencesManager.getPreferredLanguageOrDefault() }
     val allEpisodes = remember(seriesName) {
         CatalogMemory.searchableItems
             .filter { it.kind == ContentKind.SERIES && it.seriesName == seriesName }
-            .sortedBy { it.episodeNumber ?: Int.MAX_VALUE }
+            .sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+    }
+
+    val uniqueEpisodes = remember(allEpisodes, preferredLanguage) {
+        allEpisodes.uniqueSeriesEpisodes(preferredLanguage)
     }
     
-    val seasons = remember(allEpisodes) {
-        allEpisodes.mapNotNull { it.seasonNumber }.distinct().sorted()
+    val seasons = remember(uniqueEpisodes) {
+        uniqueEpisodes.mapNotNull { it.seasonNumber }.distinct().sorted()
     }
     
     var selectedSeason by remember { mutableStateOf(seasons.firstOrNull() ?: 1) }
     var showSeasonDialog by remember { mutableStateOf(false) }
     val seasonFocusRequester = remember { FocusRequester() }
 
-    val displayEpisodes = remember(selectedSeason, allEpisodes) {
-        allEpisodes.filter { (it.seasonNumber ?: 1) == selectedSeason }
+    val displayEpisodes = remember(selectedSeason, uniqueEpisodes) {
+        uniqueEpisodes.filter { (it.seasonNumber ?: 1) == selectedSeason }
     }
 
     val posterUrl = allEpisodes.firstOrNull()?.imageUrl ?: ""
@@ -146,7 +173,7 @@ fun SeriesDetailScreen(seriesName: String, onEpisodeClick: (CatalogItem) -> Unit
                 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                     Text(seriesName, color = IptvTextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-                    Text("${seasons.size} Temporadas • ${allEpisodes.size} Episodios", color = IptvTextMuted, fontSize = 16.sp)
+                    Text("${seasons.size} Temporadas • ${uniqueEpisodes.size} Episodios", color = IptvTextMuted, fontSize = 16.sp)
                     
                     Spacer(Modifier.height(8.dp))
                     

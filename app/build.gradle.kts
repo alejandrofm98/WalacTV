@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.gradle.api.GradleException
 
 plugins {
     alias(libs.plugins.android.application)
@@ -14,6 +15,27 @@ val localProperties = Properties().apply {
 }
 
 val iptvBaseUrl = localProperties.getProperty("walactv.iptvBaseUrl", "https://example.invalid")
+val appUpdateUrl = localProperties.getProperty("walactv.updateUrl", "")
+val releaseStoreFile = localProperties.getProperty("walactv.release.storeFile", "")
+val releaseStorePassword = localProperties.getProperty("walactv.release.storePassword", "")
+val releaseKeyAlias = localProperties.getProperty("walactv.release.keyAlias", "")
+val releaseKeyPassword = localProperties.getProperty("walactv.release.keyPassword", "")
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { it.isNotBlank() }
+val requiresReleaseSigning = gradle.startParameter.taskNames.any { taskName ->
+    taskName.contains("Release", ignoreCase = true)
+}
+
+if (requiresReleaseSigning && !hasReleaseSigning) {
+    throw GradleException(
+        "Release signing is required. Configure walactv.release.storeFile, walactv.release.storePassword, walactv.release.keyAlias and walactv.release.keyPassword in local.properties.",
+    )
+}
+
 android {
     namespace = "com.example.walactv"
     compileSdk = 36
@@ -26,12 +48,27 @@ android {
         versionName = "1.0"
 
         buildConfigField("String", "IPTV_BASE_URL", "\"$iptvBaseUrl\"")
+        buildConfigField("String", "APP_UPDATE_URL", "\"$appUpdateUrl\"")
 
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
