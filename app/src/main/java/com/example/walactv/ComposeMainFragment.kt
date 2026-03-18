@@ -729,7 +729,7 @@ class ComposeMainFragment : Fragment() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(section.title, color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(10.dp))
-                Text(countLabel(section.items.size), color = IptvTextMuted, fontSize = 14.sp)
+                Text(sectionKindLabel(section.items), color = IptvTextMuted, fontSize = 14.sp)
             }
             LazyRow(state = lazyListState, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(section.items) { item ->
@@ -750,12 +750,12 @@ class ComposeMainFragment : Fragment() {
         var isFocused by remember { mutableStateOf(false) }
         val cardWidth = when (item.kind) {
             ContentKind.CHANNEL -> 180.dp
-            ContentKind.EVENT -> 220.dp
+            ContentKind.EVENT -> 180.dp
             else -> 140.dp
         }
         val imageHeight = when (item.kind) {
             ContentKind.CHANNEL -> 100.dp
-            ContentKind.EVENT -> 120.dp
+            ContentKind.EVENT -> 100.dp
             else -> 200.dp
         }
 
@@ -1632,8 +1632,16 @@ class ComposeMainFragment : Fragment() {
         }
     }
 
-    private fun countLabel(count: Int): String {
-        return if (count == 1) "1 elemento" else "$count elementos"
+    private fun sectionKindLabel(items: List<CatalogItem>): String {
+        val kind = items.firstOrNull()?.kind ?: return ""
+        val count = items.size
+        val (singular, plural) = when (kind) {
+            ContentKind.CHANNEL -> "canal" to "canales"
+            ContentKind.EVENT -> "evento" to "eventos"
+            ContentKind.MOVIE -> "pelicula" to "peliculas"
+            ContentKind.SERIES -> "serie" to "series"
+        }
+        return if (count == 1) "1 $singular" else "$count $plural"
     }
 
     private fun formatElapsed(lastUpdated: Long): String {
