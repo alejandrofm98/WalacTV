@@ -61,6 +61,8 @@ class PlayerFragment(
     private lateinit var bottomActionOneView: TextView
     private lateinit var bottomActionTwoView: TextView
     private lateinit var bottomActionThreeView: TextView
+    private var liveBtnAudio: ImageButton? = null
+    private var liveBtnSubtitles: ImageButton? = null
     private val handler = Handler(Looper.getMainLooper())
     private val digitBuffer = StringBuilder()
 
@@ -159,7 +161,16 @@ class PlayerFragment(
         bottomActionOneView = view.findViewById(R.id.bottom_action_one)
         bottomActionTwoView = view.findViewById(R.id.bottom_action_two)
         bottomActionThreeView = view.findViewById(R.id.bottom_action_three)
+        liveBtnAudio = view.findViewById(R.id.live_btn_audio)
+        liveBtnSubtitles = view.findViewById(R.id.live_btn_subtitles)
+        bindLiveTrackButtons()
         bindOverlay()
+    }
+
+    /** Wire live TV audio/subtitle buttons. */
+    private fun bindLiveTrackButtons() {
+        liveBtnAudio?.setOnClickListener { showAudioSelector() }
+        liveBtnSubtitles?.setOnClickListener { showSubtitleSelector() }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -273,6 +284,10 @@ class PlayerFragment(
 
     /** Wire the custom buttons inside the VOD controller layout. */
     private fun bindVodControls() {
+        playerView.findViewById<ImageButton>(R.id.vod_btn_audio)?.setOnClickListener {
+            showAudioSelector()
+        }
+
         playerView.findViewById<ImageButton>(R.id.vod_btn_subtitles)?.setOnClickListener {
             showSubtitleSelector()
         }
@@ -291,6 +306,40 @@ class PlayerFragment(
         handler.post(timeUpdateRunnable)
     }
 
+    /**
+     * Update button enabled/disabled states based on available tracks.
+     * Called when tracks are detected or change.
+     */
+    private fun updateTrackButtonStates() {
+        val exoPlayer = player ?: return
+
+        val hasAudioTracks = exoPlayer.currentTracks.groups.any { group ->
+            group.type == C.TRACK_TYPE_AUDIO && group.length > 0
+        }
+
+        val hasSubtitleTracks = exoPlayer.currentTracks.groups.any { group ->
+            group.type == C.TRACK_TYPE_TEXT && group.length > 0
+        }
+
+        val audioButton = if (isVodMode) {
+            playerView.findViewById<ImageButton>(R.id.vod_btn_audio)
+        } else {
+            liveBtnAudio
+        }
+
+        val subtitleButton = if (isVodMode) {
+            playerView.findViewById<ImageButton>(R.id.vod_btn_subtitles)
+        } else {
+            liveBtnSubtitles
+        }
+
+        audioButton?.isEnabled = hasAudioTracks
+        audioButton?.alpha = if (hasAudioTracks) 1.0f else 0.4f
+
+        subtitleButton?.isEnabled = hasSubtitleTracks
+        subtitleButton?.alpha = if (hasSubtitleTracks) 1.0f else 0.4f
+    }
+
     /** Seek the player forward or backward by [deltaMs] milliseconds. */
     private fun seekRelative(deltaMs: Long) {
         val exoPlayer = player ?: return
@@ -307,6 +356,81 @@ class PlayerFragment(
 
         val target = (exoPlayer.currentPosition + deltaMs).coerceIn(0, duration)
         exoPlayer.seekTo(target)
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  Audio track selection
+    // ──────────────────────────────────────────────────────────────────────
+
+    /** Show a dialog listing available audio tracks for the current media. */
+    private fun showAudioSelector() {
+        val exoPlayer = player ?: return
+        val ctx = context ?: return
+
+        val audioGroups = exoPlayer.currentTracks.groups.filter { group ->
+            group.type == C.TRACK_TYPE_AUDIO
+        }
+
+        if (audioGroups.isEmpty()) {
+            Toast.makeText(ctx, R.string.vod_no_audio_available, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        data class AudioTrackChoice(
+            val label: String,
+            val groupIndex: Int,
+            val trackIndex: Int,
+            val isSelected: Boolean,
+        )
+
+        val choices = mutableListOf<AudioTrackChoice>()
+
+        audioGroups.forEachIndexed { groupIdx, group ->
+            for (trackIdx in 0 until group.length) {
+                val format = group.getTrackFormat(trackIdx)
+                val lang = format.language?.uppercase() ?: "???"
+                val channelCount = format.channelCount
+                val label = if (channelCount > 0) {
+                    "$lang ($channelCount ch)"
+                } else {
+                    format.label ?: lang
+                }
+                val selected = group.isTrackSelected(trackIdx)
+                choices.add(AudioTrackChoice(label, groupIdx, trackIdx, selected))
+            }
+        }
+
+        val labels = choices.map { it.label }.toTypedArray()
+        val checkedIndex = choices.indexOfFirst { it.isSelected }.coerceAtLeast(0)
+
+        AlertDialog.Builder(ctx, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(R.string.vod_audio_dialog_title)
+            .setSingleChoiceItems(labels, checkedIndex) { dialog, which ->
+                val chosen = choices[which]
+                applyAudioSelection(exoPlayer, audioGroups, chosen.groupIndex, chosen.trackIndex)
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    /**
+     * Apply the user's audio track choice.
+     */
+    private fun applyAudioSelection(
+        exoPlayer: ExoPlayer,
+        audioGroups: List<Tracks.Group>,
+        groupIndex: Int,
+        trackIndex: Int,
+    ) {
+        val paramsBuilder = exoPlayer.trackSelectionParameters.buildUpon()
+
+        paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+        val group = audioGroups[groupIndex]
+        paramsBuilder.setOverrideForType(
+            TrackSelectionOverride(group.mediaTrackGroup, trackIndex),
+        )
+
+        exoPlayer.trackSelectionParameters = paramsBuilder.build()
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -825,11 +949,16 @@ class PlayerFragment(
                 Player.STATE_READY -> {
                     retryCount = 0
                     isPlayerInitialized = true
+                    updateTrackButtonStates()
                 }
 
                 Player.STATE_BUFFERING -> retryCount = 0
                 else -> Unit
             }
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            updateTrackButtonStates()
         }
 
         override fun onPlayerError(error: PlaybackException) {

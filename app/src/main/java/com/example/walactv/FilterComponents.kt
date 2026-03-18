@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,15 +21,19 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.example.walactv.ui.theme.*
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun FilterTopBar(
     showIdioma: Boolean,
@@ -37,11 +43,14 @@ fun FilterTopBar(
     onGrupoClicked: () -> Unit,
     idiomaFocusRequester: FocusRequester,
     grupoFocusRequester: FocusRequester,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    searchFocusRequester: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showIdioma) {
@@ -56,9 +65,80 @@ fun FilterTopBar(
             onClick = onGrupoClicked,
             focusRequester = grupoFocusRequester
         )
+        
+        Spacer(modifier = Modifier.weight(1f))
+        
+        SearchBar(
+            query = searchQuery,
+            onQueryChange = onSearchQueryChange,
+            focusRequester = searchFocusRequester
+        )
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    focusRequester: FocusRequester,
+    modifier: Modifier = Modifier,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val backgroundColor = if (isFocused) IptvFocusBg else IptvCard
+    val borderColor = if (isFocused) IptvFocusBorder else IptvSurfaceVariant
+
+    Box(
+        modifier = modifier
+            .width(220.dp)
+            .background(backgroundColor, RoundedCornerShape(8.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .focusRequester(focusRequester)
+            .focusable()
+            .onFocusChanged { isFocused = it.isFocused }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                Icons.Outlined.Search,
+                contentDescription = "Buscar",
+                tint = if (isFocused) IptvTextPrimary else IptvTextMuted,
+                modifier = Modifier.size(18.dp)
+            )
+            Box(modifier = Modifier.weight(1f)) {
+                if (query.isEmpty()) {
+                    Text(
+                        "Buscar...",
+                        color = IptvTextMuted,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = TextStyle(
+                        color = IptvTextPrimary,
+                        fontSize = 14.sp
+                    ),
+                    cursorBrush = SolidColor(IptvAccent),
+                    singleLine = true,
+                    decorationBox = { innerTextField ->
+                        Box {
+                            innerTextField()
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: FocusRequester) {
     var isFocused by remember { mutableStateOf(false) }
@@ -85,6 +165,7 @@ fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: Focus
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun FilterDialog(
     title: String,
@@ -194,6 +275,7 @@ fun FilterDialog(
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun DialogFilterItem(label: String, selected: Boolean, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }

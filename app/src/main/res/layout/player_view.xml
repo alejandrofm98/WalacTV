@@ -114,6 +114,32 @@
             <TextView
                 android:id="@+id/bottom_action_three"
                 style="@style/PlayerActionCard" />
+
+            <View
+                android:layout_width="16dp"
+                android:layout_height="1dp" />
+
+            <ImageButton
+                android:id="@+id/live_btn_audio"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/vod_audio"
+                android:focusable="true"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_vod_audio" />
+
+            <ImageButton
+                android:id="@+id/live_btn_subtitles"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/vod_subtitles"
+                android:focusable="true"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_vod_subtitles" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

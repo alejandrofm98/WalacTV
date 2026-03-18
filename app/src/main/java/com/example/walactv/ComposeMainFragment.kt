@@ -843,12 +843,14 @@ class ComposeMainFragment : Fragment() {
     private fun GuideContent(kind: ContentKind) {
         var selectedIdioma by remember { mutableStateOf(ALL_CHANNELS_GROUP) }
         var selectedGrupo by remember { mutableStateOf(ALL_CHANNELS_GROUP) }
+        var searchQuery by remember { mutableStateOf("") }
         
         var showIdiomaDialog by remember { mutableStateOf(false) }
         var showGrupoDialog by remember { mutableStateOf(false) }
         
         val idiomaFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
         val grupoFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+        val searchFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
 
         val sourceItems = remember(searchableItems, kind) {
             searchableItems.filter { it.kind == kind }
@@ -885,7 +887,7 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        val displayItems = remember(selectedIdioma, selectedGrupo, sourceItems) {
+        val displayItems = remember(selectedIdioma, selectedGrupo, sourceItems, searchQuery) {
             var items = sourceItems
             if (selectedIdioma == FAVORITES_GROUP) {
                 val favoriteIds = channelStateStore.favoriteIds()
@@ -898,18 +900,22 @@ class ComposeMainFragment : Fragment() {
                 items = items.filter { it.subgrupo == selectedGrupo }
             }
             
-            items
-        }
-
-        val lazyListState = rememberLazyListState()
-        
-        LaunchedEffect(displayItems) {
-            if (kind == ContentKind.EVENT) {
-                val index = displayItems.indexOfFirst { isLikelyLiveNow(it) }
-                if (index > 0) {
-                    lazyListState.scrollToItem(index)
+            if (searchQuery.isNotBlank()) {
+                items = items.filter { 
+                    it.title.contains(searchQuery, ignoreCase = true) ||
+                    it.subtitle.contains(searchQuery, ignoreCase = true)
                 }
             }
+            
+            items.sortedBy { it.channelNumber ?: Int.MAX_VALUE }
+        }
+
+        LaunchedEffect(selectedIdioma) {
+            searchQuery = ""
+        }
+
+        LaunchedEffect(selectedGrupo) {
+            searchQuery = ""
         }
 
         Column(
@@ -934,17 +940,36 @@ class ComposeMainFragment : Fragment() {
                     onIdiomaClicked = { showIdiomaDialog = true },
                     onGrupoClicked = { showGrupoDialog = true },
                     idiomaFocusRequester = idiomaFocusRequester,
-                    grupoFocusRequester = grupoFocusRequester
+                    grupoFocusRequester = grupoFocusRequester,
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { searchQuery = it },
+                    searchFocusRequester = searchFocusRequester
                 )
 
-                LazyColumn(
-                    state = lazyListState,
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(displayItems) { item ->
-                        GuideRow(item = item, onFocused = { selectedHero = item }) {
-                            handleCardClick(item)
+                if (displayItems.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (searchQuery.isNotBlank()) "No hay resultados para \"$searchQuery\"" 
+                            else "No hay contenido disponible",
+                            color = IptvTextMuted,
+                            fontSize = 18.sp
+                        )
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(5),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        gridItems(displayItems) { item ->
+                            MediaCard(item = item, onFocused = { selectedHero = item }) {
+                                handleCardClick(item)
+                            }
                         }
                     }
                 }
@@ -993,12 +1018,14 @@ class ComposeMainFragment : Fragment() {
     private fun VodGridContent(kind: ContentKind) {
         var selectedIdioma by remember { mutableStateOf(ALL_CHANNELS_GROUP) }
         var selectedGrupo by remember { mutableStateOf(ALL_CHANNELS_GROUP) }
+        var searchQuery by remember { mutableStateOf("") }
         
         var showIdiomaDialog by remember { mutableStateOf(false) }
         var showGrupoDialog by remember { mutableStateOf(false) }
         
         val idiomaFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
         val grupoFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+        val searchFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
 
         val sourceItems = remember(searchableItems, kind) {
             searchableItems.filter { it.kind == kind }
@@ -1031,13 +1058,19 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        val displayItems = remember(selectedIdioma, selectedGrupo, sourceItems) {
+        val displayItems = remember(selectedIdioma, selectedGrupo, sourceItems, searchQuery) {
             var items = sourceItems
             if (selectedIdioma != ALL_CHANNELS_GROUP) {
                 items = items.filter { it.idioma == selectedIdioma }
             }
             if (selectedGrupo != ALL_CHANNELS_GROUP) {
                 items = items.filter { it.subgrupo == selectedGrupo }
+            }
+            if (searchQuery.isNotBlank()) {
+                items = items.filter { 
+                    it.title.contains(searchQuery, ignoreCase = true) ||
+                    it.subtitle.contains(searchQuery, ignoreCase = true)
+                }
             }
             
             if (kind == ContentKind.SERIES) {
@@ -1059,8 +1092,16 @@ class ComposeMainFragment : Fragment() {
                 
                 groups + ungroupedEps.sortedBy { it.title }
             } else {
-                items
+                items.sortedBy { it.title }
             }
+        }
+
+        LaunchedEffect(selectedIdioma) {
+            searchQuery = ""
+        }
+
+        LaunchedEffect(selectedGrupo) {
+            searchQuery = ""
         }
 
         Column(
@@ -1085,19 +1126,36 @@ class ComposeMainFragment : Fragment() {
                     onIdiomaClicked = { showIdiomaDialog = true },
                     onGrupoClicked = { showGrupoDialog = true },
                     idiomaFocusRequester = idiomaFocusRequester,
-                    grupoFocusRequester = grupoFocusRequester
+                    grupoFocusRequester = grupoFocusRequester,
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { searchQuery = it },
+                    searchFocusRequester = searchFocusRequester
                 )
 
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(5),
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    gridItems(displayItems) { item ->
-                        MediaCard(item = item, onFocused = { selectedHero = item }) {
-                            handleCardClick(item)
+                if (displayItems.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (searchQuery.isNotBlank()) "No hay resultados para \"$searchQuery\"" 
+                            else "No hay contenido disponible",
+                            color = IptvTextMuted,
+                            fontSize = 18.sp
+                        )
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(5),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        gridItems(displayItems) { item ->
+                            MediaCard(item = item, onFocused = { selectedHero = item }) {
+                                handleCardClick(item)
+                            }
                         }
                     }
                 }
@@ -1113,11 +1171,12 @@ class ComposeMainFragment : Fragment() {
                         selectedGrupo = ALL_CHANNELS_GROUP
                         selectedHero = null
                         showIdiomaDialog = false
+                        idiomaFocusRequester.requestFocus()
                     },
                     onDismiss = { showIdiomaDialog = false }
                 )
             }
-            
+
             LaunchedEffect(showIdiomaDialog) {
                 if (!showIdiomaDialog) {
                     runCatching { idiomaFocusRequester.requestFocus() }
@@ -1133,6 +1192,7 @@ class ComposeMainFragment : Fragment() {
                         selectedGrupo = it
                         selectedHero = null
                         showGrupoDialog = false
+                        grupoFocusRequester.requestFocus()
                     },
                     onDismiss = { showGrupoDialog = false }
                 )
@@ -1141,74 +1201,6 @@ class ComposeMainFragment : Fragment() {
             LaunchedEffect(showGrupoDialog) {
                 if (!showGrupoDialog) {
                     runCatching { grupoFocusRequester.requestFocus() }
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun GuideRow(
-        item: CatalogItem,
-        onFocused: () -> Unit,
-        onClick: () -> Unit,
-    ) {
-        var isFocused by remember { mutableStateOf(false) }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(if (isFocused) IptvFocusBg else IptvCard, RoundedCornerShape(10.dp))
-                .border(1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(10.dp))
-                .clickable { onClick() }
-                .focusable()
-                .onFocusChanged {
-                    isFocused = it.isFocused
-                    if (it.isFocused) onFocused()
-                }
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = item.channelNumber?.toString().orEmpty(),
-                color = if (isFocused) IptvTextPrimary else IptvTextMuted,
-                fontSize = 16.sp,
-                modifier = Modifier.width(48.dp),
-            )
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .background(IptvSurfaceVariant, RoundedCornerShape(8.dp))
-                    .clip(RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (item.kind == ContentKind.EVENT) {
-                    EventSportPlaceholder(item, emojiSize = 28.sp)
-                } else if (item.imageUrl.isNotBlank()) {
-                    RemoteImage(item.imageUrl, 160, 160, ScaleType.FIT_CENTER)
-                } else {
-                    PlaceholderIcon(kind = item.kind, size = 22.dp)
-                }
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(item.title, color = IptvTextPrimary, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    item.subtitle.ifBlank { item.group.ifBlank { kindLabel(item.kind) } },
-                    color = IptvTextMuted,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            item.badgeText.takeIf { it.isNotBlank() }?.let { badge ->
-                Spacer(Modifier.width(10.dp))
-                Box(
-                    modifier = Modifier
-                        .background(IptvSurface, RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    Text(badge, color = IptvTextMuted, fontSize = 12.sp)
                 }
             }
         }

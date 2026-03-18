@@ -2,6 +2,7 @@
 
 package com.example.walactv
 
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -12,16 +13,19 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
@@ -158,12 +162,14 @@ fun SeriesDetailScreen(seriesName: String, onEpisodeClick: (CatalogItem) -> Unit
 
             Spacer(Modifier.height(24.dp))
 
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(4),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
-                items(displayEpisodes) { ep ->
-                    EpisodeRow(ep) { onEpisodeClick(ep) }
+                items(displayEpisodes, key = { it.stableId }) { ep ->
+                    EpisodeCard(ep) { onEpisodeClick(ep) }
                 }
             }
         }
@@ -190,26 +196,90 @@ fun SeriesDetailScreen(seriesName: String, onEpisodeClick: (CatalogItem) -> Unit
 }
 
 @Composable
-fun EpisodeRow(item: CatalogItem, onClick: () -> Unit) {
+fun EpisodeCard(item: CatalogItem, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
+    var currentUrl by remember { mutableStateOf<String?>(null) }
     
-    Row(
+    LaunchedEffect(item.imageUrl) {
+        currentUrl = item.imageUrl
+    }
+    
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (isFocused) IptvFocusBg else IptvCard, RoundedCornerShape(8.dp))
-            .border(1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isFocused) IptvFocusBg else IptvCard)
+            .border(
+                width = 2.dp,
+                color = if (isFocused) IptvFocusBorder else Color.Transparent,
+                shape = RoundedCornerShape(12.dp)
+            )
             .clickable { onClick() }
             .focusable()
             .onFocusChanged { isFocused = it.isFocused }
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .scale(if (isFocused) 1.03f else 1f)
+            .padding(8.dp)
     ) {
-        val epNum = item.episodeNumber?.toString() ?: "-"
-        Text(epNum, color = if (isFocused) IptvTextPrimary else IptvTextMuted, fontSize = 18.sp, modifier = Modifier.width(40.dp))
-        Spacer(Modifier.width(16.dp))
-        Column {
-            Text(item.title, color = IptvTextPrimary, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("Episodio $epNum", color = IptvTextMuted, fontSize = 14.sp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(IptvSurfaceVariant)
+        ) {
+            val imageUrl = currentUrl
+            if (!imageUrl.isNullOrBlank()) {
+                var imageView by remember { mutableStateOf<ImageView?>(null) }
+                
+                AndroidView(
+                    factory = { context ->
+                        ImageView(context).apply {
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            imageView = this
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+                
+                LaunchedEffect(imageView, imageUrl) {
+                    imageView?.let { iv ->
+                        Glide.with(iv)
+                            .load(imageUrl)
+                            .override(300, 169)
+                            .into(iv)
+                    }
+                }
+            }
+            
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(8.dp)
+                    .background(
+                        Color.Black.copy(alpha = 0.7f),
+                        RoundedCornerShape(4.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                val epNum = item.episodeNumber?.toString() ?: "?"
+                Text(
+                    text = "EP $epNum",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
+        
+        Spacer(Modifier.height(8.dp))
+        
+        Text(
+            text = item.title,
+            color = if (isFocused) IptvTextPrimary else IptvTextMuted,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
