@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Custom controller layout for VOD (movies/series) playback.
+     Inspired by Stremio: seekbar on top, controls underneath.
      Media3 PlayerControlView binds automatically to views with @id/exo_* IDs. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -15,15 +17,15 @@
 
         <View
             android:layout_width="match_parent"
-            android:layout_height="120dp"
+            android:layout_height="140dp"
             android:background="@drawable/vod_gradient_top" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="32dp"
-            android:layout_marginTop="24dp"
-            android:layout_marginEnd="32dp"
+            android:layout_marginStart="40dp"
+            android:layout_marginTop="28dp"
+            android:layout_marginEnd="40dp"
             android:orientation="vertical">
 
             <TextView
@@ -37,8 +39,9 @@
                 android:shadowDy="2"
                 android:shadowRadius="8"
                 android:textColor="#FFFFFFFF"
-                android:textSize="24sp"
+                android:textSize="22sp"
                 android:textStyle="bold"
+                android:fontFamily="sans-serif-medium"
                 tools:text="Breaking Bad" />
 
             <TextView
@@ -48,22 +51,24 @@
                 android:layout_marginTop="4dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#B3FFFFFF"
-                android:textSize="15sp"
+                android:textColor="#99FFFFFF"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif"
                 tools:text="S3 · E7 · One Minute" />
         </LinearLayout>
     </FrameLayout>
 
-    <!-- Bottom gradient + controls -->
+    <!-- Bottom: gradient + seekbar + controls row (Stremio-style) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical">
 
+        <!-- Gradient fade above the controls -->
         <View
             android:layout_width="match_parent"
-            android:layout_height="160dp"
+            android:layout_height="180dp"
             android:background="@drawable/vod_gradient_bottom" />
 
         <LinearLayout
@@ -71,98 +76,105 @@
             android:layout_height="wrap_content"
             android:background="#E6000000"
             android:orientation="vertical"
-            android:paddingHorizontal="32dp"
+            android:paddingHorizontal="40dp"
             android:paddingTop="0dp"
-            android:paddingBottom="24dp">
+            android:paddingBottom="28dp">
 
-            <!-- Seek bar row: position / progress / duration -->
+            <!-- Seek bar (full width, Stremio-style: bar first, controls below) -->
+            <androidx.media3.ui.DefaultTimeBar
+                android:id="@id/exo_progress"
+                android:layout_width="match_parent"
+                android:layout_height="32dp"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                app:bar_height="3dp"
+                app:scrubber_enabled_size="14dp"
+                app:scrubber_dragged_size="18dp"
+                app:played_color="#7B5EF0"
+                app:unplayed_color="#33FFFFFF"
+                app:buffered_color="#80CBC4E6"
+                app:scrubber_color="#7B5EF0" />
+
+            <!-- Controls row: left group (play, next, subtitles, time) -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
-
-                <TextView
-                    android:id="@id/exo_position"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="sans-serif-medium"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="13sp"
-                    tools:text="23:41" />
-
-                <androidx.media3.ui.DefaultTimeBar
-                    android:id="@id/exo_progress"
-                    android:layout_width="0dp"
-                    android:layout_height="28dp"
-                    android:layout_marginHorizontal="12dp"
-                    android:layout_weight="1"
-                    android:focusable="true" />
-
-                <TextView
-                    android:id="@id/exo_duration"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="sans-serif-medium"
-                    android:textColor="#B3FFFFFF"
-                    android:textSize="13sp"
-                    tools:text="56:18" />
-            </LinearLayout>
-
-            <!-- Action buttons row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center"
-                android:orientation="horizontal">
-
-                <!-- Subtitles button -->
-                <ImageButton
-                    android:id="@+id/vod_btn_subtitles"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_marginEnd="32dp"
-                    android:background="?android:attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="@string/vod_subtitles"
-                    android:focusable="true"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_vod_subtitles"
-                    android:tooltipText="@string/vod_subtitles" />
-
-                <!-- Rewind 10s -->
-                <ImageButton
-                    android:id="@+id/vod_btn_rewind"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_marginEnd="24dp"
-                    android:background="?android:attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="@string/vod_rewind"
-                    android:focusable="true"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_vod_rewind_10" />
 
                 <!-- Play / Pause (Media3 auto-binds this ID) -->
                 <ImageButton
                     android:id="@id/exo_play_pause"
-                    android:layout_width="64dp"
-                    android:layout_height="64dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/vod_play_pause"
                     android:focusable="true"
                     android:scaleType="centerInside" />
 
-                <!-- Forward 10s -->
+                <!-- Next episode (only visible for series) -->
                 <ImageButton
-                    android:id="@+id/vod_btn_forward"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_marginStart="24dp"
+                    android:id="@+id/vod_btn_next"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="20dp"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="@string/vod_forward"
+                    android:contentDescription="@string/vod_next_episode"
                     android:focusable="true"
                     android:scaleType="centerInside"
-                    android:src="@drawable/ic_vod_forward_10" />
+                    android:src="@drawable/ic_vod_next"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+
+                <!-- Subtitles -->
+                <ImageButton
+                    android:id="@+id/vod_btn_subtitles"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="20dp"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/vod_subtitles"
+                    android:focusable="true"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_vod_subtitles" />
+
+                <!-- Time: current / duration -->
+                <TextView
+                    android:id="@+id/vod_position"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="24dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="#B3FFFFFF"
+                    android:textSize="13sp"
+                    tools:text="0:03" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginEnd="4dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="#55FFFFFF"
+                    android:textSize="13sp"
+                    android:text="/" />
+
+                <TextView
+                    android:id="@+id/vod_duration"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="#55FFFFFF"
+                    android:textSize="13sp"
+                    tools:text="41:28" />
+
+                <!-- Spacer to push nothing to the right for now -->
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

@@ -77,10 +77,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
 
     // Media3 ExoPlayer (todas con la misma versión)
-    implementation("androidx.media3:media3-exoplayer:1.9.0-rc01")
-    implementation("androidx.media3:media3-exoplayer-dash:1.9.0-rc01")
-    implementation("androidx.media3:media3-exoplayer-hls:1.9.0-rc01")
-    implementation("androidx.media3:media3-ui:1.9.0-rc01")
+    implementation("androidx.media3:media3-exoplayer:1.9.3")
+    implementation("androidx.media3:media3-exoplayer-dash:1.9.3")
+    implementation("androidx.media3:media3-exoplayer-hls:1.9.3")
+    implementation("androidx.media3:media3-ui:1.9.3")
 
     // Glide para cargar imágenes de logos
     implementation("com.github.bumptech.glide:glide:4.16.0")

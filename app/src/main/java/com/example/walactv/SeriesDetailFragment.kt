@@ -43,6 +43,14 @@ class SeriesDetailFragment : Fragment() {
         }
     }
 
+    /** All episodes for this series, sorted by season then episode number. */
+    private val sortedEpisodes: List<CatalogItem> by lazy {
+        val seriesName = arguments?.getString(ARG_SERIES_NAME) ?: ""
+        CatalogMemory.searchableItems
+            .filter { it.kind == ContentKind.SERIES && it.seriesName == seriesName }
+            .sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+    }
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val seriesName = arguments?.getString(ARG_SERIES_NAME) ?: ""
         return ComposeView(requireContext()).apply {
@@ -59,6 +67,14 @@ class SeriesDetailFragment : Fragment() {
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
     private fun playEpisode(item: CatalogItem) {
         val stream = item.streamOptions.firstOrNull() ?: return
+
+        val currentIndex = sortedEpisodes.indexOfFirst { it.stableId == item.stableId }
+        val nextEpisodeCallback: (() -> Unit)? = if (currentIndex >= 0 && currentIndex < sortedEpisodes.size - 1) {
+            { playEpisode(sortedEpisodes[currentIndex + 1]) }
+        } else {
+            null
+        }
+
         val playerFragment = PlayerFragment(
             streamUrl = stream.url,
             overlayNumber = item.kind.name,
@@ -71,6 +87,7 @@ class SeriesDetailFragment : Fragment() {
             onToggleFavorite = { false },
             onOpenFavorites = { false },
             onOpenRecents = { false },
+            onNextEpisode = nextEpisodeCallback,
         )
         requireActivity().supportFragmentManager.beginTransaction()
             .replace(R.id.main_browse_fragment, playerFragment)

@@ -24,8 +24,11 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 
 @UnstableApi
@@ -41,6 +44,7 @@ class PlayerFragment(
     private val onToggleFavorite: () -> Boolean,
     private val onOpenFavorites: () -> Boolean,
     private val onOpenRecents: () -> Boolean,
+    private val onNextEpisode: (() -> Unit)? = null,
 ) : Fragment() {
 
     private var player: ExoPlayer? = null
@@ -63,6 +67,7 @@ class PlayerFragment(
     private var retryCount: Int = 0
     private var isPlayerInitialized: Boolean = false
     private var isReleasing: Boolean = false
+    private lateinit var trackSelector: DefaultTrackSelector
 
     /** True when the content is a movie or series (VOD mode). */
     private val isVodMode: Boolean
@@ -95,6 +100,10 @@ class PlayerFragment(
         playerView.controllerShowTimeoutMs = VOD_CONTROLLER_TIMEOUT_MS
         playerView.controllerAutoShow = true
 
+        // Disable default time display - we use custom TextViews with proper formatting
+        playerView.setShowNextButton(false)
+        playerView.setShowPreviousButton(false)
+
         // Hide live-TV overlays since VOD uses its own controller
         // (channel_overlay and player_bottom_panel are in player_view.xml but not needed here)
         (playerView.parent as? ViewGroup)?.let { parent ->
@@ -108,9 +117,31 @@ class PlayerFragment(
                 if (visibility == View.VISIBLE) {
                     playerView.findViewById<TextView>(R.id.vod_title)?.text = overlayTitle
                     playerView.findViewById<TextView>(R.id.vod_subtitle)?.text = overlayMeta
+                    updateVodTimeDisplay()
                 }
             },
         )
+    }
+
+    /** Format time as H:MM:SS or M:SS (Stremio-style). */
+    private fun formatTime(ms: Long): String {
+        if (ms <= 0 || ms == C.TIME_UNSET) return "0:00"
+        val totalSeconds = ms / 1000
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        return if (hours > 0) {
+            "%d:%02d:%02d".format(hours, minutes, seconds)
+        } else {
+            "%d:%02d".format(minutes, seconds)
+        }
+    }
+
+    /** Update the custom position/duration TextViews with formatted time. */
+    private fun updateVodTimeDisplay() {
+        val exoPlayer = player ?: return
+        playerView.findViewById<TextView>(R.id.vod_position)?.text = formatTime(exoPlayer.currentPosition)
+        playerView.findViewById<TextView>(R.id.vod_duration)?.text = formatTime(exoPlayer.duration)
     }
 
     /** Configure the player view for live TV with the existing custom overlay. */
@@ -185,8 +216,30 @@ class PlayerFragment(
             val mediaSourceFactory = DefaultMediaSourceFactory(requireContext())
                 .setDataSourceFactory(dataSourceFactory)
 
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    /* minBufferMs = */ 15_000,
+                    /* maxBufferMs = */ 120_000,
+                    /* bufferForPlaybackMs = */ 2_500,
+                    /* bufferForPlaybackAfterRebufferMs = */ 5_000,
+                )
+                .build()
+
+            val renderersFactory = DefaultRenderersFactory(requireContext())
+                .setEnableDecoderFallback(true)
+
+            trackSelector = DefaultTrackSelector(requireContext())
+            trackSelector.setParameters(
+                trackSelector.buildUponParameters()
+                    .setMaxVideoSize(1920, 1080)
+                    .build()
+            )
+
             player = ExoPlayer.Builder(requireContext())
                 .setMediaSourceFactory(mediaSourceFactory)
+                .setLoadControl(loadControl)
+                .setRenderersFactory(renderersFactory)
+                .setTrackSelector(trackSelector)
                 .build()
                 .also { exoPlayer ->
                     playerView.player = exoPlayer
@@ -209,26 +262,51 @@ class PlayerFragment(
     //  VOD controls wiring
     // ──────────────────────────────────────────────────────────────────────
 
+    private val timeUpdateRunnable = object : Runnable {
+        override fun run() {
+            if (player != null && !isReleasing && isVodMode) {
+                updateVodTimeDisplay()
+                handler.postDelayed(this, 1000)
+            }
+        }
+    }
+
     /** Wire the custom buttons inside the VOD controller layout. */
     private fun bindVodControls() {
-        playerView.findViewById<ImageButton>(R.id.vod_btn_rewind)?.setOnClickListener {
-            seekRelative(-VOD_SEEK_INCREMENT_MS)
-        }
-        playerView.findViewById<ImageButton>(R.id.vod_btn_forward)?.setOnClickListener {
-            seekRelative(VOD_SEEK_INCREMENT_MS)
-        }
         playerView.findViewById<ImageButton>(R.id.vod_btn_subtitles)?.setOnClickListener {
             showSubtitleSelector()
         }
+
+        // Show and wire the "next episode" button only for series with a callback
+        val nextBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_next)
+        if (contentKind == ContentKind.SERIES && onNextEpisode != null) {
+            nextBtn?.visibility = View.VISIBLE
+            nextBtn?.setOnClickListener { onNextEpisode.invoke() }
+        } else {
+            nextBtn?.visibility = View.GONE
+        }
+
+        // Start periodic time display updates
+        handler.removeCallbacks(timeUpdateRunnable)
+        handler.post(timeUpdateRunnable)
     }
 
     /** Seek the player forward or backward by [deltaMs] milliseconds. */
     private fun seekRelative(deltaMs: Long) {
-        player?.let { exoPlayer ->
-            val target = (exoPlayer.currentPosition + deltaMs)
-                .coerceIn(0, exoPlayer.duration.coerceAtLeast(0))
-            exoPlayer.seekTo(target)
-        }
+        val exoPlayer = player ?: return
+        if (isReleasing) return
+
+        // Don't seek if the player isn't ready or duration is unknown.
+        // C.TIME_UNSET is Long.MIN_VALUE+1; coercing against it produces
+        // garbage values that crash Util.getStringForTime() on the
+        // MediaCodec_loop thread.
+        val duration = exoPlayer.duration
+        if (duration == C.TIME_UNSET || duration <= 0) return
+        if (exoPlayer.playbackState != Player.STATE_READY &&
+            exoPlayer.playbackState != Player.STATE_BUFFERING) return
+
+        val target = (exoPlayer.currentPosition + deltaMs).coerceIn(0, duration)
+        exoPlayer.seekTo(target)
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -399,14 +477,35 @@ class PlayerFragment(
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  Playback error handling (unchanged)
+    //  Playback error handling
     // ──────────────────────────────────────────────────────────────────────
 
-    private fun handlePlaybackError() {
+    private fun handlePlaybackError(error: PlaybackException? = null) {
         if (isReleasing) return
+
+        val errorMessage = error?.toString() ?: ""
+        val isCodecIncompatible = errorMessage.contains("NO_EXCEEDS_CAPABILITIES") ||
+            errorMessage.contains("Decoder failed") ||
+            errorMessage.contains("dolby-vision")
+
+        if (isCodecIncompatible) {
+            Log.w(TAG, "Error de codec incompatible detectado: $errorMessage")
+            val ctx = context
+            if (ctx != null) {
+                Toast.makeText(
+                    ctx,
+                    "Este contenido 4K Dolby Vision no es compatible con este dispositivo",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            releasePlayer()
+            activity?.onBackPressedDispatcher?.onBackPressed()
+            return
+        }
 
         if (retryCount < MAX_RETRIES) {
             retryCount += 1
+            Log.d(TAG, "Reintentando reproduccion ($retryCount/$MAX_RETRIES)")
             handler.postDelayed({
                 if (player != null && !isReleasing) {
                     try {
@@ -672,6 +771,14 @@ class PlayerFragment(
         isPlayerInitialized = false
         handler.removeCallbacksAndMessages(null)
 
+        // IMPORTANT: Detach the PlayerView BEFORE releasing the ExoPlayer.
+        // Otherwise the DefaultTimeBar / position TextView can still query
+        // the player on the MediaCodec_loop thread via Util.getStringForTime(),
+        // hitting a stale JNI reference and causing a native abort.
+        if (::playerView.isInitialized) {
+            playerView.player = null
+        }
+
         player?.let { exoPlayer ->
             try {
                 exoPlayer.stop()
@@ -682,9 +789,6 @@ class PlayerFragment(
             }
         }
 
-        if (::playerView.isInitialized) {
-            playerView.player = null
-        }
         player = null
         retryCount = 0
 
@@ -730,7 +834,7 @@ class PlayerFragment(
 
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "Error de reproduccion: ${error.message}", error)
-            handlePlaybackError()
+            handlePlaybackError(error)
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {

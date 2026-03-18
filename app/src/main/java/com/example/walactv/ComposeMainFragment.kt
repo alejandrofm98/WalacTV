@@ -450,11 +450,13 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun formatElapsedMillis(value: Long): String {
-        val seconds = value / 1000f
-        return if (seconds >= 60f) {
-            String.format(Locale.US, "%.1f min", seconds / 60f)
+        val totalSeconds = value / 1000
+        return if (totalSeconds < 60) {
+            "${totalSeconds}s"
         } else {
-            String.format(Locale.US, "%.1f s", seconds)
+            val minutes = totalSeconds / 60
+            val seconds = totalSeconds % 60
+            "$minutes min $seconds seg"
         }
     }
 
@@ -782,8 +784,8 @@ class ComposeMainFragment : Fragment() {
                 } else if (item.imageUrl.isNotBlank()) {
                     RemoteImage(
                         url = item.imageUrl,
-                        width = 600,
-                        height = 800,
+                        width = 300,
+                        height = 400,
                         scaleType = if (item.kind == ContentKind.CHANNEL) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP,
                     )
                 } else {
@@ -918,7 +920,7 @@ class ComposeMainFragment : Fragment() {
         ) {
             ScreenHeader(
                 title = screenTitle(kind),
-                subtitle = "Filtra por idioma y grupo, y entra directo con el mando",
+                subtitle = if (kind == ContentKind.CHANNEL) "Filtra por idioma y grupo" else "Filtra por grupo",
             )
 
             Column(
@@ -926,6 +928,7 @@ class ComposeMainFragment : Fragment() {
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 FilterTopBar(
+                    showIdioma = kind == ContentKind.CHANNEL,
                     selectedIdioma = selectedIdioma,
                     selectedGrupo = selectedGrupo,
                     onIdiomaClicked = { showIdiomaDialog = true },
@@ -1076,6 +1079,7 @@ class ComposeMainFragment : Fragment() {
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 FilterTopBar(
+                    showIdioma = true,
                     selectedIdioma = selectedIdioma,
                     selectedGrupo = selectedGrupo,
                     onIdiomaClicked = { showIdiomaDialog = true },
@@ -1238,8 +1242,8 @@ class ComposeMainFragment : Fragment() {
                     } else if (item.imageUrl.isNotBlank()) {
                         RemoteImage(
                             url = item.imageUrl,
-                            width = 720,
-                            height = 960,
+                            width = 360,
+                            height = 480,
                             scaleType = if (item.kind == ContentKind.CHANNEL) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP,
                         )
                     } else {
@@ -1570,6 +1574,9 @@ class ComposeMainFragment : Fragment() {
                     .override(width, height)
                     .dontTransform()
                     .into(imageView)
+            },
+            onRelease = { imageView ->
+                Glide.with(imageView).clear(imageView)
             },
             modifier = Modifier.fillMaxSize(),
         )

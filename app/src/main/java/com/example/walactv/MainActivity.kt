@@ -861,7 +861,8 @@ class CardPresenter : Presenter() {
         Glide.with(context)
             .asBitmap()
             .load(cardItem.imageUrl)
-            .into(object : CustomTarget<Bitmap>() {
+            .override(CARD_WIDTH, CARD_HEIGHT)
+            .into(object : CustomTarget<Bitmap>(CARD_WIDTH, CARD_HEIGHT) {
                 override fun onResourceReady(resource: Bitmap, transition: Transition<in Bitmap>?) {
                     val decorated = decorateBitmap(resource, cardItem)
                     cardView.mainImage = BitmapDrawable(context.resources, decorated)
@@ -885,8 +886,11 @@ class CardPresenter : Presenter() {
             return createChannelLogoBitmap(source, item)
         }
 
-        val scaled = Bitmap.createScaledBitmap(source, CARD_WIDTH, CARD_HEIGHT, true)
-        val bitmap = scaled.copy(Bitmap.Config.ARGB_8888, true)
+        val bitmap = Bitmap.createScaledBitmap(source, CARD_WIDTH, CARD_HEIGHT, true)
+            .let { scaled ->
+                if (scaled.isMutable) scaled
+                else scaled.copy(Bitmap.Config.ARGB_8888, true).also { scaled.recycle() }
+            }
         val canvas = Canvas(bitmap)
 
         val bottomShader = LinearGradient(
