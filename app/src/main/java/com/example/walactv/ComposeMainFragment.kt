@@ -275,11 +275,6 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun checkForAppUpdates(showToast: Boolean = false) {
-        if (!isValidUpdateUrl(resolveAppUpdateUrl(BuildConfig.APP_UPDATE_URL))) {
-            updateStatusMessage = "Actualizaciones no configuradas"
-            return
-        }
-
         scope.launch {
             isCheckingUpdates = true
             updateErrorMessage = null
@@ -393,8 +388,18 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun launchApkInstaller(apkUri: Uri) {
+        val contentUri = try {
+            val file = java.io.File(apkUri.path ?: return)
+            androidx.core.content.FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                file,
+            )
+        } catch (_: Exception) {
+            apkUri
+        }
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(apkUri, "application/vnd.android.package-archive")
+            setDataAndType(contentUri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

@@ -44,8 +44,8 @@ android {
         applicationId = "com.example.walactv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
 
         buildConfigField("String", "IPTV_BASE_URL", "\"$iptvBaseUrl\"")
         buildConfigField("String", "APP_UPDATE_URL", "\"$appUpdateUrl\"")

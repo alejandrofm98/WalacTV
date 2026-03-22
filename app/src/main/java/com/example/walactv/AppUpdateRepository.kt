@@ -30,14 +30,11 @@ class AppUpdateRepository(context: Context) {
     }
 
     suspend fun fetchRemoteUpdate(): AppUpdateInfo? = withContext(Dispatchers.IO) {
-        val updateUrl = resolveAppUpdateUrl(BuildConfig.APP_UPDATE_URL)
-        if (!isValidUpdateUrl(updateUrl)) return@withContext null
-
-        val connection = (URL(updateUrl).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(GITHUB_RELEASES_API).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = NETWORK_TIMEOUT_MS
             readTimeout = NETWORK_TIMEOUT_MS
-            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Accept", "application/vnd.github+json")
         }
 
         runCatching {

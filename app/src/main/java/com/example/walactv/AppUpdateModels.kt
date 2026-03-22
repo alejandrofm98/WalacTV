@@ -20,15 +20,25 @@ enum class AppUpdateAvailability {
     REQUIRED,
 }
 
-const val DEFAULT_APP_UPDATE_URL = "https://raw.githubusercontent.com/alejandrofm98/WalacTV/main/version.json"
+const val GITHUB_RELEASES_API = "https://api.github.com/repos/alejandrofm98/WalacTV/releases/latest"
 
 fun parseAppUpdateInfo(json: String, fetchedAtMillis: Long = System.currentTimeMillis()): AppUpdateInfo? {
+    val tagName = extractJsonString(json, "tag_name")
+    val versionName = tagName.removePrefix("v").trim()
+    val versionCode = versionName.split(".").let { parts ->
+        val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
+        val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        major * 100 + minor
+    }
+    val apkUrl = extractApkUrl(json)
+    val changelog = extractJsonString(json, "body")
+
     val info = AppUpdateInfo(
-        latestVersionName = extractJsonString(json, "latestVersionName"),
-        latestVersionCode = extractJsonInt(json, "latestVersionCode"),
-        minSupportedCode = extractJsonInt(json, "minSupportedCode"),
-        apkUrl = extractJsonString(json, "apkUrl"),
-        changelog = extractJsonString(json, "changelog"),
+        latestVersionName = versionName,
+        latestVersionCode = versionCode,
+        minSupportedCode = 1,
+        apkUrl = apkUrl,
+        changelog = changelog,
         fetchedAtMillis = fetchedAtMillis,
     )
     return if (info.isValid()) info else null
@@ -47,15 +57,9 @@ fun isValidUpdateUrl(url: String): Boolean {
     return normalized.startsWith("https://") || normalized.startsWith("http://")
 }
 
-fun resolveAppUpdateUrl(configuredUrl: String?): String {
-    val normalized = configuredUrl?.trim().orEmpty()
-    return if (normalized.isBlank()) DEFAULT_APP_UPDATE_URL else normalized
-}
-
 private fun AppUpdateInfo.isValid(): Boolean {
     if (latestVersionName.isBlank()) return false
-    if (latestVersionCode <= 0 || minSupportedCode <= 0) return false
-    if (minSupportedCode > latestVersionCode) return false
+    if (latestVersionCode <= 0) return false
     if (!isValidUpdateUrl(apkUrl)) return false
     return true
 }
@@ -65,7 +69,15 @@ private fun extractJsonString(json: String, key: String): String {
     return regex.find(json)?.groupValues?.getOrNull(1)?.trim().orEmpty()
 }
 
-private fun extractJsonInt(json: String, key: String): Int {
-    val regex = Regex("\"$key\"\\s*:\\s*(\\d+)")
-    return regex.find(json)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+private fun extractApkUrl(json: String): String {
+    val assetBlock = Regex("\"assets\"\\s*:\\s*\\[(.+?)\\]", RegexOption.DOT_MATCHES_ALL)
+        .find(json)?.groupValues?.getOrNull(1) ?: return ""
+    val assets = Regex("\\{[^}]+\\}").findAll(assetBlock).map { it.value }
+    for (asset in assets) {
+        val contentType = extractJsonString(asset, "content_type")
+        if (contentType == "application/vnd.android.package-archive") {
+            return extractJsonString(asset, "browser_download_url")
+        }
+    }
+    return ""
 }
