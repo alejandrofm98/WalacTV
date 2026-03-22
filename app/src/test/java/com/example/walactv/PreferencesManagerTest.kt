@@ -9,13 +9,13 @@ class PreferencesManagerTest {
     fun `keeps supported language values`() {
         assertEquals("ES", PreferencesManager.normalizePreferredLanguage("ES"))
         assertEquals("EN", PreferencesManager.normalizePreferredLanguage("EN"))
-        assertEquals("LATAM", PreferencesManager.normalizePreferredLanguage("LATAM"))
     }
 
     @Test
     fun `maps unsupported or empty values to ES`() {
         assertEquals("ES", PreferencesManager.normalizePreferredLanguage("VOSE"))
         assertEquals("ES", PreferencesManager.normalizePreferredLanguage("CAST"))
+        assertEquals("ES", PreferencesManager.normalizePreferredLanguage("LATAM"))
         assertEquals("ES", PreferencesManager.normalizePreferredLanguage(null))
         assertEquals("ES", PreferencesManager.normalizePreferredLanguage(""))
     }

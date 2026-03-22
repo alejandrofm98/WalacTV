@@ -436,8 +436,8 @@ class M3uCatalogStore(private val context: Context) {
     private fun buildBadge(kind: ContentKind, group: String): String {
         return when (kind) {
             ContentKind.CHANNEL -> group.substringBefore('|').trim().ifBlank { "TV" }.take(8)
-            ContentKind.MOVIE -> "CINE"
-            ContentKind.SERIES -> "SERIE"
+            ContentKind.MOVIE -> ""
+            ContentKind.SERIES -> ""
             ContentKind.EVENT -> ""
         }
     }

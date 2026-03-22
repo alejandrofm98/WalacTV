@@ -40,6 +40,8 @@ import com.bumptech.glide.Glide
 import com.example.walactv.ui.theme.*
 
 class SeriesDetailFragment : Fragment() {
+    private lateinit var repository: IptvRepository
+
     companion object {
         private const val ARG_SERIES_NAME = "series_name"
         fun newInstance(seriesName: String) = SeriesDetailFragment().apply {
@@ -47,16 +49,9 @@ class SeriesDetailFragment : Fragment() {
         }
     }
 
-    /** All episodes for this series, sorted by season then episode number. */
-    private val sortedEpisodes: List<CatalogItem> by lazy {
-        val seriesName = arguments?.getString(ARG_SERIES_NAME) ?: ""
-        CatalogMemory.searchableItems
-            .filter { it.kind == ContentKind.SERIES && it.seriesName == seriesName }
-            .sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
-    }
-
-    private val displayEpisodes: List<CatalogItem> by lazy {
-        sortedEpisodes.uniqueSeriesEpisodes(PreferencesManager.getPreferredLanguageOrDefault())
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        repository = IptvRepository(requireContext())
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -64,8 +59,8 @@ class SeriesDetailFragment : Fragment() {
         return ComposeView(requireContext()).apply {
             setContent {
                 WalacTVTheme {
-                    SeriesDetailScreen(seriesName) { item ->
-                        playEpisode(item)
+                    SeriesDetailScreen(seriesName, repository) { item, allEpisodesForSeries, logicalEpisodes ->
+                        playEpisode(item, allEpisodesForSeries, logicalEpisodes)
                     }
                 }
             }
@@ -73,10 +68,7 @@ class SeriesDetailFragment : Fragment() {
     }
 
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-    private fun playEpisode(item: CatalogItem) {
-        val allEpisodesForSeries = sortedEpisodes
-        val logicalEpisodes = displayEpisodes
-        
+    private fun playEpisode(item: CatalogItem, allEpisodesForSeries: List<CatalogItem>, logicalEpisodes: List<CatalogItem>) {
         val preferredLanguage = PreferencesManager.getPreferredLanguageOrDefault()
         val episodeToPlay = allEpisodesForSeries.find { 
             it.stableId == item.stableId || 
@@ -94,7 +86,7 @@ class SeriesDetailFragment : Fragment() {
                 it.episodeNumber == episodeToPlay.episodeNumber
         }
         val nextEpisodeCallback: (() -> Unit)? = if (currentIndex >= 0 && currentIndex < logicalEpisodes.size - 1) {
-            { playEpisode(logicalEpisodes[currentIndex + 1]) }
+            { playEpisode(logicalEpisodes[currentIndex + 1], allEpisodesForSeries, logicalEpisodes) }
         } else {
             null
         }
@@ -123,13 +115,17 @@ class SeriesDetailFragment : Fragment() {
 }
 
 @Composable
-fun SeriesDetailScreen(seriesName: String, onEpisodeClick: (CatalogItem) -> Unit) {
+fun SeriesDetailScreen(
+    seriesName: String,
+    repository: IptvRepository,
+    onEpisodeClick: (CatalogItem, List<CatalogItem>, List<CatalogItem>) -> Unit,
+) {
     val preferredLanguage = remember { PreferencesManager.getPreferredLanguageOrDefault() }
-    val allEpisodes = remember(seriesName) {
-        CatalogMemory.searchableItems
-            .filter { it.kind == ContentKind.SERIES && it.seriesName == seriesName }
+    val allEpisodesState = produceState<List<CatalogItem>>(initialValue = emptyList(), seriesName) {
+        value = runCatching { repository.loadSeriesEpisodes(seriesName) }.getOrDefault(emptyList())
             .sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
     }
+    val allEpisodes = allEpisodesState.value
 
     val uniqueEpisodes = remember(allEpisodes, preferredLanguage) {
         allEpisodes.uniqueSeriesEpisodes(preferredLanguage)
@@ -142,6 +138,10 @@ fun SeriesDetailScreen(seriesName: String, onEpisodeClick: (CatalogItem) -> Unit
     var selectedSeason by remember { mutableStateOf(seasons.firstOrNull() ?: 1) }
     var showSeasonDialog by remember { mutableStateOf(false) }
     val seasonFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(seasons) {
+        selectedSeason = seasons.firstOrNull() ?: 1
+    }
 
     val displayEpisodes = remember(selectedSeason, uniqueEpisodes) {
         uniqueEpisodes.filter { (it.seasonNumber ?: 1) == selectedSeason }
@@ -196,7 +196,7 @@ fun SeriesDetailScreen(seriesName: String, onEpisodeClick: (CatalogItem) -> Unit
                 modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
                 items(displayEpisodes, key = { it.stableId }) { ep ->
-                    EpisodeCard(ep) { onEpisodeClick(ep) }
+                    EpisodeCard(ep) { onEpisodeClick(ep, allEpisodes, uniqueEpisodes) }
                 }
             }
         }
@@ -204,10 +204,10 @@ fun SeriesDetailScreen(seriesName: String, onEpisodeClick: (CatalogItem) -> Unit
         if (showSeasonDialog) {
             FilterDialog(
                 title = "Selecciona Temporada",
-                options = seasons.map { "Temporada $it" },
-                selectedOption = "Temporada $selectedSeason",
+                options = seasons.map { CatalogFilterOption(value = it.toString(), label = "Temporada $it") },
+                selectedOption = selectedSeason.toString(),
                 onOptionSelected = {
-                    selectedSeason = it.removePrefix("Temporada ").toIntOrNull() ?: 1
+                    selectedSeason = it.value.toIntOrNull() ?: 1
                     showSeasonDialog = false
                 },
                 onDismiss = { showSeasonDialog = false }

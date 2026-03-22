@@ -33,6 +33,9 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.example.walactv.ui.theme.*
 
+internal const val COUNTRY_FILTER_LABEL = "Pais"
+internal const val COUNTRY_FILTER_DIALOG_TITLE = "Selecciona pais"
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun FilterTopBar(
@@ -46,6 +49,7 @@ fun FilterTopBar(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     searchFocusRequester: FocusRequester,
+    idiomaLabel: String = "Idioma",
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -55,7 +59,7 @@ fun FilterTopBar(
     ) {
         if (showIdioma) {
             FilterTopBarButton(
-                label = "Idioma: $selectedIdioma",
+                label = "$idiomaLabel: $selectedIdioma",
                 onClick = onIdiomaClicked,
                 focusRequester = idiomaFocusRequester
             )
@@ -169,9 +173,9 @@ fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: Focus
 @Composable
 fun FilterDialog(
     title: String,
-    options: List<String>,
+    options: List<CatalogFilterOption>,
     selectedOption: String,
-    onOptionSelected: (String) -> Unit,
+    onOptionSelected: (CatalogFilterOption) -> Unit,
     onDismiss: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -180,7 +184,7 @@ fun FilterDialog(
         if (searchQuery.isBlank()) {
             options
         } else {
-            options.filter { it.contains(searchQuery, ignoreCase = true) }
+            options.filter { matchesFilterSearch(it.label, searchQuery) }
         }
     }
 
@@ -250,7 +254,7 @@ fun FilterDialog(
                 } else {
                     val listState = rememberLazyListState()
                     LaunchedEffect(filteredOptions, selectedOption) {
-                        val index = filteredOptions.indexOf(selectedOption)
+                        val index = filteredOptions.indexOfFirst { it.value == selectedOption }
                         if (index > 0) {
                             listState.scrollToItem(index)
                         }
@@ -263,8 +267,8 @@ fun FilterDialog(
                     ) {
                         items(filteredOptions) { option ->
                             DialogFilterItem(
-                                label = option,
-                                selected = option == selectedOption,
+                                label = option.label,
+                                selected = option.value == selectedOption,
                                 onClick = { onOptionSelected(option) }
                             )
                         }

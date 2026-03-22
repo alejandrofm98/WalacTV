@@ -31,6 +31,12 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 
+internal fun isFatalPlaybackErrorForDevice(errorMessage: String): Boolean {
+    return errorMessage.contains("NO_EXCEEDS_CAPABILITIES") ||
+        errorMessage.contains("Decoder failed") ||
+        errorMessage.contains("dolby-vision")
+}
+
 @UnstableApi
 class PlayerFragment(
     private val streamUrl: String,
@@ -105,6 +111,7 @@ class PlayerFragment(
         playerView.useController = true
         playerView.controllerShowTimeoutMs = VOD_CONTROLLER_TIMEOUT_MS
         playerView.controllerAutoShow = true
+        playerView.requestFocus()
 
         // Disable default time display - we use custom TextViews with proper formatting
         playerView.setShowNextButton(false)
@@ -127,6 +134,8 @@ class PlayerFragment(
                 }
             },
         )
+
+        playerView.post { playerView.showController() }
     }
 
     /** Format time as H:MM:SS or M:SS (Stremio-style). */
@@ -675,9 +684,7 @@ class PlayerFragment(
         if (isReleasing) return
 
         val errorMessage = error?.toString() ?: ""
-        val isCodecIncompatible = errorMessage.contains("NO_EXCEEDS_CAPABILITIES") ||
-            errorMessage.contains("Decoder failed") ||
-            errorMessage.contains("dolby-vision")
+        val isCodecIncompatible = isFatalPlaybackErrorForDevice(errorMessage)
 
         if (isCodecIncompatible) {
             Log.w(TAG, "Error de codec incompatible detectado: $errorMessage")
@@ -690,7 +697,13 @@ class PlayerFragment(
                 ).show()
             }
             releasePlayer()
-            activity?.onBackPressedDispatcher?.onBackPressed()
+            runCatching {
+                parentFragmentManager.beginTransaction()
+                    .remove(this)
+                    .commitAllowingStateLoss()
+            }.onFailure {
+                Log.e(TAG, "No se pudo cerrar el reproductor tras error fatal", it)
+            }
             return
         }
 
@@ -1017,6 +1030,10 @@ class PlayerFragment(
                     retryCount = 0
                     isPlayerInitialized = true
                     updateTrackButtonStates()
+                    if (isVodMode) {
+                        playerView.requestFocus()
+                        playerView.showController()
+                    }
                 }
 
                 Player.STATE_BUFFERING -> retryCount = 0

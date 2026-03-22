@@ -14,7 +14,7 @@
     <string name="first_result_reached">Has llegado al primer resultado</string>
     <string name="error_loading_content">Error al cargar el catalogo: %1$s</string>
     <string name="loading_title">Cargando</string>
-    <string name="loading_message">Cargando calendario y cache local IPTV...</string>
+    <string name="loading_message">Cargando contenido IPTV...</string>
     <string name="empty_state_title">Sin contenido</string>
     <string name="empty_state_message">No llegaron eventos ni catalogo. Revisa red, fecha del dispositivo o la API.</string>
     <string name="error_state_title">Error de conexion</string>
@@ -35,9 +35,9 @@
     <string name="favorite_enabled">Favorito</string>
     <string name="live_now_header">Eventos ahora</string>
     <string name="settings_title">Ajustes</string>
-    <string name="settings_description">La lista M3U se guarda en local y solo se refresca una vez al dia, salvo que la fuerces aqui.</string>
-    <string name="settings_refresh_button">Refrescar playlist ahora</string>
-    <string name="settings_refreshing">Actualizando playlist local...</string>
+    <string name="settings_description">El catalogo se obtiene desde la API y puedes forzar una recarga desde aqui si notas datos desactualizados.</string>
+    <string name="settings_refresh_button">Recargar catalogo</string>
+    <string name="settings_refreshing">Recargando catalogo...</string>
     <string name="settings_refresh_done">Playlist actualizada</string>
     <string name="settings_refresh_failed">No se pudo refrescar: %1$s</string>
     <string name="settings_last_update_value">Ultima actualizacion: hace %1$s</string>

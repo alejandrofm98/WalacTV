@@ -121,4 +121,98 @@ class CatalogModelsTest {
         assertEquals("Movie Name", metadata.displayTitle)
         assertEquals("TOP MOVIES", metadata.groupTitle)
     }
+
+    @Test
+    fun `display card title only prefixes channel numbers for channels`() {
+        val channel = CatalogItem(
+            stableId = "channel:1",
+            title = "Canal Uno",
+            subtitle = "Noticias",
+            description = "",
+            imageUrl = "",
+            kind = ContentKind.CHANNEL,
+            group = "Noticias",
+            badgeText = "",
+            channelNumber = 7,
+            streamOptions = emptyList(),
+        )
+        val movie = channel.copy(stableId = "movie:1", kind = ContentKind.MOVIE, title = "Movie One")
+        val series = channel.copy(stableId = "series:1", kind = ContentKind.SERIES, title = "Serie One")
+
+        assertEquals("7  Canal Uno", displayCardTitle(channel))
+        assertEquals("Movie One", displayCardTitle(movie))
+        assertEquals("Serie One", displayCardTitle(series))
+    }
+
+    @Test
+    fun `groups series grid items by series name`() {
+        val episodeOne = CatalogItem(
+            stableId = "series:1",
+            title = "Serie Uno S01 E01",
+            subtitle = "Drama",
+            description = "",
+            imageUrl = "",
+            kind = ContentKind.SERIES,
+            group = "Drama",
+            badgeText = "",
+            seriesName = "Serie Uno",
+            seasonNumber = 1,
+            episodeNumber = 1,
+            streamOptions = emptyList(),
+        )
+        val episodeTwo = episodeOne.copy(stableId = "series:2", title = "Serie Uno S01 E02", episodeNumber = 2)
+        val standalone = episodeOne.copy(stableId = "series:3", title = "Miniserie", seriesName = null, seasonNumber = null, episodeNumber = null)
+
+        val result = buildSeriesGridItems(listOf(episodeOne, episodeTwo, standalone))
+
+        assertEquals(2, result.size)
+        assertEquals("series_group:Serie Uno", result.first().stableId)
+        assertEquals("Serie Uno", result.first().title)
+        assertEquals("2 episodios", result.first().subtitle)
+        assertEquals("Miniserie", result.last().title)
+    }
+
+    @Test
+    fun `filters channel items by selected country code`() {
+        val es = CatalogItem(
+            stableId = "channel:1",
+            title = "ES | Canal ES",
+            subtitle = "",
+            description = "",
+            imageUrl = "",
+            kind = ContentKind.CHANNEL,
+            group = "Deportes",
+            badgeText = "",
+            streamOptions = emptyList(),
+        )
+        val us = es.copy(stableId = "channel:2", title = "US | Canal US", group = "Sports")
+
+        val result = filterItemsByCountrySelection(listOf(es, us), "ES")
+
+        assertEquals(listOf(es), result)
+    }
+
+    @Test
+    fun `matches filter search ignoring accents`() {
+        assertEquals(true, matchesFilterSearch("España", "Espana"))
+    }
+
+    @Test
+    fun `matches filter search case insensitive`() {
+        assertEquals(true, matchesFilterSearch("ESPN", "espn"))
+        assertEquals(true, matchesFilterSearch("espn", "ESPN"))
+        assertEquals(true, matchesFilterSearch("Español", "ESP"))
+    }
+
+    @Test
+    fun `matches filter search partial match`() {
+        assertEquals(true, matchesFilterSearch("ESPN Sports Network", "espn"))
+        assertEquals(true, matchesFilterSearch("Sports ESPN", "sports"))
+    }
+
+    @Test
+    fun `does not match filter search when no match`() {
+        assertEquals(false, matchesFilterSearch("ESPN", "fox"))
+        assertEquals(false, matchesFilterSearch("Canal +", "espn"))
+    }
 }

@@ -6,7 +6,7 @@ import android.content.SharedPreferences
 object PreferencesManager {
     private const val PREFS_NAME = "walactv_prefs"
     private const val KEY_PREFERRED_LANGUAGE = "preferred_language"
-    private val SUPPORTED_LANGUAGES = setOf("ES", "EN", "LATAM")
+    private val SUPPORTED_LANGUAGES = setOf("ES", "EN")
 
     private var prefs: SharedPreferences? = null
 

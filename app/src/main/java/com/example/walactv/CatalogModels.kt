@@ -1,5 +1,7 @@
 package com.example.walactv
 
+import java.text.Normalizer
+
 enum class ContentKind {
     EVENT,
     CHANNEL,
@@ -40,6 +42,65 @@ fun CatalogItem.searchableText(): List<String> {
         add(kind.name)
         channelNumber?.let { add(it.toString()) }
     }
+}
+
+fun displayCardTitle(item: CatalogItem): String {
+    return if (item.kind == ContentKind.CHANNEL && item.channelNumber != null) {
+        "${item.channelNumber}  ${item.title}"
+    } else {
+        item.title
+    }
+}
+
+fun filterItemsByCountrySelection(items: List<CatalogItem>, country: String?): List<CatalogItem> {
+    val normalizedCountry = country?.trim()?.uppercase().orEmpty()
+    if (normalizedCountry.isBlank()) return items
+    return items.filter { item ->
+        item.idioma.trim().uppercase() == normalizedCountry ||
+            item.languageLabel?.takeIf { it.isNotBlank() }?.let(::normalizeLanguageCode) == normalizedCountry ||
+            normalizeLanguageCode(extractCountryFromTitle(item.title)) == normalizedCountry
+    }
+}
+
+fun matchesFilterSearch(label: String, query: String): Boolean {
+    return normalizeFilterSearchText(label).contains(normalizeFilterSearchText(query))
+}
+
+private fun normalizeFilterSearchText(value: String): String {
+    return Normalizer.normalize(value, Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "")
+        .lowercase()
+        .trim()
+}
+
+private fun extractCountryFromTitle(title: String): String? {
+    return Regex("^\\s*([A-Z]{2,12})\\s*[-|:]\\s*")
+        .find(title.uppercase())
+        ?.groupValues
+        ?.getOrNull(1)
+}
+
+fun buildSeriesGridItems(items: List<CatalogItem>): List<CatalogItem> {
+    val (groupedEpisodes, ungroupedEpisodes) = items.partition { it.seasonNumber != null }
+    val groupedSeries = groupedEpisodes.groupBy { it.seriesName ?: it.title }
+        .map { (seriesName, episodes) ->
+            val firstEpisode = episodes.first()
+            CatalogItem(
+                stableId = "series_group:$seriesName",
+                title = seriesName,
+                subtitle = firstEpisode.group,
+                description = firstEpisode.description,
+                imageUrl = firstEpisode.imageUrl,
+                kind = ContentKind.SERIES,
+                group = firstEpisode.group,
+                badgeText = "",
+                seriesName = seriesName,
+                streamOptions = emptyList(),
+            )
+        }
+        .sortedBy { it.title }
+
+    return groupedSeries + ungroupedEpisodes.sortedBy { it.title }
 }
 
 private data class SeriesEpisodeKey(
@@ -87,6 +148,16 @@ data class BrowseSection(
 data class HomeCatalog(
     val sections: List<BrowseSection>,
     val searchableItems: List<CatalogItem>,
+)
+
+data class CatalogFilterOption(
+    val value: String,
+    val label: String,
+)
+
+data class CatalogFilters(
+    val countries: List<CatalogFilterOption> = emptyList(),
+    val groups: List<CatalogFilterOption> = emptyList(),
 )
 
 val CatalogItem.idioma: String
@@ -175,7 +246,7 @@ private val LANGUAGE_TOKEN_REGEX = Regex(
 private fun normalizeLanguageToken(rawValue: String?): String? {
     if (rawValue.isNullOrBlank()) return null
     val cleaned = rawValue.uppercase().replace(Regex("[^A-Z0-9]+"), "")
-    return LANGUAGE_ALIASES[cleaned]
+    return LANGUAGE_ALIASES[cleaned] ?: cleaned.takeIf { it.length in 2..3 }
 }
 
 private fun detectLanguageFromGroup(groupTitle: String): String? {
