@@ -2,18 +2,22 @@ package com.example.walactv
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 class AppUpdateRepository(context: Context) {
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(NETWORK_TIMEOUT_S, TimeUnit.SECONDS)
+        .readTimeout(NETWORK_TIMEOUT_S, TimeUnit.SECONDS)
+        .build()
 
     fun installedVersion(): InstalledAppVersion {
         val packageInfo = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
@@ -30,19 +34,45 @@ class AppUpdateRepository(context: Context) {
     }
 
     suspend fun fetchRemoteUpdate(): AppUpdateInfo? = withContext(Dispatchers.IO) {
-        val connection = (URL(GITHUB_RELEASES_API).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = NETWORK_TIMEOUT_MS
-            readTimeout = NETWORK_TIMEOUT_MS
-            setRequestProperty("Accept", "application/vnd.github+json")
+        // Verificar conectividad primero
+        val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val isConnected = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val network = connectivityManager.activeNetwork
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+            capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        } else {
+            @Suppress("DEPRECATION")
+            connectivityManager.activeNetworkInfo?.isConnected == true
         }
 
-        runCatching {
-            connection.inputStream.bufferedReader().use(BufferedReader::readText)
-        }.getOrNull()?.let { body ->
-            parseAppUpdateInfo(body)
-        }.also {
-            connection.disconnect()
+        if (!isConnected) {
+            Log.w(TAG, "Sin conexión a internet detectada por el sistema")
+            return@withContext null
+        }
+
+        val request = Request.Builder()
+            .url(GITHUB_RELEASES_API)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "WalacTV")
+            .get()
+            .build()
+
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                Log.d(TAG, "Respuesta GitHub: ${response.code}")
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "GitHub API respondio con codigo ${response.code}")
+                    return@withContext null
+                }
+                val body = response.body?.string() ?: return@withContext null
+                parseAppUpdateInfo(body)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "=== ERROR DETALLADO ===")
+            Log.e(TAG, "Tipo: ${e.javaClass.name}")
+            Log.e(TAG, "Mensaje: ${e.message}")
+            Log.e(TAG, "Causa: ${e.cause?.javaClass?.name}: ${e.cause?.message}")
+            null
         }
     }
 
@@ -76,6 +106,7 @@ class AppUpdateRepository(context: Context) {
     }
 
     companion object {
+        private const val TAG = "AppUpdateRepo"
         private const val PREFS_NAME = "app_update_prefs"
         private const val KEY_LATEST_VERSION_NAME = "latest_version_name"
         private const val KEY_LATEST_VERSION_CODE = "latest_version_code"
@@ -83,6 +114,6 @@ class AppUpdateRepository(context: Context) {
         private const val KEY_APK_URL = "apk_url"
         private const val KEY_CHANGELOG = "changelog"
         private const val KEY_FETCHED_AT = "fetched_at"
-        private const val NETWORK_TIMEOUT_MS = 5_000
+        private const val NETWORK_TIMEOUT_S = 15L
     }
 }

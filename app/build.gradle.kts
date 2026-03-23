@@ -44,8 +44,8 @@ android {
         applicationId = "com.example.walactv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
 
         buildConfigField("String", "IPTV_BASE_URL", "\"$iptvBaseUrl\"")
         buildConfigField("String", "APP_UPDATE_URL", "\"$appUpdateUrl\"")
@@ -123,4 +123,7 @@ dependencies {
     // Glide para cargar imágenes de logos
     implementation("com.github.bumptech.glide:glide:4.16.0")
     annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
+
+    // OkHttp para actualizaciones
+    implementation(libs.okhttp)
 }

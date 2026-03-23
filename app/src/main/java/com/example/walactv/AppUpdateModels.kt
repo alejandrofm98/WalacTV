@@ -70,14 +70,8 @@ private fun extractJsonString(json: String, key: String): String {
 }
 
 private fun extractApkUrl(json: String): String {
-    val assetBlock = Regex("\"assets\"\\s*:\\s*\\[(.+?)\\]", RegexOption.DOT_MATCHES_ALL)
-        .find(json)?.groupValues?.getOrNull(1) ?: return ""
-    val assets = Regex("\\{[^}]+\\}").findAll(assetBlock).map { it.value }
-    for (asset in assets) {
-        val contentType = extractJsonString(asset, "content_type")
-        if (contentType == "application/vnd.android.package-archive") {
-            return extractJsonString(asset, "browser_download_url")
-        }
-    }
-    return ""
+    // Busca browser_download_url de APKs directamente en el JSON completo
+    // sin intentar parsear la estructura anidada con regex
+    val urlRegex = Regex("\"browser_download_url\"\\s*:\\s*\"([^\"]+\\.apk)\"")
+    return urlRegex.find(json)?.groupValues?.getOrNull(1).orEmpty()
 }

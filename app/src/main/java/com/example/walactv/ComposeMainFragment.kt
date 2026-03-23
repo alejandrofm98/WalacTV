@@ -61,6 +61,7 @@ import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -102,6 +103,7 @@ import com.example.walactv.ui.theme.IptvCard
 import com.example.walactv.ui.theme.IptvFocusBg
 import com.example.walactv.ui.theme.IptvFocusBorder
 import com.example.walactv.ui.theme.IptvLive
+import com.example.walactv.ui.theme.IptvOnline
 import com.example.walactv.ui.theme.IptvSurface
 import com.example.walactv.ui.theme.IptvSurfaceVariant
 import com.example.walactv.ui.theme.IptvTextMuted
@@ -279,14 +281,18 @@ class ComposeMainFragment : Fragment() {
             isCheckingUpdates = true
             updateErrorMessage = null
 
-            val remoteUpdate = runCatching { appUpdateRepository.fetchRemoteUpdate() }.getOrNull()
+            val result = runCatching { appUpdateRepository.fetchRemoteUpdate() }
+            if (result.isFailure) {
+                Log.e(TAG, "Error al comprobar actualizaciones", result.exceptionOrNull())
+            }
+            val remoteUpdate = result.getOrNull()
             if (remoteUpdate == null) {
                 if (mandatoryUpdate != null) {
                     updateStatusMessage = "Actualizacion obligatoria pendiente"
                 } else {
                     updateStatusMessage = "No se pudo comprobar"
                     if (showToast) {
-                        Toast.makeText(requireContext(), "No se pudo comprobar la actualizacion", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(requireContext(), "No se pudo comprobar: ${result.exceptionOrNull()?.message ?: "sin conexion"}", Toast.LENGTH_LONG).show()
                     }
                 }
                 isCheckingUpdates = false
@@ -909,8 +915,7 @@ class ComposeMainFragment : Fragment() {
 
             if (isEventGuide) {
                 filtered.sortedWith(
-                    compareByDescending<CatalogItem> { isLikelyLiveNow(it) }
-                        .thenBy { it.badgeText }
+                    compareBy<CatalogItem> { it.badgeText }
                         .thenBy { it.title },
                 )
             } else {
@@ -930,6 +935,14 @@ class ComposeMainFragment : Fragment() {
                     .onFailure { Log.e(TAG, "No se pudieron cargar los eventos", it) }
             } else {
                 ensureFiltersLoaded(kind, null)
+            }
+        }
+
+        // Auto-scroll al evento en vivo
+        LaunchedEffect(displayItems) {
+            if (isEventGuide && displayItems.isNotEmpty()) {
+                val index = displayItems.indexOfFirst { isLikelyLiveNow(it) }
+                if (index > 0) lazyGridState.scrollToItem(index)
             }
         }
 
@@ -1292,8 +1305,9 @@ class ComposeMainFragment : Fragment() {
     @Composable
     private fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> Unit) {
         var isFocused by remember { mutableStateOf(false) }
-        val cardWidth = if (item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT) 180.dp else 140.dp
-        val imageHeight = if (item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT) 100.dp else 200.dp
+        val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
+        val cardWidth = if (isChannelOrEvent) 190.dp else 140.dp
+        val imageHeight = if (isChannelOrEvent) 107.dp else 200.dp
 
         Column(
             modifier = Modifier
@@ -1323,7 +1337,7 @@ class ComposeMainFragment : Fragment() {
                     else -> PlaceholderIcon(kind = item.kind)
                 }
                 item.badgeText
-                    .takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES }
+                    .takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES && item.kind != ContentKind.CHANNEL }
                     ?.let { badge ->
                     Box(
                         modifier = Modifier
@@ -1336,22 +1350,32 @@ class ComposeMainFragment : Fragment() {
             }
             val isVod = item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES
             Column(
-                modifier = Modifier.fillMaxWidth().height(if (isVod) 64.dp else 68.dp).padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = if (isVod) Arrangement.Center else Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (isChannelOrEvent) Modifier.height(78.dp) else Modifier.height(64.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = if (isVod) Arrangement.Center else Arrangement.Top,
             ) {
                 Text(
                     item.normalizedTitle ?: item.title,
                     color = IptvTextPrimary,
-                    fontSize = 14.sp,
+                    fontSize = if (isChannelOrEvent) 15.sp else 14.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (!isVod) {
+                    Spacer(Modifier.weight(1f))
+                    val rawSubtitle = item.subtitle
+                    val displaySubtitle = if (item.badgeText.isNotBlank() && rawSubtitle.contains(item.badgeText)) {
+                        rawSubtitle.replace(item.badgeText, "").replace("•", "").trim()
+                    } else {
+                        rawSubtitle
+                    }.ifBlank { item.group.ifBlank { kindLabel(item.kind) } }
                     Text(
-                        item.subtitle.ifBlank { item.group.ifBlank { kindLabel(item.kind) } },
+                        displaySubtitle,
                         color = IptvTextMuted,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1410,45 +1434,103 @@ class ComposeMainFragment : Fragment() {
     private fun SettingsContent() {
         var preferredLanguage by remember { mutableStateOf(PreferencesManager.getPreferredLanguageOrDefault()) }
         var showLanguageDialog by remember { mutableStateOf(false) }
+        var showChangelogDialog by remember { mutableStateOf(false) }
         val languageFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
         val availableLanguages = listOf("ES" to "Español", "EN" to "Inglés")
         val installedVersionLabel = installedAppVersion?.let { "${it.versionName} (${it.versionCode})" } ?: "Desconocida"
         val hasUpdate = availableUpdate?.let { evaluateAppUpdate(installedAppVersion ?: InstalledAppVersion("0", 0), it) != AppUpdateAvailability.UP_TO_DATE } == true
         val updateActionLabel = when {
-            isUpdateDownloading -> "Descargando actualizacion"
-            hasUpdate -> "Descargar actualizacion"
-            isCheckingUpdates -> "Comprobando actualizaciones"
-            else -> "Buscar actualizaciones"
+            isUpdateDownloading -> "Descargando..."
+            isCheckingUpdates   -> "Comprobando..."
+            hasUpdate           -> "Descargar actualización"
+            else                -> "Buscar actualizaciones"
         }
 
         Column(modifier = Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-            ScreenHeader(title = "Ajustes", subtitle = "Idioma preferido, actualizaciones y sesion")
+            ScreenHeader(title = "Ajustes", subtitle = "Actualizaciones, idioma y sesion")
             Column(
-                modifier = Modifier.width(760.dp).background(IptvSurface, RoundedCornerShape(10.dp)).border(1.dp, IptvSurfaceVariant, RoundedCornerShape(10.dp)).padding(24.dp),
+                modifier = Modifier
+                    .width(760.dp)
+                    .background(IptvSurface, RoundedCornerShape(10.dp))
+                    .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(10.dp))
+                    .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                SettingsRow("Estado de la lista", if (isLoaded) "Cargada" else "Cargando")
+                val selectedLanguageLabel = availableLanguages.find { it.first == preferredLanguage }?.second ?: "Español"
+                SettingsRowClickable(label = "Idioma de series", value = selectedLanguageLabel) { showLanguageDialog = true }
                 SettingsRow("Version de la app", installedVersionLabel)
-                SettingsRow("Estado de actualizacion", updateStatusMessage)
                 SettingsRow("Canales cargados", channelLineup.size.toString())
                 SettingsRow("Contenido indexado", searchableItems.size.toString())
                 updateErrorMessage?.let { Text(it, color = IptvLive, fontSize = 14.sp) }
-                availableUpdate?.takeIf { hasUpdate }?.let {
-                    Text("Ultima disponible: ${it.latestVersionName} (${it.latestVersionCode})", color = IptvTextPrimary, fontSize = 15.sp)
-                    if (it.changelog.isNotBlank()) Text(it.changelog, color = IptvTextMuted, fontSize = 14.sp)
+
+                val update = availableUpdate
+                if (hasUpdate && update != null) {
+                    Text(
+                        "Ultima version: v${update.latestVersionName}",
+                        color = IptvAccent,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                } else if (update != null) {
+                    Text(
+                        "Actualizado a la ultima version",
+                        color = IptvOnline,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
                 }
-                Spacer(Modifier.height(8.dp))
-                val selectedLanguageLabel = availableLanguages.find { it.first == preferredLanguage }?.second ?: "Español"
-                SettingsRowClickable(label = "Idioma preferido de series", value = selectedLanguageLabel) { showLanguageDialog = true }
-                Text("Usado al reproducir series. Puedes cambiar el idioma desde el reproductor.", color = IptvTextMuted, fontSize = 14.sp)
-                Spacer(Modifier.height(8.dp))
-                FocusButton(label = updateActionLabel, icon = Icons.Outlined.PlayArrow) {
-                    if (!isUpdateDownloading) {
-                        if (hasUpdate) startUpdateFlow() else if (!isCheckingUpdates) checkForAppUpdates(showToast = true)
+
+                val changelogText = update?.changelog
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (!changelogText.isNullOrBlank()) {
+                        FocusButton(
+                            label = "Ver novedades",
+                            icon = Icons.Outlined.Info,
+                            modifier = Modifier.weight(1f),
+                        ) { showChangelogDialog = true }
+                    }
+                    FocusButton(
+                        label = updateActionLabel,
+                        icon = Icons.Outlined.PlayArrow,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        if (!isUpdateDownloading && !isCheckingUpdates) {
+                            scope.launch {
+                                isCheckingUpdates = true
+
+                                val remoteUpdate = runCatching {
+                                    appUpdateRepository.fetchRemoteUpdate()
+                                }.getOrNull()
+
+                                if (remoteUpdate != null) {
+                                    appUpdateRepository.cacheUpdate(remoteUpdate)
+                                    availableUpdate = remoteUpdate
+                                }
+
+                                val installed = installedAppVersion
+                                val latest = remoteUpdate ?: availableUpdate
+
+                                isCheckingUpdates = false
+
+                                if (latest == null || installed == null ||
+                                    installed.versionName.trim() == latest.latestVersionName.trim()
+                                ) {
+                                    Toast.makeText(
+                                        requireContext(),
+                                        "Ya tienes la última versión instalada",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                } else {
+                                    startUpdateFlow()
+                                }
+                            }
+                        }
                     }
                 }
-                FocusButton(label = "Refrescar lista ahora", icon = Icons.Outlined.History) { refreshCatalog() }
-                FocusButton(label = "Cerrar sesion", icon = Icons.Outlined.Settings) { performSignOut() }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    FocusButton(label = "Cerrar sesion", icon = Icons.Outlined.Settings) { performSignOut() }
+                }
             }
         }
 
@@ -1457,9 +1539,24 @@ class ComposeMainFragment : Fragment() {
                 title = "Idioma preferido",
                 options = availableLanguages.map { CatalogFilterOption(value = it.first, label = it.second) },
                 selectedOption = preferredLanguage,
-                onOptionSelected = { PreferencesManager.preferredLanguage = it.value; preferredLanguage = it.value; showLanguageDialog = false },
+                onOptionSelected = {
+                    PreferencesManager.preferredLanguage = it.value
+                    preferredLanguage = it.value
+                    showLanguageDialog = false
+                },
                 onDismiss = { showLanguageDialog = false; runCatching { languageFocusRequester.requestFocus() } },
             )
+        }
+
+        if (showChangelogDialog) {
+            val update = availableUpdate
+            if (update != null) {
+                ChangelogDialog(
+                    versionName = update.latestVersionName,
+                    markdown = update.changelog,
+                    onDismiss = { showChangelogDialog = false },
+                )
+            }
         }
     }
 
@@ -1494,10 +1591,10 @@ class ComposeMainFragment : Fragment() {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     @Composable
-    private fun FocusButton(label: String, icon: ImageVector, onClick: () -> Unit) {
+    private fun FocusButton(label: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
         var isFocused by remember { mutableStateOf(false) }
         Row(
-            modifier = Modifier
+            modifier = modifier
                 .height(52.dp)
                 .background(if (isFocused) IptvAccent else IptvCard, RoundedCornerShape(8.dp))
                 .border(1.dp, if (isFocused) IptvTextPrimary else IptvSurfaceVariant, RoundedCornerShape(8.dp))
