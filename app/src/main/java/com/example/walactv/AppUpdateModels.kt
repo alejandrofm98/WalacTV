@@ -65,8 +65,37 @@ private fun AppUpdateInfo.isValid(): Boolean {
 }
 
 private fun extractJsonString(json: String, key: String): String {
-    val regex = Regex("\"$key\"\\s*:\\s*\"([^\"]*)\"")
-    return regex.find(json)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+    // Find the opening quote of the value, then walk forward respecting
+    // backslash-escaped characters so that \n, \", etc. are handled correctly.
+    val keyPattern = Regex("\"${Regex.escape(key)}\"\\s*:\\s*\"")
+    val match = keyPattern.find(json) ?: return ""
+    val start = match.range.last + 1 // position right after the opening "
+    val sb = StringBuilder()
+    var i = start
+    while (i < json.length) {
+        val c = json[i]
+        if (c == '\\' && i + 1 < json.length) {
+            val next = json[i + 1]
+            when (next) {
+                'n' -> sb.append('\n')
+                't' -> sb.append('\t')
+                'r' -> sb.append('\r')
+                '\\' -> sb.append('\\')
+                '"' -> sb.append('"')
+                else -> {
+                    sb.append('\\')
+                    sb.append(next)
+                }
+            }
+            i += 2
+        } else if (c == '"') {
+            break
+        } else {
+            sb.append(c)
+            i++
+        }
+    }
+    return sb.toString().trim()
 }
 
 private fun extractApkUrl(json: String): String {
