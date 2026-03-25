@@ -50,6 +50,7 @@ class PlayerFragment(
     private val onToggleFavorite: () -> Boolean,
     private val onOpenFavorites: () -> Boolean,
     private val onOpenRecents: () -> Boolean,
+    private val onOpenGuide: ((String?) -> Unit)? = null,
     private val onNextEpisode: (() -> Unit)? = null,
     private val allSeriesEpisodes: List<CatalogItem> = emptyList(),
     private val currentEpisode: CatalogItem? = null,
@@ -234,6 +235,8 @@ class PlayerFragment(
         if (!isPlayerInitialized) {
             initializePlayer()
         }
+        // Restart overlay timer AFTER initializePlayer (which clears all handler callbacks)
+        if (!isVodMode) showOverlayTemporarily()
     }
 
     override fun onResume() {
@@ -666,7 +669,8 @@ class PlayerFragment(
             bottomPanelView.visibility = View.VISIBLE
         }
         handler.removeCallbacks(hideOverlayRunnable)
-        handler.postDelayed(hideOverlayRunnable, OVERLAY_DURATION_MS)
+        handler.postDelayed(hideOverlayRunnable, 3000)
+        Log.d("OverlayDebug", "Timer started, hide in 3s")
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -1012,6 +1016,7 @@ class PlayerFragment(
     // ──────────────────────────────────────────────────────────────────────
 
     private val hideOverlayRunnable = Runnable {
+        Log.d("OverlayDebug", ">>> HIDE EXECUTED <<<")
         if (::overlayView.isInitialized) overlayView.visibility = View.GONE
         if (::bottomPanelView.isInitialized) bottomPanelView.visibility = View.GONE
     }

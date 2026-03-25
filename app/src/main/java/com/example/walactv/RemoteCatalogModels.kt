@@ -203,9 +203,6 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
     val titleWithoutChannelNumber = rawTitle.replace(Regex("^\\s*\\d{1,5}\\s+"), "").trim()
     val channelDisplayName = optString("display_name")
         .ifBlank { optString("channel_name") }
-        .ifBlank { optString("title") }
-        .ifBlank { optString("name") }
-        .ifBlank { titleWithoutChannelNumber }
 
     val rawGroup = optString("grupo").ifBlank {
         optString("group").ifBlank {
@@ -268,9 +265,8 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
 
 private fun buildRemoteDisplayTitle(kind: ContentKind, normalizedTitle: String, channelDisplayName: String): String {
     if (kind != ContentKind.CHANNEL) return normalizedTitle
-    return normalizedTitle.ifBlank {
-        channelDisplayName.replace(Regex("^\\s*\\d{1,5}\\s+"), "").trim()
-    }
+    val display = channelDisplayName.replace(Regex("^\\s*\\d{1,5}\\s+"), "").trim()
+    return display.ifBlank { normalizedTitle }
 }
 
 private fun defaultStreamLabel(kind: ContentKind): String {

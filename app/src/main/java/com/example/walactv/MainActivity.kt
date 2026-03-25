@@ -29,16 +29,18 @@ class MainActivity : FragmentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val container = findViewById<FrameLayout>(R.id.player_container)
         if (container != null && container.visibility == View.VISIBLE) {
-            val playerFragment =
-                supportFragmentManager.findFragmentById(R.id.player_container) as? PlayerFragment
-            if (playerFragment != null) {
+            val guideFragment = supportFragmentManager.findFragmentByTag("guide_fragment")
+            if (guideFragment != null && guideFragment.isVisible) {
+                return super.dispatchKeyEvent(event)
+            }
+
+            val playerFragment = supportFragmentManager.findFragmentByTag("player_fragment") as? PlayerFragment
+            if (playerFragment != null && playerFragment.isVisible) {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     if (playerFragment.dispatchKeyToPlayer(event.keyCode)) {
                         return true
                     }
                 } else if (event.action == KeyEvent.ACTION_UP) {
-                    // Consume ACTION_UP for D-pad keys we handle so PlayerView
-                    // cannot react to them (it steals focus and processes UP events).
                     when (event.keyCode) {
                         KeyEvent.KEYCODE_DPAD_UP,
                         KeyEvent.KEYCODE_DPAD_DOWN,

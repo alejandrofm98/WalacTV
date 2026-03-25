@@ -1,4 +1,4 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 
 package com.example.walactv
 
@@ -79,6 +79,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -647,6 +651,7 @@ class ComposeMainFragment : Fragment() {
     @Composable
     private fun SideRail() {
         val railItems = buildDefaultSideRailEntries().map(::toNavItem)
+        val focusRequesters = remember { List(railItems.size + 1) { FocusRequester() } }
 
         val railWidth by animateDpAsState(
             targetValue = if (isRailExpanded) 248.dp else 78.dp,
@@ -660,7 +665,18 @@ class ComposeMainFragment : Fragment() {
                 .fillMaxHeight()
                 .background(IptvSurface)
                 .border(1.dp, IptvSurfaceVariant)
-                .onFocusChanged { isRailExpanded = it.hasFocus },
+                .focusable()
+                .onFocusChanged { isRailExpanded = it.hasFocus }
+                .onPreviewKeyEvent { keyEvent ->
+                    if (keyEvent.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
+                        keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT
+                    ) {
+                        val index = railItems.indexOfFirst { it.mode != null && currentMode == it.mode }
+                        if (index >= 0) focusRequesters[index].requestFocus()
+                        else focusRequesters.last().requestFocus()
+                        true
+                    } else false
+                },
         ) {
             Box(modifier = Modifier.height(100.dp)) {
                 androidx.compose.animation.AnimatedVisibility(
@@ -680,12 +696,13 @@ class ComposeMainFragment : Fragment() {
                 modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                railItems.forEach { item ->
+                railItems.forEachIndexed { index, item ->
                     NavigationItem(
                         icon = item.icon,
                         label = item.label,
                         selected = item.mode != null && currentMode == item.mode,
                         expanded = isRailExpanded,
+                        modifier = Modifier.focusRequester(focusRequesters[index]),
                     ) { item.onClick?.invoke() ?: item.mode?.let(::changeMode) }
                 }
             }
@@ -696,6 +713,7 @@ class ComposeMainFragment : Fragment() {
                     label = "Ajustes",
                     selected = currentMode == MainMode.Settings,
                     expanded = isRailExpanded,
+                    modifier = Modifier.focusRequester(focusRequesters.last()),
                 ) { changeMode(MainMode.Settings) }
             }
         }
@@ -767,14 +785,21 @@ class ComposeMainFragment : Fragment() {
     // ── Navigation item ───────────────────────────────────────────────────────
 
     @Composable
-    private fun NavigationItem(icon: ImageVector, label: String, selected: Boolean, expanded: Boolean, onClick: () -> Unit) {
+    private fun NavigationItem(
+        icon: ImageVector,
+        label: String,
+        selected: Boolean,
+        expanded: Boolean,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit
+    ) {
         var isFocused by remember { mutableStateOf(false) }
         val bgColor = when { isFocused -> IptvFocusBg; selected -> IptvCard; else -> Color.Transparent }
         val borderColor = when { isFocused -> IptvFocusBorder; selected -> IptvSurfaceVariant; else -> Color.Transparent }
         val contentColor = if (isFocused || selected) IptvTextPrimary else IptvTextMuted
 
         Row(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
                 .height(52.dp)
                 .background(bgColor, RoundedCornerShape(8.dp))
@@ -1549,11 +1574,18 @@ class ComposeMainFragment : Fragment() {
         }
 
         if (showChangelogDialog) {
-            val update = availableUpdate
+            val update = availableUpdate ?: mandatoryUpdate
             if (update != null) {
                 ChangelogDialog(
                     versionName = update.latestVersionName,
-                    markdown = update.changelog,
+                    markdown = update.changelog.ifBlank { "Sin notas de la version." },
+                    onDismiss = { showChangelogDialog = false },
+                )
+            } else {
+                val installed = installedAppVersion
+                ChangelogDialog(
+                    versionName = installed?.versionName ?: "Desconocida",
+                    markdown = "No hay informacion de actualizacion disponible en este momento.",
                     onDismiss = { showChangelogDialog = false },
                 )
             }
@@ -1813,6 +1845,7 @@ class ComposeMainFragment : Fragment() {
             onToggleFavorite = { toggleFavorite(item) },
             onOpenFavorites = ::openFavoriteChannel,
             onOpenRecents = ::openRecentChannel,
+            onOpenGuide = ::openGuideOverlay,
             streamOptionLabels = item.streamOptions.map { it.label },
             currentOptionIndex = optionIndex,
         )
@@ -1867,6 +1900,26 @@ class ComposeMainFragment : Fragment() {
             ?: return false
         playCatalogItem(match, 0)
         return true
+    }
+
+    private fun openGuideOverlay(initialGroup: String?) {
+        val fm = requireActivity().supportFragmentManager
+        fm.setFragmentResultListener(GuideFragment.REQUEST_KEY, this) { _, bundle ->
+            val channelId = bundle.getString(GuideFragment.KEY_CHANNEL_ID) ?: return@setFragmentResultListener
+            val item = channelLineup.firstOrNull { it.stableId == channelId } ?: return@setFragmentResultListener
+            playCatalogItem(item, 0)
+        }
+
+        val guideFragment = GuideFragment().apply {
+            if (initialGroup != null) {
+                arguments = Bundle().apply { putString("initial_group", initialGroup) }
+            }
+        }
+        
+        fm.beginTransaction()
+            .add(R.id.player_container, guideFragment, "guide_fragment")
+            .addToBackStack(null)
+            .commit()
     }
 
     private fun isLikelyLiveNow(item: CatalogItem): Boolean {

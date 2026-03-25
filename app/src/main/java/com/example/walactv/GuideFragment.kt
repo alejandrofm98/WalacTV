@@ -45,9 +45,15 @@ class GuideFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         groupsContainer = view.findViewById(R.id.guide_groups_container)
         channelListView = view.findViewById(R.id.guide_channel_list)
+        heroLogoView = view.findViewById(R.id.guide_hero_logo)
+        heroTitleView = view.findViewById(R.id.guide_hero_title)
+        heroMetaView = view.findViewById(R.id.guide_hero_meta)
+        heroDescriptionView = view.findViewById(R.id.guide_hero_description)
+
+        val initialGroup = arguments?.getString("initial_group") ?: ALL_CHANNELS_GROUP
 
         renderGroups()
-        applyGroup(ALL_CHANNELS_GROUP)
+        applyGroup(initialGroup)
 
         view.isFocusableInTouchMode = true
         view.requestFocus()
@@ -67,6 +73,7 @@ class GuideFragment : Fragment() {
         val groups = buildList {
             add(ALL_CHANNELS_GROUP)
             add(FAVORITES_GROUP)
+            add(RECENTS_GROUP)
             allChannels.map(CatalogItem::group)
                 .distinct()
                 .sorted()
@@ -99,6 +106,11 @@ class GuideFragment : Fragment() {
             FAVORITES_GROUP -> {
                 val favorites = ChannelStateStore(requireContext()).favoriteIds()
                 allChannels.filter { favorites.contains(it.stableId) }
+            }
+            RECENTS_GROUP -> {
+                val recents = ChannelStateStore(requireContext()).recentIds()
+                val byId = allChannels.associateBy { it.stableId }
+                recents.mapNotNull { byId[it] }
             }
             else -> allChannels.filter { it.group == group }
         }
@@ -199,5 +211,6 @@ class GuideFragment : Fragment() {
 
         private const val ALL_CHANNELS_GROUP = "Todos los canales"
         private const val FAVORITES_GROUP = "Favoritos"
+        private const val RECENTS_GROUP = "Recientes"
     }
 }

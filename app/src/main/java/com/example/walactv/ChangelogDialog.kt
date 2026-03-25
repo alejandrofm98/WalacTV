@@ -1,12 +1,12 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 
 package com.example.walactv
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -139,8 +139,8 @@ private fun CloseButton(onClick: () -> Unit) {
                 if (isFocused) IptvFocusBorder else Color.Transparent,
                 RoundedCornerShape(10.dp),
             )
-            .clickable { onClick() }
-            .focusable(),
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
