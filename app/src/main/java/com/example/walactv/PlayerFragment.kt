@@ -33,8 +33,8 @@ import androidx.media3.ui.PlayerView
 
 internal fun isFatalPlaybackErrorForDevice(errorMessage: String): Boolean {
     return errorMessage.contains("NO_EXCEEDS_CAPABILITIES") ||
-        errorMessage.contains("Decoder failed") ||
-        errorMessage.contains("dolby-vision")
+            errorMessage.contains("Decoder failed") ||
+            errorMessage.contains("dolby-vision")
 }
 
 @UnstableApi
@@ -53,6 +53,8 @@ class PlayerFragment(
     private val onNextEpisode: (() -> Unit)? = null,
     private val allSeriesEpisodes: List<CatalogItem> = emptyList(),
     private val currentEpisode: CatalogItem? = null,
+    private val streamOptionLabels: List<String> = emptyList(),
+    private val currentOptionIndex: Int = 0,
 ) : Fragment() {
 
     private var currentSeriesEpisode: CatalogItem? = currentEpisode
@@ -66,15 +68,21 @@ class PlayerFragment(
     private lateinit var bottomPanelView: LinearLayout
     private lateinit var bottomTitleView: TextView
     private lateinit var bottomMetaView: TextView
-    private lateinit var bottomGuideView: TextView
-    private lateinit var bottomHistoryView: TextView
-    private lateinit var bottomActionOneView: TextView
-    private lateinit var bottomActionTwoView: TextView
-    private lateinit var bottomActionThreeView: TextView
+    private var btnGuide: View? = null
+    private var btnHistory: View? = null
+    private var btnFavorites: View? = null
+    private var btnRecent: View? = null
+    private var btnChannel: View? = null
+    private var btnChannelLabel: TextView? = null
     private var liveBtnAudio: ImageButton? = null
     private var liveBtnSubtitles: ImageButton? = null
+    private var optionIndicatorView: TextView? = null
+    private var optionsListLayout: LinearLayout? = null
     private val handler = Handler(Looper.getMainLooper())
     private val digitBuffer = StringBuilder()
+
+    // ── Tracks the current option index locally so UP/DOWN updates it ──
+    private var liveOptionIndex: Int = currentOptionIndex
 
     private var retryCount: Int = 0
     private var isPlayerInitialized: Boolean = false
@@ -84,6 +92,10 @@ class PlayerFragment(
     /** True when the content is a movie or series (VOD mode). */
     private val isVodMode: Boolean
         get() = contentKind == ContentKind.MOVIE || contentKind == ContentKind.SERIES
+
+    /** True when this is an event (multiple stream options, UP/DOWN navigation). */
+    private val isEventMode: Boolean
+        get() = contentKind == ContentKind.EVENT
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -101,7 +113,6 @@ class PlayerFragment(
 
         view.isFocusable = true
         view.isFocusableInTouchMode = true
-        view.requestFocus()
 
         return view
     }
@@ -113,18 +124,14 @@ class PlayerFragment(
         playerView.controllerAutoShow = true
         playerView.requestFocus()
 
-        // Disable default time display - we use custom TextViews with proper formatting
         playerView.setShowNextButton(false)
         playerView.setShowPreviousButton(false)
 
-        // Hide live-TV overlays since VOD uses its own controller
-        // (channel_overlay and player_bottom_panel are in player_view.xml but not needed here)
         (playerView.parent as? ViewGroup)?.let { parent ->
             parent.findViewById<View>(R.id.channel_overlay)?.visibility = View.GONE
             parent.findViewById<View>(R.id.player_bottom_panel)?.visibility = View.GONE
         }
 
-        // Set title text inside the VOD controller layout
         playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
                 if (visibility == View.VISIBLE) {
@@ -159,7 +166,7 @@ class PlayerFragment(
         playerView.findViewById<TextView>(R.id.vod_duration)?.text = formatTime(exoPlayer.duration)
     }
 
-    /** Configure the player view for live TV with the existing custom overlay. */
+    /** Configure the player view for live TV / events with the existing custom overlay. */
     private fun setupLiveMode(view: View) {
         playerView.useController = false
         overlayView = view.findViewById(R.id.channel_overlay)
@@ -169,14 +176,23 @@ class PlayerFragment(
         bottomPanelView = view.findViewById(R.id.player_bottom_panel)
         bottomTitleView = view.findViewById(R.id.bottom_now_title)
         bottomMetaView = view.findViewById(R.id.bottom_now_meta)
-        bottomGuideView = view.findViewById(R.id.bottom_action_guide)
-        bottomHistoryView = view.findViewById(R.id.bottom_action_history)
-        bottomActionOneView = view.findViewById(R.id.bottom_action_one)
-        bottomActionTwoView = view.findViewById(R.id.bottom_action_two)
-        bottomActionThreeView = view.findViewById(R.id.bottom_action_three)
+        btnGuide = view.findViewById(R.id.btn_guide)
+        btnHistory = view.findViewById(R.id.btn_history)
+        btnFavorites = view.findViewById(R.id.btn_favorites)
+        btnRecent = view.findViewById(R.id.btn_recent)
+        btnChannel = view.findViewById(R.id.btn_channel)
+        btnChannelLabel = view.findViewById(R.id.btn_channel_label)
         liveBtnAudio = view.findViewById(R.id.live_btn_audio)
         liveBtnSubtitles = view.findViewById(R.id.live_btn_subtitles)
+
+        // IMPORTANT: find indicator inside channel_overlay, not at root level
+        val overlayLayout = view.findViewById<LinearLayout>(R.id.channel_overlay)
+        optionIndicatorView = overlayLayout.findViewById(R.id.channel_option_indicator)
+        optionsListLayout = overlayLayout.findViewById(R.id.channel_options_list)
+
+        bindLiveActionButtons()
         bindLiveTrackButtons()
+        bindOptionIndicator()
         bindOverlay()
     }
 
@@ -186,16 +202,31 @@ class PlayerFragment(
         liveBtnSubtitles?.setOnClickListener { showSubtitleSelector() }
     }
 
+    /** Wire live TV action buttons (guide, history, favorites, recent, channel). */
+    private fun bindLiveActionButtons() {
+        btnGuide?.setOnClickListener {
+            showOverlayTemporarily()
+        }
+        btnHistory?.setOnClickListener {
+            showOverlayTemporarily()
+            onOpenRecents()
+        }
+        btnFavorites?.setOnClickListener {
+            showOverlayTemporarily()
+            onOpenFavorites()
+        }
+        btnRecent?.setOnClickListener {
+            showOverlayTemporarily()
+            onOpenRecents()
+        }
+        btnChannel?.setOnClickListener {
+            showOverlayTemporarily()
+            showOptionsList()
+        }
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
-        view.setOnKeyListener { _, keyCode, event ->
-            if (event.action == KeyEvent.ACTION_DOWN) {
-                handleKeyPress(keyCode)
-            } else {
-                false
-            }
-        }
     }
 
     override fun onStart() {
@@ -240,14 +271,15 @@ class PlayerFragment(
             val mediaSourceFactory = DefaultMediaSourceFactory(requireContext())
                 .setDataSourceFactory(dataSourceFactory)
 
-            val loadControl = DefaultLoadControl.Builder()
-                .setBufferDurationsMs(
-                    /* minBufferMs = */ 15_000,
-                    /* maxBufferMs = */ 120_000,
-                    /* bufferForPlaybackMs = */ 2_500,
-                    /* bufferForPlaybackAfterRebufferMs = */ 5_000,
-                )
-                .build()
+            val loadControl = if (isVodMode) {
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(15_000, 120_000, 2_500, 5_000)
+                    .build()
+            } else {
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(5_000, 30_000, 1_500, 2_500)
+                    .build()
+            }
 
             val renderersFactory = DefaultRenderersFactory(requireContext())
                 .setEnableDecoderFallback(true)
@@ -295,7 +327,6 @@ class PlayerFragment(
         }
     }
 
-    /** Wire the custom buttons inside the VOD controller layout. */
     private fun bindVodControls() {
         playerView.findViewById<ImageButton>(R.id.vod_btn_audio)?.setOnClickListener {
             showAudioSelector()
@@ -305,7 +336,6 @@ class PlayerFragment(
             showSubtitleSelector()
         }
 
-        // Show and wire the "next episode" button only for series with a callback
         val nextBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_next)
         if (contentKind == ContentKind.SERIES && onNextEpisode != null) {
             nextBtn?.visibility = View.VISIBLE
@@ -314,15 +344,10 @@ class PlayerFragment(
             nextBtn?.visibility = View.GONE
         }
 
-        // Start periodic time display updates
         handler.removeCallbacks(timeUpdateRunnable)
         handler.post(timeUpdateRunnable)
     }
 
-    /**
-     * Update button enabled/disabled states based on available tracks.
-     * Called when tracks are detected or change.
-     */
     private fun updateTrackButtonStates() {
         val exoPlayer = player ?: return
 
@@ -354,29 +379,21 @@ class PlayerFragment(
         subtitleButton?.alpha = if (hasSubtitleTracks) 1.0f else 0.4f
     }
 
-    /** Seek the player forward or backward by [deltaMs] milliseconds. */
     private fun seekRelative(deltaMs: Long) {
         val exoPlayer = player ?: return
         if (isReleasing) return
-
-        // Don't seek if the player isn't ready or duration is unknown.
-        // C.TIME_UNSET is Long.MIN_VALUE+1; coercing against it produces
-        // garbage values that crash Util.getStringForTime() on the
-        // MediaCodec_loop thread.
         val duration = exoPlayer.duration
         if (duration == C.TIME_UNSET || duration <= 0) return
         if (exoPlayer.playbackState != Player.STATE_READY &&
             exoPlayer.playbackState != Player.STATE_BUFFERING) return
-
         val target = (exoPlayer.currentPosition + deltaMs).coerceIn(0, duration)
         exoPlayer.seekTo(target)
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  Audio track selection
+    //  Audio / Subtitle selectors (unchanged)
     // ──────────────────────────────────────────────────────────────────────
 
-    /** Show a dialog listing available audio tracks for the current media. */
     private fun showAudioSelector() {
         val exoPlayer = player ?: return
         val ctx = context ?: return
@@ -428,9 +445,6 @@ class PlayerFragment(
             .show()
     }
 
-    /**
-     * Apply the user's audio track choice.
-     */
     private fun applyAudioSelection(
         exoPlayer: ExoPlayer,
         audioGroups: List<Tracks.Group>,
@@ -495,25 +509,12 @@ class PlayerFragment(
             return
         }
 
-        if (::overlayTitleView.isInitialized) {
-            overlayTitleView.text = title
-        }
-        if (::overlayMetaView.isInitialized) {
-            overlayMetaView.text = meta
-        }
-        if (::bottomTitleView.isInitialized) {
-            bottomTitleView.text = title
-        }
-        if (::bottomMetaView.isInitialized) {
-            bottomMetaView.text = meta
-        }
+        if (::overlayTitleView.isInitialized) overlayTitleView.text = title
+        if (::overlayMetaView.isInitialized) overlayMetaView.text = meta
+        if (::bottomTitleView.isInitialized) bottomTitleView.text = title
+        if (::bottomMetaView.isInitialized) bottomMetaView.text = meta
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    //  Subtitle selection
-    // ──────────────────────────────────────────────────────────────────────
-
-    /** Show a dialog listing available subtitle tracks for the current media. */
     private fun showSubtitleSelector() {
         val exoPlayer = player ?: return
         val ctx = context ?: return
@@ -536,7 +537,6 @@ class PlayerFragment(
 
         val choices = mutableListOf<TrackChoice>()
 
-        // "Off" option
         val allDeselected = textGroups.none { group ->
             (0 until group.length).any { group.isTrackSelected(it) }
         }
@@ -565,10 +565,6 @@ class PlayerFragment(
             .show()
     }
 
-    /**
-     * Apply the user's subtitle choice.
-     * [groupIndex] == -1 means "turn subtitles off".
-     */
     private fun applySubtitleSelection(
         exoPlayer: ExoPlayer,
         textGroups: List<Tracks.Group>,
@@ -576,9 +572,7 @@ class PlayerFragment(
         trackIndex: Int,
     ) {
         val paramsBuilder = exoPlayer.trackSelectionParameters.buildUpon()
-
         if (groupIndex < 0) {
-            // Disable all text tracks
             paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
         } else {
             paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
@@ -587,23 +581,75 @@ class PlayerFragment(
                 TrackSelectionOverride(group.mediaTrackGroup, trackIndex),
             )
         }
-
         exoPlayer.trackSelectionParameters = paramsBuilder.build()
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  Live-TV overlay helpers (unchanged)
+    //  Option indicator (live / events)
     // ──────────────────────────────────────────────────────────────────────
+
+    private fun bindOptionIndicator() {
+        val total = streamOptionLabels.size
+        if (total <= 1) {
+            optionIndicatorView?.visibility = View.GONE
+            return
+        }
+        optionIndicatorView?.visibility = View.VISIBLE
+        updateOptionIndicator()
+    }
+
+    /**
+     * Refresh the indicator text and the options list (if visible)
+     * after [liveOptionIndex] has been updated.
+     */
+    private fun updateOptionIndicator() {
+        val total = streamOptionLabels.size
+        if (total <= 1) return
+        // e.g. "2 / 3"
+        optionIndicatorView?.text = "${liveOptionIndex + 1} / $total"
+        optionIndicatorView?.visibility = View.VISIBLE
+
+        // If the options list is currently shown, refresh it so the
+        // highlighted entry moves to the new index.
+        if (optionsListLayout?.visibility == View.VISIBLE) {
+            showOptionsList()
+        }
+    }
+
+    private fun showOptionsList() {
+        val layout = optionsListLayout ?: return
+        val labels = streamOptionLabels
+        if (labels.size <= 1) return
+
+        layout.removeAllViews()
+        layout.visibility = View.VISIBLE
+
+        val ctx = requireContext()
+        labels.forEachIndexed { index, label ->
+            val tv = TextView(ctx).apply {
+                text = if (index == liveOptionIndex) "▸ $label" else "  $label"
+                textSize = 14f
+                setTextColor(
+                    if (index == liveOptionIndex) 0xFF4FC3F7.toInt() else 0xCCFFFFFF.toInt()
+                )
+                setPadding(0, 4, 0, 4)
+            }
+            layout.addView(tv)
+        }
+
+        handler.removeCallbacks(hideOptionsListRunnable)
+        handler.postDelayed(hideOptionsListRunnable, OVERLAY_DURATION_MS)
+    }
+
+    private val hideOptionsListRunnable = Runnable {
+        optionsListLayout?.visibility = View.GONE
+    }
 
     private fun bindOverlay() {
         updateOverlay(overlayNumber, overlayTitle, overlayMeta)
         bottomTitleView.text = overlayTitle
         bottomMetaView.text = overlayMeta
-        bottomGuideView.text = "TV guide"
-        bottomHistoryView.text = "History"
-        bottomActionOneView.text = "Favorites"
-        bottomActionTwoView.text = "Recent"
-        bottomActionThreeView.text = overlayNumber
+        btnChannelLabel?.text = overlayNumber
         showOverlayTemporarily()
     }
 
@@ -624,49 +670,30 @@ class PlayerFragment(
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  MediaItem creation (unchanged)
+    //  MediaItem creation
     // ──────────────────────────────────────────────────────────────────────
 
     private fun createMediaItem(url: String): MediaItem {
         return when {
             url.contains(".m3u8", ignoreCase = true) -> {
-                MediaItem.Builder()
-                    .setUri(url)
-                    .setMimeType(MimeTypes.APPLICATION_M3U8)
-                    .build()
+                MediaItem.Builder().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build()
             }
-
             isChannelProxyUrl(url) -> {
-                MediaItem.Builder()
-                    .setUri(url)
-                    .setMimeType(MimeTypes.APPLICATION_M3U8)
-                    .build()
+                MediaItem.Builder().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build()
             }
-
             url.contains("/live/", ignoreCase = true) -> {
-                MediaItem.Builder()
-                    .setUri(url)
-                    .setMimeType(MimeTypes.VIDEO_MP2T)
-                    .build()
+                MediaItem.Builder().setUri(url).setMimeType(MimeTypes.VIDEO_MP2T).build()
             }
-
             url.contains("stream-proxy", ignoreCase = true) || url.endsWith(".ts", ignoreCase = true) -> {
-                MediaItem.Builder()
-                    .setUri(url)
-                    .setMimeType(MimeTypes.VIDEO_MP2T)
-                    .build()
+                MediaItem.Builder().setUri(url).setMimeType(MimeTypes.VIDEO_MP2T).build()
             }
-
             url.contains("/movie/", ignoreCase = true) ||
-                url.contains("/series/", ignoreCase = true) ||
-                url.endsWith(".mp4", ignoreCase = true) ||
-                url.endsWith(".mkv", ignoreCase = true) ||
-                url.endsWith(".avi", ignoreCase = true) -> {
-                MediaItem.Builder()
-                    .setUri(url)
-                    .build()
+                    url.contains("/series/", ignoreCase = true) ||
+                    url.endsWith(".mp4", ignoreCase = true) ||
+                    url.endsWith(".mkv", ignoreCase = true) ||
+                    url.endsWith(".avi", ignoreCase = true) -> {
+                MediaItem.Builder().setUri(url).build()
             }
-
             else -> MediaItem.fromUri(url)
         }
     }
@@ -736,146 +763,125 @@ class PlayerFragment(
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  Key handling – dispatches to VOD or Live path
+    //  Key handling
     // ──────────────────────────────────────────────────────────────────────
 
-    private fun handleKeyPress(keyCode: Int): Boolean {
-        return if (isVodMode) handleVodKeyPress(keyCode) else handleLiveKeyPress(keyCode)
-    }
+    fun dispatchKeyToPlayer(keyCode: Int): Boolean = handleKeyPress(keyCode)
 
-    /** D-pad handling for VOD: seek, play/pause, subtitles, back. */
+    private fun handleKeyPress(keyCode: Int): Boolean =
+        if (isVodMode) handleVodKeyPress(keyCode) else handleLiveKeyPress(keyCode)
+
+    /** D-pad handling for VOD: seek, play/pause, back. */
     private fun handleVodKeyPress(keyCode: Int): Boolean {
         return when (keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> {
-                seekRelative(-VOD_SEEK_INCREMENT_MS)
-                playerView.showController()
-                true
+                seekRelative(-VOD_SEEK_INCREMENT_MS); playerView.showController(); true
             }
-
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                seekRelative(VOD_SEEK_INCREMENT_MS)
-                playerView.showController()
-                true
+                seekRelative(VOD_SEEK_INCREMENT_MS); playerView.showController(); true
             }
-
             KeyEvent.KEYCODE_DPAD_CENTER,
-            KeyEvent.KEYCODE_ENTER,
-            -> {
-                player?.let { exoPlayer ->
-                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                }
-                playerView.showController()
-                true
+            KeyEvent.KEYCODE_ENTER -> {
+                player?.let { if (it.isPlaying) it.pause() else it.play() }
+                playerView.showController(); true
             }
-
             KeyEvent.KEYCODE_DPAD_UP,
-            KeyEvent.KEYCODE_DPAD_DOWN,
-            -> {
-                // Let Media3 controller handle focus navigation between buttons
-                playerView.showController()
-                false
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                playerView.showController(); false
             }
-
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                player?.let { exoPlayer ->
-                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                }
-                true
+                player?.let { if (it.isPlaying) it.pause() else it.play() }; true
             }
-
-            KeyEvent.KEYCODE_MEDIA_PLAY -> {
-                player?.play()
-                true
-            }
-
-            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                player?.pause()
-                true
-            }
-
+            KeyEvent.KEYCODE_MEDIA_PLAY  -> { player?.play(); true }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> { player?.pause(); true }
             KeyEvent.KEYCODE_MEDIA_REWIND,
-            KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD,
-            -> {
-                seekRelative(-VOD_SEEK_INCREMENT_MS)
-                playerView.showController()
-                true
+            KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> {
+                seekRelative(-VOD_SEEK_INCREMENT_MS); playerView.showController(); true
             }
-
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
-            KeyEvent.KEYCODE_MEDIA_STEP_FORWARD,
-            -> {
-                seekRelative(VOD_SEEK_INCREMENT_MS)
-                playerView.showController()
-                true
+            KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> {
+                seekRelative(VOD_SEEK_INCREMENT_MS); playerView.showController(); true
             }
-
-            KeyEvent.KEYCODE_BACK -> {
-                releasePlayer()
-                true
-            }
-
-            else -> {
-                // Any other key: show controller briefly
-                playerView.showController()
-                false
-            }
+            KeyEvent.KEYCODE_BACK -> { releasePlayer(); true }
+            else -> { playerView.showController(); false }
         }
     }
 
-    /** D-pad handling for live TV (original behavior). */
+    /**
+     * D-pad handling for live TV and events.
+     *
+     * CHANNELS  → LEFT/RIGHT changes channel (onNavigateChannel ±1)
+     *             UP/DOWN    changes stream option (onNavigateOption ±1)
+     *
+     * EVENTS    → UP/DOWN    changes stream option (onNavigateOption ±1)
+     *             LEFT/RIGHT are ignored (no channel lineup for events)
+     */
     private fun handleLiveKeyPress(keyCode: Int): Boolean {
-        mapDigit(keyCode)?.let { digit ->
-            appendDigit(digit)
-            return true
+        // Digits only apply to channels
+        if (contentKind == ContentKind.CHANNEL) {
+            mapDigit(keyCode)?.let { digit ->
+                appendDigit(digit)
+                return true
+            }
         }
 
         return when (keyCode) {
+
+            // ── UP : previous stream option (both channels and events) ─────
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                val newIndex = liveOptionIndex - 1
+                if (streamOptionLabels.size > 1 && newIndex >= 0) {
+                    liveOptionIndex = newIndex
+                    updateOptionIndicator()
+                    showOptionsList()
+                    showOverlayTemporarily()
+                    onNavigateOption(-1)
+                }
+                true
+            }
+
+            // ── DOWN : next stream option (both channels and events) ───────
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                val newIndex = liveOptionIndex + 1
+                if (streamOptionLabels.size > 1 && newIndex < streamOptionLabels.size) {
+                    liveOptionIndex = newIndex
+                    updateOptionIndicator()
+                    showOptionsList()
+                    showOverlayTemporarily()
+                    onNavigateOption(1)
+                }
+                true
+            }
+
+            // ── RIGHT : next item in lineup (channels and events) ──────────
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 showOverlayTemporarily()
                 onNavigateChannel(1)
                 true
             }
 
+            // ── LEFT : previous item in lineup (channels and events) ───────
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 showOverlayTemporarily()
                 onNavigateChannel(-1)
                 true
             }
 
-            KeyEvent.KEYCODE_DPAD_UP -> {
-                showOverlayTemporarily()
-                onNavigateOption(-1)
-                true
-            }
-
-            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                showOverlayTemporarily()
-                onNavigateOption(1)
-                true
-            }
-
             KeyEvent.KEYCODE_DPAD_CENTER,
-            KeyEvent.KEYCODE_ENTER,
-            -> {
+            KeyEvent.KEYCODE_ENTER -> {
                 showOverlayTemporarily()
-                player?.let { exoPlayer ->
-                    if (exoPlayer.isPlaying) {
-                        exoPlayer.pause()
-                    } else {
-                        exoPlayer.play()
-                    }
-                }
+                player?.let { if (it.isPlaying) it.pause() else it.play() }
                 true
             }
 
             KeyEvent.KEYCODE_MENU,
-            KeyEvent.KEYCODE_BOOKMARK,
-            -> {
+            KeyEvent.KEYCODE_BOOKMARK -> {
                 val favoriteEnabled = onToggleFavorite()
                 updateOverlay(
                     overlayNumber,
                     overlayTitle,
-                    if (favoriteEnabled) "Guardado en favoritos" else "Quitado de favoritos",
+                    if (favoriteEnabled) getString(R.string.live_favorite_saved)
+                    else getString(R.string.live_favorite_removed),
                 )
                 showOverlayTemporarily()
                 true
@@ -884,7 +890,7 @@ class PlayerFragment(
             KeyEvent.KEYCODE_GUIDE -> {
                 val opened = onOpenFavorites()
                 if (!opened) {
-                    updateOverlay(overlayNumber, overlayTitle, "No tienes favoritos guardados")
+                    updateOverlay(overlayNumber, overlayTitle, getString(R.string.live_no_favorites))
                     showOverlayTemporarily()
                 }
                 true
@@ -893,51 +899,43 @@ class PlayerFragment(
             KeyEvent.KEYCODE_INFO -> {
                 val opened = onOpenRecents()
                 if (!opened) {
-                    updateOverlay(overlayNumber, overlayTitle, "No hay ultimos canales guardados")
+                    updateOverlay(overlayNumber, overlayTitle, getString(R.string.live_no_recents))
                     showOverlayTemporarily()
                 }
                 true
             }
 
-            KeyEvent.KEYCODE_BACK -> {
-                releasePlayer()
-                true
-            }
+            KeyEvent.KEYCODE_BACK -> { releasePlayer(); true }
 
             else -> false
         }
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  Digit buffer for direct channel entry (live only)
+    //  Digit buffer (channels only)
     // ──────────────────────────────────────────────────────────────────────
 
-    private fun mapDigit(keyCode: Int): Int? {
-        return when (keyCode) {
-            KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_NUMPAD_0 -> 0
-            KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_NUMPAD_1 -> 1
-            KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_NUMPAD_2 -> 2
-            KeyEvent.KEYCODE_3, KeyEvent.KEYCODE_NUMPAD_3 -> 3
-            KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_NUMPAD_4 -> 4
-            KeyEvent.KEYCODE_5, KeyEvent.KEYCODE_NUMPAD_5 -> 5
-            KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_NUMPAD_6 -> 6
-            KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_NUMPAD_7 -> 7
-            KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_NUMPAD_8 -> 8
-            KeyEvent.KEYCODE_9, KeyEvent.KEYCODE_NUMPAD_9 -> 9
-            else -> null
-        }
+    private fun mapDigit(keyCode: Int): Int? = when (keyCode) {
+        KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_NUMPAD_0 -> 0
+        KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_NUMPAD_1 -> 1
+        KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_NUMPAD_2 -> 2
+        KeyEvent.KEYCODE_3, KeyEvent.KEYCODE_NUMPAD_3 -> 3
+        KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_NUMPAD_4 -> 4
+        KeyEvent.KEYCODE_5, KeyEvent.KEYCODE_NUMPAD_5 -> 5
+        KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_NUMPAD_6 -> 6
+        KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_NUMPAD_7 -> 7
+        KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_NUMPAD_8 -> 8
+        KeyEvent.KEYCODE_9, KeyEvent.KEYCODE_NUMPAD_9 -> 9
+        else -> null
     }
 
     private fun appendDigit(digit: Int) {
-        if (digitBuffer.length >= 4) {
-            digitBuffer.clear()
-        }
-
+        if (digitBuffer.length >= 4) digitBuffer.clear()
         digitBuffer.append(digit)
         updateOverlay(
             "CH ${digitBuffer}",
-            "Cambio directo",
-            "Suelta y espera para sintonizar",
+            getString(R.string.live_direct_tuning),
+            getString(R.string.live_direct_hint),
         )
         showOverlayTemporarily()
         handler.removeCallbacks(commitDigitsRunnable)
@@ -948,10 +946,13 @@ class PlayerFragment(
         val value = digitBuffer.toString().toIntOrNull()
         digitBuffer.clear()
         if (value == null || value <= 0) return@Runnable
-
         val changed = onDirectChannelNumber(value)
         if (!changed) {
-            updateOverlay("CH $value", "Canal no encontrado", "Prueba con otra numeracion")
+            updateOverlay(
+                "CH $value",
+                getString(R.string.live_channel_not_found),
+                getString(R.string.live_channel_not_found_hint),
+            )
             showOverlayTemporarily()
         }
     }
@@ -975,10 +976,6 @@ class PlayerFragment(
         isPlayerInitialized = false
         handler.removeCallbacksAndMessages(null)
 
-        // IMPORTANT: Detach the PlayerView BEFORE releasing the ExoPlayer.
-        // Otherwise the DefaultTimeBar / position TextView can still query
-        // the player on the MediaCodec_loop thread via Util.getStringForTime(),
-        // hitting a stale JNI reference and causing a native abort.
         if (::playerView.isInitialized) {
             playerView.player = null
         }
@@ -1015,12 +1012,8 @@ class PlayerFragment(
     // ──────────────────────────────────────────────────────────────────────
 
     private val hideOverlayRunnable = Runnable {
-        if (::overlayView.isInitialized) {
-            overlayView.visibility = View.GONE
-        }
-        if (::bottomPanelView.isInitialized) {
-            bottomPanelView.visibility = View.GONE
-        }
+        if (::overlayView.isInitialized) overlayView.visibility = View.GONE
+        if (::bottomPanelView.isInitialized) bottomPanelView.visibility = View.GONE
     }
 
     private inner class PlayerListener : Player.Listener {
@@ -1035,7 +1028,6 @@ class PlayerFragment(
                         playerView.showController()
                     }
                 }
-
                 Player.STATE_BUFFERING -> retryCount = 0
                 else -> Unit
             }
@@ -1051,12 +1043,9 @@ class PlayerFragment(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            // Auto-resume only for live TV; VOD should respect user pause.
             if (!isVodMode && !isPlaying && player?.playbackState == Player.STATE_READY && !isReleasing) {
                 handler.postDelayed({
-                    if (player != null && !isReleasing) {
-                        player?.play()
-                    }
+                    if (player != null && !isReleasing) player?.play()
                 }, 1_000)
             }
         }
@@ -1071,6 +1060,7 @@ class PlayerFragment(
         private const val DIRECT_ZAP_DELAY_MS = 1_500L
         private const val VOD_SEEK_INCREMENT_MS = 10_000L
         private const val VOD_CONTROLLER_TIMEOUT_MS = 5_000
-        private val CHANNEL_PROXY_REGEX = Regex("https?://[^/]+/[^/]+/[^/]+/\\d+$", RegexOption.IGNORE_CASE)
+        private val CHANNEL_PROXY_REGEX =
+            Regex("https?://[^/]+/[^/]+/[^/]+/\\d+$", RegexOption.IGNORE_CASE)
     }
 }

@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import android.util.Log
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -161,6 +162,7 @@ class ComposeMainFragment : Fragment() {
 
     private var currentItem: CatalogItem? = null
     private var currentStreamIndex: Int = 0
+    private var activePlaybackLineup: List<CatalogItem> = emptyList()
     private var pendingUpdateDownloadId: Long? = null
 
     private val updateDownloadReceiver = object : BroadcastReceiver() {
@@ -531,6 +533,7 @@ class ComposeMainFragment : Fragment() {
         errorMessage = null
         currentItem = null
         currentStreamIndex = 0
+        activePlaybackLineup = emptyList()
         currentMode = MainMode.Home
         channelFilters = CatalogFilters()
         movieFilters = CatalogFilters()
@@ -829,7 +832,7 @@ class ComposeMainFragment : Fragment() {
             }
             LazyRow(state = lazyListState, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(section.items) { item ->
-                    MediaCard(item = item, onFocused = { onFocused(item) }) { handleCardClick(item) }
+                    MediaCard(item = item, onFocused = { onFocused(item) }) { handleCardClick(item, section.items) }
                 }
             }
         }
@@ -1058,7 +1061,7 @@ class ComposeMainFragment : Fragment() {
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         gridItems(displayItems) { item ->
-                            MediaCard(item = item, onFocused = { selectedHero = item }) { handleCardClick(item) }
+                            MediaCard(item = item, onFocused = { selectedHero = item }) { handleCardClick(item, displayItems) }
                         }
                     }
                 }
@@ -1273,7 +1276,7 @@ class ComposeMainFragment : Fragment() {
                         verticalArrangement   = Arrangement.spacedBy(14.dp),
                     ) {
                         gridItems(displayItems) { item ->
-                            MediaCard(item = item, onFocused = { selectedHero = item }) { handleCardClick(item) }
+                            MediaCard(item = item, onFocused = { selectedHero = item }) { handleCardClick(item, displayItems) }
                         }
                     }
                 }
@@ -1669,7 +1672,7 @@ class ComposeMainFragment : Fragment() {
 
     // ── Card / section helpers ────────────────────────────────────────────────
 
-    private fun handleCardClick(item: CatalogItem) {
+    private fun handleCardClick(item: CatalogItem, lineup: List<CatalogItem> = emptyList()) {
         if (item.stableId.startsWith("series_group:")) {
             val fragment = SeriesDetailFragment.newInstance(item.stableId.removePrefix("series_group:"))
             requireActivity().supportFragmentManager.beginTransaction()
@@ -1678,6 +1681,7 @@ class ComposeMainFragment : Fragment() {
                 .commit()
             return
         }
+        activePlaybackLineup = lineup.filter { it.kind == item.kind }
         playCatalogItem(item, 0)
     }
 
@@ -1686,6 +1690,7 @@ class ComposeMainFragment : Fragment() {
         homeSections = emptyList()
         searchableItems = emptyList()
         channelLineup = emptyList()
+        activePlaybackLineup = emptyList()
         selectedHero = null
         isLoaded = false
         repository.clearHomeMemoryCache()
@@ -1813,18 +1818,25 @@ class ComposeMainFragment : Fragment() {
             onToggleFavorite = { toggleFavorite(item) },
             onOpenFavorites = ::openFavoriteChannel,
             onOpenRecents = ::openRecentChannel,
+            streamOptionLabels = item.streamOptions.map { it.label },
+            currentOptionIndex = optionIndex,
         )
         fm.beginTransaction().replace(R.id.player_container, playerFragment, "player_fragment").commitNow()
-        requireActivity().findViewById<FrameLayout>(R.id.player_container).visibility = View.VISIBLE
+        val container = requireActivity().findViewById<FrameLayout>(R.id.player_container)
+        container.visibility = View.VISIBLE
+        container.isFocusable = true
+        container.isFocusableInTouchMode = true
+        container.requestFocus()
     }
 
     private fun navigateChannel(direction: Int) {
         val current = currentItem ?: return
-        if (current.kind != ContentKind.CHANNEL || channelLineup.isEmpty()) return
-        val idx = channelLineup.indexOfFirst { it.stableId == current.stableId }.takeIf { it != -1 } ?: return
+        val lineup = activePlaybackLineup.ifEmpty { channelLineup }
+        if (lineup.isEmpty()) return
+        val idx = lineup.indexOfFirst { it.stableId == current.stableId }.takeIf { it != -1 } ?: return
         val target = idx + direction
-        if (target !in channelLineup.indices) return
-        playCatalogItem(channelLineup[target], 0)
+        if (target !in lineup.indices) return
+        playCatalogItem(lineup[target], 0)
     }
 
     private fun navigateOption(direction: Int) {

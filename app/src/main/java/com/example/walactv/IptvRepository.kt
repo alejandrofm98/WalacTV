@@ -114,6 +114,7 @@ class IptvRepository(context: Context) {
                 }
 
                 val eventSections = eventsDeferred.await()
+                    .map { s -> s.copy(items = resolveStreamTemplates(s.items)) }
                 val remote = remoteDeferred.await()
 
                 HomeCatalog(
@@ -126,9 +127,10 @@ class IptvRepository(context: Context) {
 
     suspend fun loadEventsOnly(): HomeCatalog = withContext(Dispatchers.IO) {
         val sections = safeSectionLoad("eventos") { fetchEventSections(getAccessToken()) }
+        val resolved = sections.map { s -> s.copy(items = resolveStreamTemplates(s.items)) }
         HomeCatalog(
-            sections = sections,
-            searchableItems = sections.flatMap(BrowseSection::items).distinctBy(CatalogItem::stableId),
+            sections = resolved,
+            searchableItems = resolved.flatMap(BrowseSection::items).distinctBy(CatalogItem::stableId),
         )
     }
 
@@ -221,8 +223,10 @@ class IptvRepository(context: Context) {
         if (query.isBlank()) return@withContext emptyList()
         val token = getAccessToken()
         val encoded = URLEncoder.encode(query.trim(), Charsets.UTF_8.name())
+        val pass = credentialStore.password()
+        val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
         val payload = getJsonObject(
-            url = "${BuildConfig.IPTV_BASE_URL}/api/search?q=$encoded&page=1&page_size=60",
+            url = "${BuildConfig.IPTV_BASE_URL}/api/search?q=$encoded&page=1&page_size=60$passParam",
             token = token,
         )
         resolveStreamTemplates(parseRemoteCatalogPage(payload).items).distinctBy(CatalogItem::stableId)
@@ -235,11 +239,13 @@ class IptvRepository(context: Context) {
             if (seriesName.isBlank()) return@withContext emptyList()
             val token = getAccessToken()
             val encoded = encodePathSegment(seriesName)
+            val pass = credentialStore.password()
+            val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
             val items = mutableListOf<CatalogItem>()
             var page = 1
             do {
                 val payload = getJsonObject(
-                    url = "${BuildConfig.IPTV_BASE_URL}/api/series/$encoded/episodes?page=$page&page_size=100",
+                    url = "${BuildConfig.IPTV_BASE_URL}/api/series/$encoded/episodes?page=$page&page_size=100$passParam",
                     token = token,
                 )
                 val parsed = parseRemoteCatalogPage(payload, expectedKind = ContentKind.SERIES)
@@ -266,8 +272,10 @@ class IptvRepository(context: Context) {
     private suspend fun fetchRemoteHomeCatalog(token: String): HomeCatalog {
         val country = PreferencesManager.getPreferredLanguageOrDefault()
         val encoded = URLEncoder.encode(country, Charsets.UTF_8.name())
+        val pass = credentialStore.password()
+        val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
         val payload = getJsonObject(
-            url = "${BuildConfig.IPTV_BASE_URL}/api/home?country=$encoded",
+            url = "${BuildConfig.IPTV_BASE_URL}/api/home?country=$encoded$passParam",
             token = token,
         )
         return resolveStreamTemplates(parseRemoteHomeCatalog(payload))
@@ -275,7 +283,9 @@ class IptvRepository(context: Context) {
 
     private suspend fun fetchEventSections(token: String): List<BrowseSection> {
         val today = DATE_FORMATTER.format(Date())
-        val payload = getJsonObject("${BuildConfig.IPTV_BASE_URL}/api/calendar/$today", token)
+        val pass = credentialStore.password()
+        val passParam = if (pass.isNotBlank()) "?password=${URLEncoder.encode(pass, UTF8)}" else ""
+        val payload = getJsonObject("${BuildConfig.IPTV_BASE_URL}/api/calendar/$today$passParam", token)
         val eventsArray = payload.optJSONArray("eventos") ?: JSONArray()
         if (eventsArray.length() == 0) return emptyList()
 
@@ -303,7 +313,7 @@ class IptvRepository(context: Context) {
                 displayName = ch.optString("display_name"),
                 quality = ch.optString("quality"),
                 logoUrl = normalizeImageUrl(ch.optString("logo")),
-                streamUrl = ch.optString("stream_url"),
+                streamUrl = ch.optString("stream_url").takeUnless { it == "null" }.orEmpty(),
             )
         }
 
@@ -364,6 +374,7 @@ class IptvRepository(context: Context) {
         group: String?,
         search: String?,
     ): String = buildString {
+        val pass = credentialStore.password()
         append("${BuildConfig.IPTV_BASE_URL}/api/content")
         append("?content_type=$contentType")
         append("&page=$page")
@@ -371,6 +382,7 @@ class IptvRepository(context: Context) {
         country?.takeIf(String::isNotBlank)?.let { append("&country=${URLEncoder.encode(it, UTF8)}") }
         group?.takeIf(String::isNotBlank)?.let { append("&group=${URLEncoder.encode(it, UTF8)}") }
         search?.takeIf(String::isNotBlank)?.let { append("&search=${URLEncoder.encode(it, UTF8)}") }
+        if (pass.isNotBlank()) append("&password=${URLEncoder.encode(pass, UTF8)}")
     }
 
     private fun buildGroupsUrl(contentType: String, countries: String): String = buildString {

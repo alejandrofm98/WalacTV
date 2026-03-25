@@ -54,6 +54,21 @@
     <string name="guide_badge">GUIDE</string>
     <string name="guide_now_playing_placeholder">Canal listo para reproducir</string>
 
+    <!-- Live player controls -->
+    <string name="live_guide">Guía</string>
+    <string name="live_history">Historial</string>
+    <string name="live_favorites">Favoritos</string>
+    <string name="live_recent">Recientes</string>
+    <string name="live_channel">Canal</string>
+    <string name="live_favorite_saved">Guardado en favoritos</string>
+    <string name="live_favorite_removed">Quitado de favoritos</string>
+    <string name="live_no_favorites">No tienes favoritos guardados</string>
+    <string name="live_no_recents">No hay últimos canales guardados</string>
+    <string name="live_direct_tuning">Cambio directo</string>
+    <string name="live_direct_hint">Suelta y espera para sintonizar</string>
+    <string name="live_channel_not_found">Canal no encontrado</string>
+    <string name="live_channel_not_found_hint">Prueba con otra numeración</string>
+
     <!-- VOD player controls -->
     <string name="vod_subtitles">Subtitulos</string>
     <string name="vod_audio">Audio</string>

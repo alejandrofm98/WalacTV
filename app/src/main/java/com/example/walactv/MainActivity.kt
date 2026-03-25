@@ -1,8 +1,10 @@
 package com.example.walactv
 
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.View
+import android.widget.FrameLayout
 import androidx.fragment.app.FragmentActivity
-
 class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -15,5 +17,44 @@ class MainActivity : FragmentActivity() {
                 .replace(R.id.main_browse_fragment, ComposeMainFragment())
                 .commitNow()
         }
+    }
+
+    /**
+     * Intercept key events at the Activity level so that D-pad keys always
+     * reach [PlayerFragment] regardless of which child view currently holds
+     * focus. This fixes the problem where [PlayerView] steals focus and
+     * swallows D-pad events before any OnKeyListener can react.
+     */
+    @androidx.media3.common.util.UnstableApi
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val container = findViewById<FrameLayout>(R.id.player_container)
+        if (container != null && container.visibility == View.VISIBLE) {
+            val playerFragment =
+                supportFragmentManager.findFragmentById(R.id.player_container) as? PlayerFragment
+            if (playerFragment != null) {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    if (playerFragment.dispatchKeyToPlayer(event.keyCode)) {
+                        return true
+                    }
+                } else if (event.action == KeyEvent.ACTION_UP) {
+                    // Consume ACTION_UP for D-pad keys we handle so PlayerView
+                    // cannot react to them (it steals focus and processes UP events).
+                    when (event.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_UP,
+                        KeyEvent.KEYCODE_DPAD_DOWN,
+                        KeyEvent.KEYCODE_DPAD_LEFT,
+                        KeyEvent.KEYCODE_DPAD_RIGHT,
+                        KeyEvent.KEYCODE_DPAD_CENTER,
+                        KeyEvent.KEYCODE_ENTER,
+                        KeyEvent.KEYCODE_MENU,
+                        KeyEvent.KEYCODE_BOOKMARK,
+                        KeyEvent.KEYCODE_GUIDE,
+                        KeyEvent.KEYCODE_INFO,
+                        -> return true
+                    }
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 }

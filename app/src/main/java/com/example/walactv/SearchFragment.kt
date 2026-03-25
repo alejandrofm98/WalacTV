@@ -2,6 +2,7 @@ package com.example.walactv
 
 import android.graphics.Color
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -170,19 +171,29 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
                 onToggleFavorite = { toggleFavorite(resolvedItem) },
                 onOpenFavorites = ::openFavoriteChannel,
                 onOpenRecents = ::openRecentChannel,
+                streamOptionLabels = resolvedItem.streamOptions.map { it.label },
+                currentOptionIndex = streamIndex,
             )
 
             fragmentManager.beginTransaction()
                 .replace(R.id.player_container, playerFragment, PLAYER_FRAGMENT_TAG)
                 .commitNow()
 
-            requireActivity().findViewById<FrameLayout>(R.id.player_container).visibility = View.VISIBLE
+            val container = requireActivity().findViewById<FrameLayout>(R.id.player_container)
+            container.visibility = View.VISIBLE
+            container.isFocusable = true
+            container.isFocusableInTouchMode = true
+            container.requestFocus()
             Toast.makeText(requireContext(), resolvedItem.title, Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun navigateChannel(direction: Int) {
         val current = currentItem ?: return
+        if (current.kind == ContentKind.EVENT) {
+            navigateOption(direction)
+            return
+        }
         val source = if (current.kind == ContentKind.CHANNEL && channelResults.isNotEmpty()) {
             channelResults
         } else {
