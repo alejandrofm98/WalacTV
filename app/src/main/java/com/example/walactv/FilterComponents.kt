@@ -154,10 +154,9 @@ fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: Focus
         modifier = Modifier
             .background(backgroundColor, RoundedCornerShape(8.dp))
             .border(1.dp, borderColor, RoundedCornerShape(8.dp))
-            .clickable { onClick() }
             .focusRequester(focusRequester)
-            .focusable()
             .onFocusChanged { isFocused = it.isFocused }
+            .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         Text(
@@ -299,11 +298,8 @@ fun DialogFilterItem(label: String, selected: Boolean, onClick: () -> Unit) {
             .fillMaxWidth()
             .background(backgroundColor, RoundedCornerShape(8.dp))
             .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
-            .focusable()
-            .onFocusChanged {
-                isFocused = it.isFocused
-            }
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Text(

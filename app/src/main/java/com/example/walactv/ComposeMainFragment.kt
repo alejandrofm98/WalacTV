@@ -32,7 +32,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -780,9 +779,8 @@ class ComposeMainFragment : Fragment() {
                 .height(52.dp)
                 .background(bgColor, RoundedCornerShape(8.dp))
                 .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(8.dp))
-                .clickable { onClick() }
-                .focusable()
                 .onFocusChanged { isFocused = it.isFocused }
+                .clickable { onClick() }
                 .padding(horizontal = if (expanded) 14.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
@@ -1317,9 +1315,8 @@ class ComposeMainFragment : Fragment() {
                 .width(cardWidth)
                 .background(if (isFocused) IptvFocusBg else IptvCard, RoundedCornerShape(10.dp))
                 .border(1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(10.dp))
-                .clickable { onClick() }
-                .focusable()
-                .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocused() },
+                .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocused() }
+                .clickable { onClick() },
         ) {
             Box(
                 modifier = Modifier
@@ -1571,9 +1568,8 @@ class ComposeMainFragment : Fragment() {
                 .fillMaxWidth()
                 .background(if (isFocused) IptvFocusBg else Color.Transparent, RoundedCornerShape(8.dp))
                 .border(1.dp, if (isFocused) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
-                .clickable { onClick() }
-                .focusable()
                 .onFocusChanged { isFocused = it.isFocused }
+                .clickable { onClick() }
                 .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -1601,9 +1597,8 @@ class ComposeMainFragment : Fragment() {
                 .height(52.dp)
                 .background(if (isFocused) IptvAccent else IptvCard, RoundedCornerShape(8.dp))
                 .border(1.dp, if (isFocused) IptvTextPrimary else IptvSurfaceVariant, RoundedCornerShape(8.dp))
-                .clickable { onClick() }
-                .focusable()
                 .onFocusChanged { isFocused = it.isFocused }
+                .clickable { onClick() }
                 .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

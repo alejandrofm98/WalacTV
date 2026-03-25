@@ -11,7 +11,6 @@ import android.widget.ImageView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -241,9 +240,8 @@ fun EpisodeCard(item: CatalogItem, onClick: () -> Unit) {
                 color = if (isFocused) IptvFocusBorder else Color.Transparent,
                 shape = RoundedCornerShape(12.dp)
             )
-            .clickable { onClick() }
-            .focusable()
             .onFocusChanged { isFocused = it.isFocused }
+            .clickable { onClick() }
             .scale(if (isFocused) 1.03f else 1f)
             .padding(8.dp)
     ) {
