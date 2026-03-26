@@ -10,8 +10,8 @@ val IptvCard = Color(0xFF181820)
 val IptvAccent = Color(0xFF00C3FF)
 val IptvAccentDark = Color(0xFF008DFF)
 
-val IptvFocusBorder = Color(0xFFFFFFFF)
-val IptvFocusBg = Color(0xFF283B4E)
+val IptvFocusBorder = Color(0xFF00C3FF)
+val IptvFocusBg = Color(0xFF1A3A5C)
 
 val IptvTextPrimary = Color(0xFFFFFFFF)
 val IptvTextSecondary = Color(0xFFB4B4C5)

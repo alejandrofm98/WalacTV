@@ -1096,8 +1096,8 @@ class ComposeMainFragment : Fragment() {
                 title = "Selecciona pais",
                 options = countryOptions,
                 selectedOption = selectedCountry,
-                onOptionSelected = { selectedCountry = it.value; showCountryDialog = false; countryFocusRequester.requestFocus() },
-                onDismiss = { showCountryDialog = false; countryFocusRequester.requestFocus() },
+                onOptionSelected = { selectedCountry = it.value; showCountryDialog = false },
+                onDismiss = { showCountryDialog = false },
             )
         }
         if (showGroupDialog) {
@@ -1105,8 +1105,8 @@ class ComposeMainFragment : Fragment() {
                 title = "Selecciona grupo",
                 options = groupOptions,
                 selectedOption = selectedGroup,
-                onOptionSelected = { selectedGroup = it.value; showGroupDialog = false; groupFocusRequester.requestFocus() },
-                onDismiss = { showGroupDialog = false; groupFocusRequester.requestFocus() },
+                onOptionSelected = { selectedGroup = it.value; showGroupDialog = false },
+                onDismiss = { showGroupDialog = false },
             )
         }
     }
@@ -1311,8 +1311,8 @@ class ComposeMainFragment : Fragment() {
                 title            = COUNTRY_FILTER_DIALOG_TITLE,
                 options          = countryOptions,
                 selectedOption   = selectedCountry,
-                onOptionSelected = { selectedCountry = it.value; showCountryDialog = false; countryFocusRequester.requestFocus() },
-                onDismiss        = { showCountryDialog = false; countryFocusRequester.requestFocus() },
+                onOptionSelected = { selectedCountry = it.value; showCountryDialog = false },
+                onDismiss        = { showCountryDialog = false },
             )
         }
         if (showGroupDialog) {
@@ -1320,8 +1320,8 @@ class ComposeMainFragment : Fragment() {
                 title            = "Selecciona grupo",
                 options          = groupOptions,
                 selectedOption   = selectedGroup,
-                onOptionSelected = { selectedGroup = it.value; showGroupDialog = false; groupFocusRequester.requestFocus() },
-                onDismiss        = { showGroupDialog = false; groupFocusRequester.requestFocus() },
+                onOptionSelected = { selectedGroup = it.value; showGroupDialog = false },
+                onDismiss        = { showGroupDialog = false },
             )
         }
     }
@@ -1339,7 +1339,7 @@ class ComposeMainFragment : Fragment() {
             modifier = Modifier
                 .width(cardWidth)
                 .background(if (isFocused) IptvFocusBg else IptvCard, RoundedCornerShape(10.dp))
-                .border(1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(10.dp))
+                .border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(10.dp))
                 .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocused() }
                 .clickable { onClick() },
         ) {
@@ -1628,7 +1628,7 @@ class ComposeMainFragment : Fragment() {
             modifier = modifier
                 .height(52.dp)
                 .background(if (isFocused) IptvAccent else IptvCard, RoundedCornerShape(8.dp))
-                .border(1.dp, if (isFocused) IptvTextPrimary else IptvSurfaceVariant, RoundedCornerShape(8.dp))
+                .border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvTextPrimary else IptvSurfaceVariant, RoundedCornerShape(8.dp))
                 .onFocusChanged { isFocused = it.isFocused }
                 .clickable { onClick() }
                 .padding(horizontal = 18.dp),

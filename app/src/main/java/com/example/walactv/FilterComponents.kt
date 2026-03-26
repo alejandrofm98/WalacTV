@@ -7,7 +7,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -21,13 +21,16 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
@@ -69,9 +72,9 @@ fun FilterTopBar(
             onClick = onGrupoClicked,
             focusRequester = grupoFocusRequester
         )
-        
+
         Spacer(modifier = Modifier.weight(1f))
-        
+
         SearchBar(
             query = searchQuery,
             onQueryChange = onSearchQueryChange,
@@ -96,7 +99,7 @@ fun SearchBar(
         modifier = modifier
             .width(220.dp)
             .background(backgroundColor, RoundedCornerShape(8.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .border(if (isFocused) 2.dp else 1.dp, borderColor, RoundedCornerShape(8.dp))
             .focusRequester(focusRequester)
             .focusable()
             .onFocusChanged { isFocused = it.isFocused }
@@ -153,14 +156,22 @@ fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: Focus
     Box(
         modifier = Modifier
             .background(backgroundColor, RoundedCornerShape(8.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .border(if (isFocused) 2.dp else 1.dp, borderColor, RoundedCornerShape(8.dp))
             .focusRequester(focusRequester)
+            .focusable()
             .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onClick() }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.Enter || event.key == Key.DirectionCenter)
+                ) {
+                    onClick()
+                    true
+                } else false
+            }
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         Text(
-            text = "$label ▾",
+            text = "$label \u25BE",
             color = contentColor,
             fontSize = 15.sp,
             fontWeight = FontWeight.Medium
@@ -177,102 +188,126 @@ fun FilterDialog(
     onOptionSelected: (CatalogFilterOption) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var searchQuery by remember { mutableStateOf("") }
+    val filteredOptions = remember(options) { options }
 
-    val filteredOptions = remember(searchQuery, options) {
-        if (searchQuery.isBlank()) {
-            options
-        } else {
-            options.filter { matchesFilterSearch(it.label, searchQuery) }
-        }
+    var selectedIndex by remember {
+        mutableStateOf(filteredOptions.indexOfFirst { it.value == selectedOption }.coerceAtLeast(0))
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.7f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onDismiss() },
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                modifier = Modifier
-                    .width(400.dp)
-                    .background(IptvSurface, RoundedCornerShape(12.dp))
-                    .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(12.dp))
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(title, color = IptvTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+    val listState = rememberLazyListState()
+    val focusRequester = remember { FocusRequester() }
 
-                // Search field
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(IptvCard, RoundedCornerShape(8.dp))
-                        .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
-                ) {
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            color = IptvTextPrimary,
-                            fontSize = 15.sp
-                        ),
-                        cursorBrush = SolidColor(IptvAccent),
-                        decorationBox = { innerTextField ->
-                            Box {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        "Buscar...",
-                                        color = IptvTextMuted,
-                                        fontSize = 15.sp
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        }
-                    )
-                }
+    // Scroll to selected item when dialog opens
+    LaunchedEffect(Unit) {
+        val idx = filteredOptions.indexOfFirst { it.value == selectedOption }
+        if (idx > 0) {
+            selectedIndex = idx
+            listState.scrollToItem(idx)
+        }
+        focusRequester.requestFocus()
+    }
 
-                if (filteredOptions.isEmpty()) {
-                    Text(
-                        "No hay resultados",
-                        color = IptvTextMuted,
-                        fontSize = 15.sp,
-                        modifier = Modifier.padding(vertical = 16.dp)
-                    )
-                } else {
-                    val listState = rememberLazyListState()
-                    LaunchedEffect(filteredOptions, selectedOption) {
-                        val index = filteredOptions.indexOfFirst { it.value == selectedOption }
-                        if (index > 0) {
-                            listState.scrollToItem(index)
-                        }
+    // Auto-scroll when selectedIndex changes via D-pad
+    LaunchedEffect(selectedIndex) {
+        listState.scrollToItem(selectedIndex)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.7f))
+            .focusRequester(focusRequester)
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.DirectionUp -> {
+                        if (selectedIndex > 0) selectedIndex--
+                        true
                     }
+                    Key.DirectionDown -> {
+                        if (selectedIndex < filteredOptions.size - 1) selectedIndex++
+                        true
+                    }
+                    Key.Enter, Key.DirectionCenter -> {
+                        filteredOptions.getOrNull(selectedIndex)?.let { onOptionSelected(it) }
+                        true
+                    }
+                    Key.Back, Key.Escape -> {
+                        onDismiss()
+                        true
+                    }
+                    else -> false
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .width(420.dp)
+                .background(IptvSurface, RoundedCornerShape(12.dp))
+                .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(12.dp))
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(title, color = IptvTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
 
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.heightIn(max = 400.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(filteredOptions) { option ->
-                            DialogFilterItem(
-                                label = option.label,
-                                selected = option.value == selectedOption,
-                                onClick = { onOptionSelected(option) }
+            if (filteredOptions.isEmpty()) {
+                Text(
+                    "No hay opciones",
+                    color = IptvTextMuted,
+                    fontSize = 15.sp,
+                    modifier = Modifier.padding(vertical = 16.dp)
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.heightIn(max = 400.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(filteredOptions) { index, option ->
+                        val isHighlighted = index == selectedIndex
+                        val bgColor = when {
+                            isHighlighted -> IptvFocusBg
+                            option.value == selectedOption -> IptvCard
+                            else -> Color.Transparent
+                        }
+                        val borderClr = when {
+                            isHighlighted -> IptvFocusBorder
+                            option.value == selectedOption -> IptvSurfaceVariant
+                            else -> Color.Transparent
+                        }
+                        val textColor = when {
+                            isHighlighted -> IptvTextPrimary
+                            option.value == selectedOption -> IptvTextPrimary
+                            else -> IptvTextMuted
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(bgColor, RoundedCornerShape(8.dp))
+                                .border(1.dp, borderClr, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                        ) {
+                            Text(
+                                option.label,
+                                color = textColor,
+                                fontSize = 16.sp,
+                                fontWeight = if (isHighlighted) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
                 }
+
+                Text(
+                    "\u25B2\u25BC para navegar \u2022 OK para seleccionar",
+                    color = IptvTextMuted.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
         }
     }
@@ -298,6 +333,7 @@ fun DialogFilterItem(label: String, selected: Boolean, onClick: () -> Unit) {
             .fillMaxWidth()
             .background(backgroundColor, RoundedCornerShape(8.dp))
             .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .focusable()
             .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 12.dp),
