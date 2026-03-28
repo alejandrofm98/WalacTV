@@ -16,6 +16,12 @@ val localProperties = Properties().apply {
 
 val iptvBaseUrl = localProperties.getProperty("walactv.iptvBaseUrl", "https://example.invalid")
 val appUpdateUrl = localProperties.getProperty("walactv.updateUrl", "")
+val appVersionName = "1.5"
+val appVersionCode = appVersionName.split(".").let { parts ->
+    val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
+    val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+    major * 100 + minor
+}
 val releaseStoreFile = localProperties.getProperty("walactv.release.storeFile", "")
 val releaseStorePassword = localProperties.getProperty("walactv.release.storePassword", "")
 val releaseKeyAlias = localProperties.getProperty("walactv.release.keyAlias", "")
@@ -44,8 +50,8 @@ android {
         applicationId = "com.example.walactv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.5"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         buildConfigField("String", "IPTV_BASE_URL", "\"$iptvBaseUrl\"")
         buildConfigField("String", "APP_UPDATE_URL", "\"$appUpdateUrl\"")

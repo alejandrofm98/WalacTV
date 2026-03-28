@@ -18,16 +18,16 @@
     </style>
 
     <style name="LiveActionButton">
-        <item name="android:layout_width">56dp</item>
+        <item name="android:layout_width">60dp</item>
         <item name="android:layout_height">56dp</item>
-        <item name="android:layout_marginEnd">6dp</item>
+        <item name="android:layout_marginEnd">8dp</item>
         <item name="android:background">@drawable/bg_live_icon_button</item>
         <item name="android:focusable">true</item>
         <item name="android:focusableInTouchMode">true</item>
         <item name="android:clickable">true</item>
         <item name="android:gravity">center</item>
         <item name="android:orientation">vertical</item>
-        <item name="android:padding">8dp</item>
+        <item name="android:padding">6dp</item>
     </style>
 
 </resources>

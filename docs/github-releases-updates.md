@@ -1,10 +1,14 @@
 # GitHub Releases Updates
 
-La app consulta por defecto este archivo:
+La app consulta por defecto el ultimo release publico de GitHub:
 
-- `https://raw.githubusercontent.com/alejandrofm98/WalacTV/main/version.json`
+- `https://api.github.com/repos/alejandrofm98/WalacTV/releases/latest`
 
-Y espera que `apkUrl` apunte a un asset publico de GitHub Releases.
+Y toma estos datos del release:
+
+- `tag_name` para la version visible en ajustes
+- `body` para el changelog
+- `browser_download_url` del asset `.apk` para descargar la actualizacion
 
 ## Flujo para publicar una nueva version
 
@@ -17,26 +21,14 @@ Y espera que `apkUrl` apunte a un asset publico de GitHub Releases.
 
 3. Renombra el APK si quieres mantener nombres claros, por ejemplo:
 
-- `WalacTV-1.1.0.apk`
+- `WalacTV-1.5.apk`
 
 4. Crea un release publico en GitHub con tag:
 
-- `v1.1.0`
+- `v1.5`
 
 5. Sube el APK como asset del release
-6. Edita `version.json` en la rama `main`
-
-Ejemplo:
-
-```json
-{
-  "latestVersionName": "1.1.0",
-  "latestVersionCode": 2,
-  "minSupportedCode": 1,
-  "apkUrl": "https://github.com/alejandrofm98/WalacTV/releases/download/v1.1.0/WalacTV-1.1.0.apk",
-  "changelog": "Mejoras de series, audio y estabilidad"
-}
-```
+6. Verifica que el release tenga un asset `.apk` publico antes de probar el auto-updater
 
 ## Optional vs obligatoria
 
@@ -46,5 +38,5 @@ Ejemplo:
 ## Importante
 
 - el APK nuevo debe estar firmado con la misma clave que la app instalada
-- publica primero el release y verifica que el asset descarga bien
-- despues actualiza `version.json`
+- publica primero el release y verifica que el asset `.apk` descarga bien
+- si el release no tiene asset `.apk`, la app no puede ofrecer esa version para descarga y seguira usando la ultima actualizacion cacheada valida

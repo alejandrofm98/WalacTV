@@ -232,6 +232,18 @@ class IptvRepository(context: Context) {
         resolveStreamTemplates(parseRemoteCatalogPage(payload).items).distinctBy(CatalogItem::stableId)
     }
 
+    suspend fun fetchContentItem(kind: ContentKind, itemId: String): CatalogItem? = withContext(Dispatchers.IO) {
+        if (itemId.isBlank() || kind == ContentKind.EVENT || kind == ContentKind.CHANNEL) return@withContext null
+        val token = getAccessToken()
+        val pass = credentialStore.password()
+        val passParam = if (pass.isNotBlank()) "?password=${URLEncoder.encode(pass, UTF8)}" else ""
+        val payload = getJsonObject(
+            url = "${BuildConfig.IPTV_BASE_URL}/api/content/${kind.toApiType()}/$itemId$passParam",
+            token = token,
+        )
+        resolveStreamTemplates(listOf(parseRemoteCatalogItem(payload, expectedKind = kind))).firstOrNull()
+    }
+
     // ── Series / episodios ────────────────────────────────────────────────────
 
     suspend fun loadSeriesEpisodes(seriesName: String): List<CatalogItem> =

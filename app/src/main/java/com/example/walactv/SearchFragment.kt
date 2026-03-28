@@ -173,6 +173,9 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
                 onOpenRecents = ::openRecentChannel,
                 streamOptionLabels = resolvedItem.streamOptions.map { it.label },
                 currentOptionIndex = streamIndex,
+                overlayLogoUrl = resolvedItem.imageUrl,
+                isFavorite = channelStateStore.isFavorite(resolvedItem),
+                contentId = resolvedItem.providerId ?: resolvedItem.stableId,
             )
 
             fragmentManager.beginTransaction()

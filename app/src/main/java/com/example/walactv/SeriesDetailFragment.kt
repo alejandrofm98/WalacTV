@@ -105,6 +105,10 @@ class SeriesDetailFragment : Fragment() {
             onNextEpisode = nextEpisodeCallback,
             allSeriesEpisodes = allEpisodesForSeries,
             currentEpisode = episodeToPlay,
+            contentId = episodeToPlay.providerId ?: episodeToPlay.stableId,
+            onPlayerClosed = {
+                view?.requestFocus()
+            },
         )
         requireActivity().supportFragmentManager.beginTransaction()
             .replace(R.id.main_browse_fragment, playerFragment)

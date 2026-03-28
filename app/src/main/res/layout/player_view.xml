@@ -18,76 +18,113 @@
         app:use_controller="false"
         app:animation_enabled="false" />
 
-    <!-- Channel overlay - top left -->
+    <!-- Channel overlay - top left (TiviMate style) -->
     <LinearLayout
         android:id="@+id/channel_overlay"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
-        android:layout_margin="20dp"
-        android:background="@drawable/bg_overlay_rounded"
-        android:elevation="4dp"
-        android:orientation="vertical"
-        android:paddingHorizontal="16dp"
-        android:paddingVertical="12dp">
+        android:layout_margin="24dp"
+        android:background="@drawable/bg_channel_overlay"
+        android:elevation="6dp"
+        android:orientation="horizontal"
+        android:padding="14dp">
 
+        <!-- Channel logo -->
+        <ImageView
+            android:id="@+id/channel_logo"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginEnd="12dp"
+            android:scaleType="centerCrop"
+            android:background="@drawable/bg_overlay_rounded"
+            android:padding="4dp" />
+
+        <!-- Channel info column -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:layout_gravity="center_vertical"
+            android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/channel_number"
+            <!-- Number + option indicator row -->
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@color/brand_accent"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                tools:text="EN DIRECTO" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
+                <TextView
+                    android:id="@+id/channel_number"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/brand_accent"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    tools:text="CH 5" />
+
+                <TextView
+                    android:id="@+id/channel_option_indicator"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/bg_overlay_rounded"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="2dp"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="1 / 3" />
+            </LinearLayout>
+
+            <!-- Channel title -->
             <TextView
-                android:id="@+id/channel_option_indicator"
+                android:id="@+id/channel_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:background="@drawable/bg_overlay_rounded"
-                android:paddingHorizontal="8dp"
-                android:paddingVertical="2dp"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:textColor="#FFFFFFFF"
-                android:textSize="12sp"
+                android:textSize="17sp"
                 android:textStyle="bold"
-                android:visibility="gone"
-                tools:text="1 / 3" />
+                tools:text="DAZN LALIGA" />
+
+            <!-- Meta / event info -->
+            <TextView
+                android:id="@+id/channel_meta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#B5FFFFFF"
+                android:textSize="12sp"
+                tools:text="Real Madrid vs Barcelona" />
+
+            <!-- Progress bar (EPG-style) -->
+            <ProgressBar
+                android:id="@+id/channel_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="180dp"
+                android:layout_height="4dp"
+                android:layout_marginTop="6dp"
+                android:max="100"
+                android:progress="0"
+                android:progressDrawable="@drawable/bg_progress_channel"
+                android:visibility="gone" />
+
+            <!-- Options list (shown when switching streams) -->
+            <LinearLayout
+                android:id="@+id/channel_options_list"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="vertical"
+                android:visibility="gone" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/channel_title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:textColor="#FFFFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            tools:text="DAZN LALIGA" />
-
-        <TextView
-            android:id="@+id/channel_meta"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:textColor="#B5FFFFFF"
-            android:textSize="12sp"
-            tools:text="Canal en directo" />
-
-        <!-- Option selector list (shown when switching) -->
-        <LinearLayout
-            android:id="@+id/channel_options_list"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical"
-            android:visibility="gone" />
     </LinearLayout>
 
     <!-- Bottom panel with action buttons -->
@@ -98,215 +135,88 @@
         android:layout_gravity="bottom"
         android:background="@drawable/bg_player_bottom"
         android:elevation="4dp"
-        android:orientation="vertical"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
         android:paddingHorizontal="24dp"
-        android:paddingTop="16dp"
-        android:paddingBottom="20dp">
+        android:paddingTop="12dp"
+        android:paddingBottom="16dp">
 
-        <!-- Current channel info -->
+        <!-- Guide button -->
         <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:visibility="gone">
+            android:id="@+id/btn_guide"
+            style="@style/LiveActionButton"
+            android:nextFocusRight="@+id/btn_favorites">
+
+            <ImageButton
+                android:id="@+id/btn_guide_icon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/live_guide"
+                android:focusable="false"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_live_guide" />
 
             <TextView
-                android:id="@+id/bottom_now_title"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="#FFFFFFFF"
-                android:textSize="22sp"
-                android:textStyle="bold"
-                tools:text="Channel 3" />
-
-            <TextView
-                android:id="@+id/bottom_now_meta"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="#99FFFFFF"
-                android:textSize="14sp"
-                tools:text="Group 3" />
+                android:layout_marginTop="4dp"
+                android:text="@string/live_guide"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp" />
         </LinearLayout>
 
-        <!-- Action buttons row -->
+        <!-- Favorites button (star toggle) -->
         <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:id="@+id/btn_favorites"
+            style="@style/LiveActionButton"
+            android:nextFocusLeft="@+id/btn_guide"
+            android:nextFocusRight="@+id/btn_channel">
 
-            <!-- Guide button -->
-            <LinearLayout
-                android:id="@+id/btn_guide"
-                style="@style/LiveActionButton"
-                android:nextFocusRight="@+id/btn_history">
-
-                <ImageButton
-                    android:id="@+id/btn_guide_icon"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:background="@android:color/transparent"
-                    android:contentDescription="Guía TV"
-                    android:focusable="false"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_live_guide" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Guía"
-                    android:textColor="#CCFFFFFF"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <!-- History button -->
-            <LinearLayout
-                android:id="@+id/btn_history"
-                style="@style/LiveActionButton"
-                android:nextFocusLeft="@+id/btn_guide"
-                android:nextFocusRight="@+id/btn_favorites">
-
-                <ImageButton
-                    android:id="@+id/btn_history_icon"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:background="@android:color/transparent"
-                    android:contentDescription="Historial"
-                    android:focusable="false"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_live_history" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Historial"
-                    android:textColor="#CCFFFFFF"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <!-- Favorites button -->
-            <LinearLayout
-                android:id="@+id/btn_favorites"
-                style="@style/LiveActionButton"
-                android:nextFocusLeft="@+id/btn_history"
-                android:nextFocusRight="@+id/btn_recent">
-
-                <ImageButton
-                    android:id="@+id/btn_favorites_icon"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:background="@android:color/transparent"
-                    android:contentDescription="Favoritos"
-                    android:focusable="false"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_live_favorites" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Favoritos"
-                    android:textColor="#CCFFFFFF"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <!-- Recent button -->
-            <LinearLayout
-                android:id="@+id/btn_recent"
-                style="@style/LiveActionButton"
-                android:nextFocusLeft="@+id/btn_favorites"
-                android:nextFocusRight="@+id/btn_channel">
-
-                <ImageButton
-                    android:id="@+id/btn_recent_icon"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:background="@android:color/transparent"
-                    android:contentDescription="Recientes"
-                    android:focusable="false"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_live_recent" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Recientes"
-                    android:textColor="#CCFFFFFF"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <!-- Channel number button -->
-            <LinearLayout
-                android:id="@+id/btn_channel"
-                style="@style/LiveActionButton"
-                android:nextFocusLeft="@+id/btn_recent"
-                android:nextFocusRight="@+id/live_btn_audio">
-
-                <ImageButton
-                    android:id="@+id/btn_channel_icon"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:background="@android:color/transparent"
-                    android:contentDescription="Canal"
-                    android:focusable="false"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_live_number" />
-
-                <TextView
-                    android:id="@+id/btn_channel_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="CH #"
-                    android:textColor="#CCFFFFFF"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <!-- Spacer -->
-            <View
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
-            <!-- Audio button -->
             <ImageButton
-                android:id="@+id/live_btn_audio"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="4dp"
-                android:background="@drawable/bg_live_icon_button"
-                android:contentDescription="@string/vod_audio"
-                android:focusable="true"
-                android:nextFocusLeft="@+id/btn_channel"
-                android:nextFocusRight="@+id/live_btn_subtitles"
-                android:padding="8dp"
+                android:id="@+id/btn_favorites_icon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/live_favorites"
+                android:focusable="false"
                 android:scaleType="centerInside"
-                android:src="@drawable/ic_vod_audio" />
+                android:src="@drawable/ic_favorite_border" />
 
-            <!-- Subtitles button -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/live_favorites"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Channel stream options button (only visible for events with multiple streams) -->
+        <LinearLayout
+            android:id="@+id/btn_channel"
+            style="@style/LiveActionButton"
+            android:nextFocusLeft="@+id/btn_favorites"
+            android:visibility="gone">
+
             <ImageButton
-                android:id="@+id/live_btn_subtitles"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/bg_live_icon_button"
-                android:contentDescription="@string/vod_subtitles"
-                android:focusable="true"
-                android:nextFocusLeft="@+id/live_btn_audio"
-                android:padding="8dp"
+                android:id="@+id/btn_channel_icon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/live_channel"
+                android:focusable="false"
                 android:scaleType="centerInside"
-                android:src="@drawable/ic_vod_subtitles" />
+                android:src="@drawable/ic_live_number" />
+
+            <TextView
+                android:id="@+id/btn_channel_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="CH #"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

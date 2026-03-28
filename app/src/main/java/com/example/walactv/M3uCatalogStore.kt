@@ -160,6 +160,8 @@ class M3uCatalogStore(private val context: Context) {
         output.writeInt(items.size)
         items.forEach { item ->
             output.writeUTF(item.stableId)
+            output.writeBoolean(item.providerId != null)
+            item.providerId?.let(output::writeUTF)
             output.writeUTF(item.title)
             output.writeUTF(item.subtitle)
             output.writeUTF(item.description)
@@ -193,6 +195,8 @@ class M3uCatalogStore(private val context: Context) {
         val count = input.readInt()
         return List(count) {
             val stableId = input.readUTF()
+            val hasProviderId = input.readBoolean()
+            val providerId = if (hasProviderId) input.readUTF() else null
             val title = input.readUTF()
             val subtitle = input.readUTF()
             val description = input.readUTF()
@@ -217,6 +221,7 @@ class M3uCatalogStore(private val context: Context) {
             val streamCount = input.readInt()
             CatalogItem(
                 stableId = stableId,
+                providerId = providerId,
                 title = title,
                 subtitle = subtitle,
                 description = description,
@@ -335,6 +340,7 @@ class M3uCatalogStore(private val context: Context) {
         }
         return CatalogItem(
             stableId = "${kind.name.lowercase(Locale.US)}:$streamId",
+            providerId = streamId,
             title = title,
             subtitle = group,
             description = group,

@@ -11,11 +11,17 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.media3.common.C
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -30,6 +36,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
+import com.bumptech.glide.Glide
 
 internal fun isFatalPlaybackErrorForDevice(errorMessage: String): Boolean {
     return errorMessage.contains("NO_EXCEEDS_CAPABILITIES") ||
@@ -56,6 +63,10 @@ class PlayerFragment(
     private val currentEpisode: CatalogItem? = null,
     private val streamOptionLabels: List<String> = emptyList(),
     private val currentOptionIndex: Int = 0,
+    private val overlayLogoUrl: String = "",
+    private val isFavorite: Boolean = false,
+    private val contentId: String = "",
+    private val onPlayerClosed: (() -> Unit)? = null,
 ) : Fragment() {
 
     private var currentSeriesEpisode: CatalogItem? = currentEpisode
@@ -67,20 +78,24 @@ class PlayerFragment(
     private lateinit var overlayTitleView: TextView
     private lateinit var overlayMetaView: TextView
     private lateinit var bottomPanelView: LinearLayout
-    private lateinit var bottomTitleView: TextView
-    private lateinit var bottomMetaView: TextView
+    private var channelLogoView: ImageView? = null
+    private var channelProgressBar: ProgressBar? = null
     private var btnGuide: View? = null
-    private var btnHistory: View? = null
     private var btnFavorites: View? = null
-    private var btnRecent: View? = null
+    private var btnFavoritesIcon: ImageView? = null
     private var btnChannel: View? = null
     private var btnChannelLabel: TextView? = null
-    private var liveBtnAudio: ImageButton? = null
-    private var liveBtnSubtitles: ImageButton? = null
     private var optionIndicatorView: TextView? = null
     private var optionsListLayout: LinearLayout? = null
     private val handler = Handler(Looper.getMainLooper())
     private val digitBuffer = StringBuilder()
+
+    // Tracks current favorite state for visual toggle
+    private var isFavoriteState: Boolean = isFavorite
+
+    // Watch progress tracking
+    private var watchProgressRepo: WatchProgressRepository? = null
+    private var lastSavedProgressMs: Long = 0
 
     // ── Tracks the current option index locally so UP/DOWN updates it ──
     private var liveOptionIndex: Int = currentOptionIndex
@@ -88,6 +103,7 @@ class PlayerFragment(
     private var retryCount: Int = 0
     private var isPlayerInitialized: Boolean = false
     private var isReleasing: Boolean = false
+    private var closedByHost: Boolean = false
     private lateinit var trackSelector: DefaultTrackSelector
 
     /** True when the content is a movie or series (VOD mode). */
@@ -107,6 +123,7 @@ class PlayerFragment(
         playerView = view.findViewById(R.id.playerView)
 
         if (isVodMode) {
+            watchProgressRepo = WatchProgressRepository(requireContext())
             setupVodMode()
         } else {
             setupLiveMode(view)
@@ -175,55 +192,52 @@ class PlayerFragment(
         overlayTitleView = view.findViewById(R.id.channel_title)
         overlayMetaView = view.findViewById(R.id.channel_meta)
         bottomPanelView = view.findViewById(R.id.player_bottom_panel)
-        bottomTitleView = view.findViewById(R.id.bottom_now_title)
-        bottomMetaView = view.findViewById(R.id.bottom_now_meta)
+        channelLogoView = view.findViewById(R.id.channel_logo)
+        channelProgressBar = view.findViewById(R.id.channel_progress)
         btnGuide = view.findViewById(R.id.btn_guide)
-        btnHistory = view.findViewById(R.id.btn_history)
         btnFavorites = view.findViewById(R.id.btn_favorites)
-        btnRecent = view.findViewById(R.id.btn_recent)
+        btnFavoritesIcon = view.findViewById(R.id.btn_favorites_icon)
         btnChannel = view.findViewById(R.id.btn_channel)
         btnChannelLabel = view.findViewById(R.id.btn_channel_label)
-        liveBtnAudio = view.findViewById(R.id.live_btn_audio)
-        liveBtnSubtitles = view.findViewById(R.id.live_btn_subtitles)
 
         // IMPORTANT: find indicator inside channel_overlay, not at root level
         val overlayLayout = view.findViewById<LinearLayout>(R.id.channel_overlay)
         optionIndicatorView = overlayLayout.findViewById(R.id.channel_option_indicator)
         optionsListLayout = overlayLayout.findViewById(R.id.channel_options_list)
 
+        // Show stream options button only for events with multiple streams
+        if (isEventMode && streamOptionLabels.size > 1) {
+            btnChannel?.visibility = View.VISIBLE
+        }
+
         bindLiveActionButtons()
-        bindLiveTrackButtons()
         bindOptionIndicator()
         bindOverlay()
+        updateFavoriteIcon()
     }
 
-    /** Wire live TV audio/subtitle buttons. */
-    private fun bindLiveTrackButtons() {
-        liveBtnAudio?.setOnClickListener { showAudioSelector() }
-        liveBtnSubtitles?.setOnClickListener { showSubtitleSelector() }
-    }
-
-    /** Wire live TV action buttons (guide, history, favorites, recent, channel). */
+    /** Wire live TV action buttons (guide, favorites, channel). */
     private fun bindLiveActionButtons() {
         btnGuide?.setOnClickListener {
-            showOverlayTemporarily()
-        }
-        btnHistory?.setOnClickListener {
-            showOverlayTemporarily()
-            onOpenRecents()
+            onOpenGuide?.invoke(null)
         }
         btnFavorites?.setOnClickListener {
+            val nowFavorite = onToggleFavorite()
+            isFavoriteState = nowFavorite
+            updateFavoriteIcon()
             showOverlayTemporarily()
-            onOpenFavorites()
-        }
-        btnRecent?.setOnClickListener {
-            showOverlayTemporarily()
-            onOpenRecents()
         }
         btnChannel?.setOnClickListener {
             showOverlayTemporarily()
             showOptionsList()
         }
+    }
+
+    /** Update the favorites star icon based on current state. */
+    private fun updateFavoriteIcon() {
+        btnFavoritesIcon?.setImageResource(
+            if (isFavoriteState) R.drawable.ic_favorite_filled else R.drawable.ic_favorite_border
+        )
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -330,6 +344,15 @@ class PlayerFragment(
         }
     }
 
+    private val progressSaveRunnable = object : Runnable {
+        override fun run() {
+            if (player != null && !isReleasing && isVodMode && contentId.isNotBlank()) {
+                saveWatchProgress()
+                handler.postDelayed(this, PROGRESS_SAVE_INTERVAL_MS)
+            }
+        }
+    }
+
     private fun bindVodControls() {
         playerView.findViewById<ImageButton>(R.id.vod_btn_audio)?.setOnClickListener {
             showAudioSelector()
@@ -349,9 +372,69 @@ class PlayerFragment(
 
         handler.removeCallbacks(timeUpdateRunnable)
         handler.post(timeUpdateRunnable)
+
+        // Start periodic progress saving
+        if (contentId.isNotBlank()) {
+            handler.removeCallbacks(progressSaveRunnable)
+            handler.postDelayed(progressSaveRunnable, PROGRESS_SAVE_INTERVAL_MS)
+        }
+    }
+
+    /** Save current watch progress to API (VOD only). */
+    private fun saveWatchProgress() {
+        val exoPlayer = player ?: return
+        if (contentId.isBlank() || !isVodMode) return
+        val position = exoPlayer.currentPosition
+        val duration = exoPlayer.duration
+        if (duration <= 0 || position <= 0) return
+        // Only save if position changed meaningfully (> 5s since last save)
+        if (kotlin.math.abs(position - lastSavedProgressMs) < 5_000) return
+        lastSavedProgressMs = position
+
+        val contentType = when (contentKind) {
+            ContentKind.MOVIE -> "movie"
+            ContentKind.SERIES -> "series"
+            else -> return
+        }
+
+        val repo = watchProgressRepo ?: return
+        CoroutineScope(Dispatchers.IO).launch {
+            repo.saveProgress(
+                contentId = contentId,
+                contentType = contentType,
+                positionMs = position,
+                durationMs = duration,
+                title = overlayTitle,
+                seriesName = currentSeriesEpisode?.seriesName,
+                seasonNumber = currentSeriesEpisode?.seasonNumber,
+                episodeNumber = currentSeriesEpisode?.episodeNumber,
+            )
+        }
+    }
+
+    /** Restore watch progress from API (VOD only). */
+    private fun restoreWatchProgress() {
+        if (contentId.isBlank() || !isVodMode) return
+        val repo = watchProgressRepo ?: return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val progress = repo.getProgress(contentId)
+                if (progress != null && progress.positionMs > 60_000 && !progress.isCompleted) {
+                    withContext(Dispatchers.Main) {
+                        player?.seekTo(progress.positionMs)
+                        Log.d(TAG, "Restored progress to ${progress.positionMs}ms for $contentId")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Could not restore progress: ${e.message}")
+            }
+        }
     }
 
     private fun updateTrackButtonStates() {
+        if (!isVodMode) return
+
         val exoPlayer = player ?: return
 
         val audioTrackCount = exoPlayer.currentTracks.groups
@@ -363,17 +446,8 @@ class PlayerFragment(
             group.type == C.TRACK_TYPE_TEXT && group.length > 0
         }
 
-        val audioButton = if (isVodMode) {
-            playerView.findViewById<ImageButton>(R.id.vod_btn_audio)
-        } else {
-            liveBtnAudio
-        }
-
-        val subtitleButton = if (isVodMode) {
-            playerView.findViewById<ImageButton>(R.id.vod_btn_subtitles)
-        } else {
-            liveBtnSubtitles
-        }
+        val audioButton = playerView.findViewById<ImageButton>(R.id.vod_btn_audio)
+        val subtitleButton = playerView.findViewById<ImageButton>(R.id.vod_btn_subtitles)
 
         audioButton?.isEnabled = hasSelectableAudioTracks
         audioButton?.alpha = if (hasSelectableAudioTracks) 1.0f else 0.4f
@@ -514,8 +588,6 @@ class PlayerFragment(
 
         if (::overlayTitleView.isInitialized) overlayTitleView.text = title
         if (::overlayMetaView.isInitialized) overlayMetaView.text = meta
-        if (::bottomTitleView.isInitialized) bottomTitleView.text = title
-        if (::bottomMetaView.isInitialized) bottomMetaView.text = meta
     }
 
     private fun showSubtitleSelector() {
@@ -650,9 +722,21 @@ class PlayerFragment(
 
     private fun bindOverlay() {
         updateOverlay(overlayNumber, overlayTitle, overlayMeta)
-        bottomTitleView.text = overlayTitle
-        bottomMetaView.text = overlayMeta
         btnChannelLabel?.text = overlayNumber
+
+        // Load channel logo with Glide
+        if (overlayLogoUrl.isNotBlank()) {
+            channelLogoView?.let { logoView ->
+                Glide.with(this)
+                    .load(overlayLogoUrl)
+                    .centerCrop()
+                    .into(logoView)
+            }
+            channelLogoView?.visibility = View.VISIBLE
+        } else {
+            channelLogoView?.visibility = View.GONE
+        }
+
         showOverlayTemporarily()
     }
 
@@ -880,11 +964,13 @@ class PlayerFragment(
 
             KeyEvent.KEYCODE_MENU,
             KeyEvent.KEYCODE_BOOKMARK -> {
-                val favoriteEnabled = onToggleFavorite()
+                val nowFavorite = onToggleFavorite()
+                isFavoriteState = nowFavorite
+                updateFavoriteIcon()
                 updateOverlay(
                     overlayNumber,
                     overlayTitle,
-                    if (favoriteEnabled) getString(R.string.live_favorite_saved)
+                    if (nowFavorite) getString(R.string.live_favorite_saved)
                     else getString(R.string.live_favorite_removed),
                 )
                 showOverlayTemporarily()
@@ -975,7 +1061,20 @@ class PlayerFragment(
         releasePlayer()
     }
 
+    fun closeFromHost() {
+        Log.d(TAG, "closeFromHost called")
+        closedByHost = true
+        releasePlayer()
+    }
+
     private fun releasePlayer() {
+        Log.d(TAG, "releasePlayer: isReleasing=$isReleasing, closedByHost=$closedByHost")
+
+        // Save watch progress before releasing (VOD only)
+        if (isVodMode && contentId.isNotBlank()) {
+            saveWatchProgress()
+        }
+
         isReleasing = true
         isPlayerInitialized = false
         handler.removeCallbacksAndMessages(null)
@@ -998,6 +1097,11 @@ class PlayerFragment(
         retryCount = 0
 
         activity?.findViewById<FrameLayout>(R.id.player_container)?.visibility = View.GONE
+
+        if (!closedByHost) {
+            Log.d(TAG, "Player closed without host, notifying via onPlayerClosed callback")
+            onPlayerClosed?.invoke()
+        }
     }
 
     override fun onDestroyView() {
@@ -1022,6 +1126,8 @@ class PlayerFragment(
     }
 
     private inner class PlayerListener : Player.Listener {
+        private var progressRestored = false
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 Player.STATE_READY -> {
@@ -1031,6 +1137,13 @@ class PlayerFragment(
                     if (isVodMode) {
                         playerView.requestFocus()
                         playerView.showController()
+                        if (!progressRestored) {
+                            progressRestored = true
+                            restoreWatchProgress()
+                        }
+                    } else {
+                        // Auto-show overlay when playback starts (TiviMate-style)
+                        showOverlayTemporarily()
                     }
                 }
                 Player.STATE_BUFFERING -> retryCount = 0
@@ -1065,6 +1178,7 @@ class PlayerFragment(
         private const val DIRECT_ZAP_DELAY_MS = 1_500L
         private const val VOD_SEEK_INCREMENT_MS = 10_000L
         private const val VOD_CONTROLLER_TIMEOUT_MS = 5_000
+        private const val PROGRESS_SAVE_INTERVAL_MS = 30_000L
         private val CHANNEL_PROXY_REGEX =
             Regex("https?://[^/]+/[^/]+/[^/]+/\\d+$", RegexOption.IGNORE_CASE)
     }

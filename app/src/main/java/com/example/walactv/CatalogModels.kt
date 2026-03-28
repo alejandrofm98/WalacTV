@@ -16,6 +16,7 @@ data class StreamOption(
 
 data class CatalogItem(
     val stableId: String,
+    val providerId: String? = null,
     val title: String,
     val subtitle: String,
     val description: String,
@@ -358,4 +359,26 @@ fun parseSeriesMetadata(title: String, kind: ContentKind, language: String? = nu
             episodeNumber = null,
         )
     }
+}
+
+// ── Watch Progress ─────────────────────────────────────────────────────────
+
+data class WatchProgressItem(
+    val contentId: String,
+    val contentType: String,
+    val positionMs: Long,
+    val durationMs: Long,
+    val normalizedTitle: String,
+    val title: String,
+    val imageUrl: String,
+    val seriesName: String?,
+    val seasonNumber: Int?,
+    val episodeNumber: Int?,
+    val lastWatchedAt: String,
+) {
+    val progressPercent: Int
+        get() = if (durationMs > 0) ((positionMs * 100) / durationMs).toInt() else 0
+
+    val isCompleted: Boolean
+        get() = durationMs > 0 && positionMs >= durationMs * 95 / 100
 }

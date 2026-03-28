@@ -132,9 +132,12 @@ class ComposeMainFragment : Fragment() {
     private lateinit var repository: IptvRepository
     private lateinit var appUpdateRepository: AppUpdateRepository
     private lateinit var channelStateStore: ChannelStateStore
+    private lateinit var watchProgressRepo: WatchProgressRepository
 
     private var homeCatalog by mutableStateOf<HomeCatalog?>(null)
     private var homeSections by mutableStateOf<List<BrowseSection>>(emptyList())
+    private var continueWatchingSection by mutableStateOf<BrowseSection?>(null)
+    private var continueWatchingEntries by mutableStateOf<Map<String, WatchProgressItem>>(emptyMap())
     private var searchableItems by mutableStateOf<List<CatalogItem>>(emptyList())
     private var channelLineup by mutableStateOf<List<CatalogItem>>(emptyList())
     private var channelFilters by mutableStateOf(CatalogFilters())
@@ -166,7 +169,9 @@ class ComposeMainFragment : Fragment() {
     private var currentItem: CatalogItem? = null
     private var currentStreamIndex: Int = 0
     private var activePlaybackLineup: List<CatalogItem> = emptyList()
+    private var playbackReturnState: PlaybackReturnState? = null
     private var pendingUpdateDownloadId: Long? = null
+    private var continueWatchingRequestVersion: Int = 0
 
     private val updateDownloadReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -185,6 +190,7 @@ class ComposeMainFragment : Fragment() {
         repository = IptvRepository(requireContext())
         appUpdateRepository = AppUpdateRepository(requireContext())
         channelStateStore = ChannelStateStore(requireContext())
+        watchProgressRepo = WatchProgressRepository(requireContext())
         installedAppVersion = appUpdateRepository.installedVersion()
         isSignedIn = repository.hasStoredCredentials()
         loginUsername = repository.currentUsername()
@@ -254,11 +260,181 @@ class ComposeMainFragment : Fragment() {
         searchableItems = catalog.searchableItems
         CatalogMemory.searchableItems = searchableItems
         channelLineup = searchableItems.filter { it.kind == ContentKind.CHANNEL }
-        homeSections = buildDisplaySections(catalog.sections, searchableItems)
+        rebuildHomeSections()
 
         if (selectedHero == null || searchableItems.none { it.stableId == selectedHero?.stableId }) {
             selectedHero = defaultItemForMode(currentMode)
         }
+
+        // Load "Continue Watching" section asynchronously
+        loadContinueWatching()
+    }
+
+    private fun rebuildHomeSections() {
+        val baseSections = buildDisplaySections(homeCatalog?.sections.orEmpty(), searchableItems)
+        homeSections = continueWatchingSection?.let { cw ->
+            if (baseSections.isEmpty()) {
+                listOf(cw)
+            } else {
+                listOf(baseSections.first()) + cw + baseSections.drop(1)
+            }
+        } ?: baseSections
+        Log.d(
+            TAG,
+            "rebuildHomeSections: cw=${continueWatchingSection?.items?.size ?: 0} base=${baseSections.size} total=${homeSections.size} mode=$currentMode",
+        )
+    }
+
+    private fun loadContinueWatching() {
+        val requestVersion = ++continueWatchingRequestVersion
+        val searchableSnapshot = searchableItems
+        scope.launch {
+            try {
+                val items = watchProgressRepo.getContinueWatching()
+                Log.d(TAG, "Continue watching[$requestVersion]: API returned ${items.size} items, searchable=${searchableSnapshot.size}")
+                if (items.isNotEmpty()) {
+                    val entryMap = mutableMapOf<String, WatchProgressItem>()
+                    val catalogItems = items.map { wp ->
+                        Log.d(TAG, "CW[$requestVersion] item: id=${wp.contentId} type=${wp.contentType} series=${wp.seriesName} progress=${wp.progressPercent}%")
+                        val synthetic = buildContinueWatchingItem(wp, searchableSnapshot)
+                        entryMap[synthetic.stableId] = wp
+                        synthetic
+                    }
+                    Log.d(TAG, "Continue watching[$requestVersion]: built ${catalogItems.size} synthetic items from ${items.size} API items")
+                    if (requestVersion != continueWatchingRequestVersion) {
+                        Log.d(TAG, "Continue watching[$requestVersion]: stale result ignored")
+                        return@launch
+                    }
+                    continueWatchingEntries = entryMap
+                    continueWatchingSection = catalogItems.takeIf { it.isNotEmpty() }
+                        ?.let { BrowseSection("Continuar viendo", it) }
+                    rebuildHomeSections()
+                } else {
+                    if (requestVersion != continueWatchingRequestVersion) {
+                        Log.d(TAG, "Continue watching[$requestVersion]: empty stale result ignored")
+                        return@launch
+                    }
+                    continueWatchingEntries = emptyMap()
+                    continueWatchingSection = null
+                    rebuildHomeSections()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not load continue watching[$requestVersion]: ${e.message}", e)
+            }
+        }
+    }
+
+    private fun buildContinueWatchingItem(wp: WatchProgressItem, searchableSnapshot: List<CatalogItem>): CatalogItem {
+        val progressLabel = "${wp.progressPercent}% visto"
+        val kind = if (wp.contentType == "series") ContentKind.SERIES else ContentKind.MOVIE
+        val subtitle = if (wp.contentType == "series") {
+            val ep = buildEpisodeLabel(wp.seasonNumber, wp.episodeNumber)
+            if (ep.isNotBlank()) "$ep · $progressLabel" else progressLabel
+        } else {
+            progressLabel
+        }
+        val fallbackTitle = wp.normalizedTitle.cleanDisplayText()
+            .ifBlank { wp.seriesName.cleanDisplayText() }
+            .ifBlank { wp.title.cleanDisplayText() }
+        val fallbackDescription = wp.title.ifBlank { fallbackTitle }
+        val fallbackImageUrl = wp.imageUrl
+        val fallbackStableId = if (wp.contentType == "series") {
+            "cw_series:${wp.contentId}"
+        } else {
+            "cw_movie:${wp.contentId}"
+        }
+
+        val matched = when (wp.contentType) {
+            "movie" -> searchableSnapshot.firstOrNull { item ->
+                item.kind == ContentKind.MOVIE && item.matchesByProviderId(wp.contentId)
+            }
+            "series" -> findSeriesMatch(wp, searchableSnapshot)
+            else -> null
+        }
+
+        return matched?.copy(
+            stableId = fallbackStableId,
+            providerId = wp.contentId,
+            title = fallbackTitle,
+            normalizedTitle = null,
+            subtitle = subtitle,
+            description = matched.description.cleanDisplayText().ifBlank { fallbackDescription },
+            imageUrl = matched.imageUrl.ifBlank { fallbackImageUrl },
+            seriesName = matched.seriesName.cleanDisplayText().ifBlank { wp.seriesName.orEmpty() }.ifBlank { null },
+        ) ?: CatalogItem(
+            stableId = fallbackStableId,
+            providerId = wp.contentId,
+            title = fallbackTitle,
+            normalizedTitle = null,
+            subtitle = subtitle,
+            description = fallbackDescription,
+            imageUrl = fallbackImageUrl,
+            kind = kind,
+            group = "Continuar viendo",
+            badgeText = when (kind) {
+                ContentKind.MOVIE -> "Pelicula"
+                ContentKind.SERIES -> "Serie"
+                else -> ""
+            },
+            seriesName = wp.seriesName,
+            seasonNumber = wp.seasonNumber,
+            episodeNumber = wp.episodeNumber,
+            streamOptions = emptyList(),
+        )
+    }
+
+    private fun String?.cleanDisplayText(): String {
+        return this
+            ?.takeUnless { it.equals("null", ignoreCase = true) }
+            ?.trim()
+            .orEmpty()
+    }
+
+    /** Check if a CatalogItem matches a content_id by providerId or stableId. */
+    private fun CatalogItem.matchesByProviderId(contentId: String): Boolean {
+        // contentId format from API: "movie:provider_id" or just "provider_id"
+        val itemId = contentId.substringAfterLast(":")
+        return providerId == itemId || stableId == contentId || stableId.endsWith(":$itemId")
+    }
+
+    /** Find the series group item that matches a watch progress entry. */
+    private fun findSeriesMatch(wp: WatchProgressItem, items: List<CatalogItem> = searchableItems): CatalogItem? {
+        val seriesName = wp.seriesName ?: return null
+        val seriesItems = items.filter { it.kind == ContentKind.SERIES }
+
+        // Strategy 1: exact seriesName match
+        seriesItems.firstOrNull { it.seriesName == seriesName }?.let { return it }
+
+        // Strategy 2: case-insensitive exact match
+        seriesItems.firstOrNull { it.seriesName?.equals(seriesName, ignoreCase = true) == true }
+            ?.let { return it }
+
+        // Strategy 3: strip year/country parens and compare base name
+        val baseName = seriesName.replace(Regex("\\s*\\([^)]*\\)\\s*"), " ").trim()
+        seriesItems.firstOrNull { item ->
+            val itemBase = item.seriesName?.replace(Regex("\\s*\\([^)]*\\)\\s*"), " ")?.trim()
+            itemBase.equals(baseName, ignoreCase = true)
+        }?.let { return it }
+
+        // Strategy 4: containment check
+        seriesItems.firstOrNull { item ->
+            val ns = item.seriesName ?: return@firstOrNull false
+            ns.contains(seriesName, ignoreCase = true) || seriesName.contains(ns, ignoreCase = true)
+        }?.let { return it }
+
+        // Strategy 5: match by title
+        seriesItems.firstOrNull { item ->
+            item.title.contains(seriesName, ignoreCase = true) || seriesName.contains(item.title, ignoreCase = true)
+        }?.let { return it }
+
+        Log.w(TAG, "No series match found for: '$seriesName'")
+        return null
+    }
+
+    private fun buildEpisodeLabel(season: Int?, episode: Int?): String {
+        val s = season?.let { "S%02d".format(it) } ?: ""
+        val e = episode?.let { "E%02d".format(it) } ?: ""
+        return s + e
     }
 
     private fun restoreCachedUpdateState() {
@@ -527,8 +703,11 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun resetCatalogState() {
+        Log.d(TAG, "resetCatalogState called - setting currentMode=Home")
         homeCatalog = null
         homeSections = emptyList()
+        continueWatchingSection = null
+        continueWatchingEntries = emptyMap()
         searchableItems = emptyList()
         channelLineup = emptyList()
         selectedHero = null
@@ -720,7 +899,11 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun changeMode(newMode: MainMode) {
-        if (currentMode == newMode) return
+        if (currentMode == newMode) {
+            Log.d(TAG, "changeMode: SAME mode $newMode, no-op")
+            return
+        }
+        Log.d(TAG, "changeMode: $currentMode -> $newMode")
         currentMode = newMode
         selectedHero = defaultItemForMode(newMode)
         when (newMode) {
@@ -729,6 +912,51 @@ class ComposeMainFragment : Fragment() {
             MainMode.Series -> ensureFiltersLoaded(ContentKind.SERIES)
             else            -> Unit
         }
+    }
+
+    private fun rememberPlaybackReturnState(item: CatalogItem) {
+        playbackReturnState = PlaybackReturnState(
+            mode = currentMode,
+            selectedItemStableId = item.stableId,
+        )
+        Log.d(TAG, "Saved playback return state: mode=${currentMode}, item=${item.stableId}")
+    }
+
+    fun restorePlaybackReturnState() {
+        val state = playbackReturnState ?: return
+        playbackReturnState = null
+
+        Log.d(TAG, "Restoring playback return state: mode=${state.mode} (was $currentMode)")
+
+        // Always set the mode to ensure the UI reflects the correct section
+        currentMode = state.mode
+        when (state.mode) {
+            MainMode.TV     -> ensureFiltersLoaded(ContentKind.CHANNEL)
+            MainMode.Movies -> ensureFiltersLoaded(ContentKind.MOVIE)
+            MainMode.Series -> ensureFiltersLoaded(ContentKind.SERIES)
+            else            -> Unit
+        }
+
+        selectedHero = searchableItems.firstOrNull { it.stableId == state.selectedItemStableId }
+            ?: defaultItemForMode(currentMode)
+    }
+
+    fun restoreFocusAfterPlayer() {
+        view?.let {
+            it.requestFocus()
+            Log.d(TAG, "Requested focus on fragment view after player close")
+        }
+    }
+
+    fun navigateHomeOnBack(): Boolean {
+        Log.d(TAG, "navigateHomeOnBack called, currentMode=$currentMode")
+        if (currentMode == MainMode.Home) {
+            Log.d(TAG, "navigateHomeOnBack: already Home, returning false")
+            return false
+        }
+        Log.d(TAG, "navigateHomeOnBack: changing to Home")
+        changeMode(MainMode.Home)
+        return true
     }
 
     private fun ensureFiltersLoaded(kind: ContentKind, country: String? = null) {
@@ -826,10 +1054,10 @@ class ComposeMainFragment : Fragment() {
     private fun HomeContent() {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
+            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            item { ScreenHeader(title = "Inicio", subtitle = "Acceso rapido a TV, eventos y ultimos canales") }
+            item { ScreenHeader(title = "Inicio", subtitle = "") }
             items(homeSections) { section ->
                 ContentSection(section = section) { selectedHero = it }
             }
@@ -850,8 +1078,10 @@ class ComposeMainFragment : Fragment() {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(section.title, color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.width(10.dp))
-                Text(sectionKindLabel(section.items), color = IptvTextMuted, fontSize = 14.sp)
+                if (section.title != "Continuar viendo") {
+                    Spacer(Modifier.width(10.dp))
+                    Text(sectionKindLabel(section.items), color = IptvTextMuted, fontSize = 14.sp)
+                }
             }
             LazyRow(state = lazyListState, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(section.items) { item ->
@@ -1051,8 +1281,8 @@ class ComposeMainFragment : Fragment() {
                 }
         }
 
-        Column(modifier = Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            ScreenHeader(title = screenTitle(kind), subtitle = if (kind == ContentKind.CHANNEL) "Filtra por pais y grupo" else "Filtra por grupo")
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            ScreenHeader(title = screenTitle(kind), subtitle = "")
             Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 FilterTopBar(
                     showIdioma = kind == ContentKind.CHANNEL,
@@ -1260,10 +1490,10 @@ class ComposeMainFragment : Fragment() {
         }
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            ScreenHeader(title = screenTitle(kind), subtitle = "Catalogo visual con filtro de grupo")
+            ScreenHeader(title = screenTitle(kind), subtitle = "")
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -1381,8 +1611,14 @@ class ComposeMainFragment : Fragment() {
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = if (isVod) Arrangement.Center else Arrangement.Top,
             ) {
+                val displayTitle = item.normalizedTitle
+                    ?.takeUnless { it.equals("null", ignoreCase = true) }
+                    ?.takeIf { it.isNotBlank() }
+                    ?: item.title
+                        .takeUnless { it.equals("null", ignoreCase = true) }
+                        .orEmpty()
                 Text(
-                    item.normalizedTitle ?: item.title,
+                    displayTitle,
                     color = IptvTextPrimary,
                     fontSize = if (isChannelOrEvent) 15.sp else 14.sp,
                     fontWeight = FontWeight.Medium,
@@ -1538,7 +1774,7 @@ class ComposeMainFragment : Fragment() {
                                 isCheckingUpdates = false
 
                                 if (latest == null || installed == null ||
-                                    installed.versionName.trim() == latest.latestVersionName.trim()
+                                    evaluateAppUpdate(installed, latest) == AppUpdateAvailability.UP_TO_DATE
                                 ) {
                                     Toast.makeText(
                                         requireContext(),
@@ -1683,7 +1919,9 @@ class ComposeMainFragment : Fragment() {
     private fun ScreenHeader(title: String, subtitle: String) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = IptvTextPrimary, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, color = IptvTextMuted, fontSize = 16.sp)
+            if (subtitle.isNotBlank()) {
+                Text(subtitle, color = IptvTextMuted, fontSize = 16.sp)
+            }
         }
     }
 
@@ -1700,6 +1938,10 @@ class ComposeMainFragment : Fragment() {
     // ── Card / section helpers ────────────────────────────────────────────────
 
     private fun handleCardClick(item: CatalogItem, lineup: List<CatalogItem> = emptyList()) {
+        continueWatchingEntries[item.stableId]?.let { progress ->
+            openContinueWatchingItem(item, progress)
+            return
+        }
         if (item.stableId.startsWith("series_group:")) {
             val fragment = SeriesDetailFragment.newInstance(item.stableId.removePrefix("series_group:"))
             requireActivity().supportFragmentManager.beginTransaction()
@@ -1712,9 +1954,110 @@ class ComposeMainFragment : Fragment() {
         playCatalogItem(item, 0)
     }
 
+    private fun openContinueWatchingItem(cardItem: CatalogItem, progress: WatchProgressItem) {
+        scope.launch {
+            when (progress.contentType) {
+                "movie" -> openContinueWatchingMovie(progress)
+                "series" -> openContinueWatchingSeries(cardItem, progress)
+                else -> Log.w(TAG, "Unsupported continue watching type: ${progress.contentType}")
+            }
+        }
+    }
+
+    private suspend fun openContinueWatchingMovie(progress: WatchProgressItem) {
+        val item = repository.fetchContentItem(ContentKind.MOVIE, progress.contentId)
+        if (item == null) {
+            Log.w(TAG, "CW movie unresolved: ${progress.contentId}")
+            withContext(Dispatchers.Main) {
+                Toast.makeText(requireContext(), "No se pudo abrir la pelicula", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        withContext(Dispatchers.Main) {
+            activePlaybackLineup = emptyList()
+            playResolvedCatalogItem(item, 0)
+        }
+    }
+
+    private suspend fun openContinueWatchingSeries(cardItem: CatalogItem, progress: WatchProgressItem) {
+        val episode = repository.fetchContentItem(ContentKind.SERIES, progress.contentId)
+        if (episode == null) {
+            Log.w(TAG, "CW series episode unresolved: ${progress.contentId}")
+            withContext(Dispatchers.Main) {
+                Toast.makeText(requireContext(), "No se pudo abrir la serie", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        val seriesName = episode.seriesName ?: progress.seriesName ?: cardItem.seriesName ?: cardItem.title
+        val allEpisodes = repository.loadSeriesEpisodes(seriesName)
+        val logicalEpisodes = allEpisodes
+            .groupBy { Triple(it.seriesName, it.seasonNumber, it.episodeNumber) }
+            .values
+            .mapNotNull { variants ->
+                variants.firstOrNull { normalizeLanguageCode(it.idioma) == normalizeLanguageCode(PreferencesManager.getPreferredLanguageOrDefault()) }
+                    ?: variants.firstOrNull()
+            }
+            .sortedWith(compareBy<CatalogItem>({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+
+        val nextEpisodeCallback: (() -> Unit)? = logicalEpisodes.indexOfFirst {
+            it.seriesName == episode.seriesName &&
+                it.seasonNumber == episode.seasonNumber &&
+                it.episodeNumber == episode.episodeNumber
+        }.takeIf { it >= 0 && it < logicalEpisodes.lastIndex }
+            ?.let { currentIndex ->
+                { openContinueWatchingItem(cardItem, progress.copy(contentId = logicalEpisodes[currentIndex + 1].providerId ?: logicalEpisodes[currentIndex + 1].stableId, seasonNumber = logicalEpisodes[currentIndex + 1].seasonNumber, episodeNumber = logicalEpisodes[currentIndex + 1].episodeNumber, seriesName = logicalEpisodes[currentIndex + 1].seriesName, title = logicalEpisodes[currentIndex + 1].title, imageUrl = logicalEpisodes[currentIndex + 1].imageUrl)) }
+            }
+
+        val stream = episode.streamOptions.firstOrNull()
+        if (stream == null) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(requireContext(), "No hay streams disponibles", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        withContext(Dispatchers.Main) {
+            val playerFragment = PlayerFragment(
+                streamUrl = stream.url,
+                overlayNumber = episode.kind.name,
+                overlayTitle = episode.title,
+                overlayMeta = episode.description.ifBlank { stream.label },
+                contentKind = episode.kind,
+                onNavigateChannel = { false },
+                onNavigateOption = { false },
+                onDirectChannelNumber = { false },
+                onToggleFavorite = { false },
+                onOpenFavorites = { false },
+                onOpenRecents = { false },
+                onNextEpisode = nextEpisodeCallback,
+                allSeriesEpisodes = allEpisodes,
+                currentEpisode = episode,
+                overlayLogoUrl = episode.imageUrl,
+                contentId = episode.providerId ?: progress.contentId,
+                onPlayerClosed = {
+                    restorePlaybackReturnState()
+                    restoreFocusAfterPlayer()
+                },
+            )
+            rememberPlaybackReturnState(cardItem)
+            currentItem = cardItem
+            currentStreamIndex = 0
+            val fm = requireActivity().supportFragmentManager
+            fm.findFragmentById(R.id.player_container)?.let { fm.beginTransaction().remove(it).commitNow() }
+            fm.beginTransaction().replace(R.id.player_container, playerFragment, "player_fragment").commitNow()
+            val container = requireActivity().findViewById<FrameLayout>(R.id.player_container)
+            container.visibility = View.VISIBLE
+            container.isFocusable = true
+            container.isFocusableInTouchMode = true
+            container.requestFocus()
+        }
+    }
+
     private fun refreshCatalog() {
         homeCatalog = null
         homeSections = emptyList()
+        continueWatchingSection = null
+        continueWatchingEntries = emptyMap()
         searchableItems = emptyList()
         channelLineup = emptyList()
         activePlaybackLineup = emptyList()
@@ -1821,6 +2164,7 @@ class ComposeMainFragment : Fragment() {
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
     private fun playResolvedCatalogItem(item: CatalogItem, optionIndex: Int) {
         val stream = item.streamOptions.getOrNull(optionIndex) ?: return
+        rememberPlaybackReturnState(item)
         currentItem = item
         currentStreamIndex = optionIndex
 
@@ -1848,6 +2192,13 @@ class ComposeMainFragment : Fragment() {
             onOpenGuide = ::openGuideOverlay,
             streamOptionLabels = item.streamOptions.map { it.label },
             currentOptionIndex = optionIndex,
+            overlayLogoUrl = item.imageUrl,
+            isFavorite = channelStateStore.isFavorite(item),
+            contentId = item.providerId ?: item.stableId,
+            onPlayerClosed = {
+                restorePlaybackReturnState()
+                restoreFocusAfterPlayer()
+            },
         )
         fm.beginTransaction().replace(R.id.player_container, playerFragment, "player_fragment").commitNow()
         val container = requireActivity().findViewById<FrameLayout>(R.id.player_container)
@@ -1882,7 +2233,7 @@ class ComposeMainFragment : Fragment() {
 
     private fun toggleFavorite(item: CatalogItem): Boolean {
         val result = channelStateStore.toggleFavorite(item)
-        homeSections = buildDisplaySections(homeCatalog?.sections.orEmpty(), searchableItems)
+        rebuildHomeSections()
         return result
     }
 
@@ -1953,6 +2304,11 @@ class ComposeMainFragment : Fragment() {
         val mode: MainMode? = null,
         val activatesOnFocus: Boolean = true,
         val onClick: (() -> Unit)? = null,
+    )
+
+    private data class PlaybackReturnState(
+        val mode: MainMode,
+        val selectedItemStableId: String,
     )
 
     companion object {
