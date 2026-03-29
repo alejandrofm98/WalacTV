@@ -1,6 +1,7 @@
 package com.example.walactv
 
 import android.content.Context
+import android.util.Log
 
 class ChannelStateStore(context: Context) {
 
@@ -25,7 +26,10 @@ class ChannelStateStore(context: Context) {
     }
 
     fun toggleFavorite(item: CatalogItem): Boolean {
-        if (item.kind != ContentKind.CHANNEL) return false
+        if (item.kind != ContentKind.CHANNEL) {
+            Log.d("ChannelStateStore", "FAV_STORE_TOGGLE: SKIP kind=${item.kind} id=${item.stableId}")
+            return false
+        }
 
         val current = favoriteIds().toMutableSet()
         val isFavorite = if (current.contains(item.stableId)) {
@@ -37,7 +41,26 @@ class ChannelStateStore(context: Context) {
         }
 
         preferences.edit().putStringSet(KEY_FAVORITES, current).apply()
+        Log.d("ChannelStateStore", "FAV_STORE_TOGGLE: id=${item.stableId} result=$isFavorite size=${current.size}")
         return isFavorite
+    }
+
+    fun setFavorite(item: CatalogItem, isFavorite: Boolean): Boolean {
+        if (item.kind != ContentKind.CHANNEL) return false
+
+        val current = favoriteIds().toMutableSet()
+        if (isFavorite) {
+            current.add(item.stableId)
+        } else {
+            current.remove(item.stableId)
+        }
+
+        preferences.edit().putStringSet(KEY_FAVORITES, current).apply()
+        return isFavorite
+    }
+
+    fun replaceFavoriteIds(ids: Collection<String>) {
+        preferences.edit().putStringSet(KEY_FAVORITES, ids.filter(String::isNotBlank).toSet()).apply()
     }
 
     fun favoriteIds(): Set<String> {

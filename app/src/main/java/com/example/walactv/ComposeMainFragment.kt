@@ -257,6 +257,9 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun updateStateFromCatalog(catalog: HomeCatalog) {
+        catalog.favoriteItems?.let { favorites ->
+            channelStateStore.replaceFavoriteIds(favorites.map(CatalogItem::stableId))
+        }
         searchableItems = catalog.searchableItems
         CatalogMemory.searchableItems = searchableItems
         channelLineup = searchableItems.filter { it.kind == ContentKind.CHANNEL }
@@ -281,7 +284,7 @@ class ComposeMainFragment : Fragment() {
         } ?: baseSections
         Log.d(
             TAG,
-            "rebuildHomeSections: cw=${continueWatchingSection?.items?.size ?: 0} base=${baseSections.size} total=${homeSections.size} mode=$currentMode",
+            "rebuildHomeSections: cw=${continueWatchingSection?.items?.size ?: 0} base=${baseSections.size} total=${homeSections.size} mode=$currentMode favoriteIds=${channelStateStore.favoriteIds().size} favoriteItems=${homeCatalog?.favoriteItems?.size}",
         )
     }
 
@@ -1118,7 +1121,6 @@ class ComposeMainFragment : Fragment() {
             } else {
                 buildList {
                     add(CatalogFilterOption(ALL_OPTION, "Todos"))
-                    if (kind == ContentKind.CHANNEL) add(CatalogFilterOption(FAVORITES_GROUP, "Favoritos"))
                     channelFilters.countries.forEach(::add)
                 }
             }
@@ -1145,9 +1147,6 @@ class ComposeMainFragment : Fragment() {
         val displayItems = remember(selectedCountry, selectedGroup, pageItems, eventItems, searchQuery) {
             val base = if (isEventGuide) {
                 eventItems
-            } else if (selectedCountry == FAVORITES_GROUP) {
-                val favIds = channelStateStore.favoriteIds()
-                pageItems.filter { favIds.contains(it.stableId) }
             } else {
                 pageItems
             }
@@ -1207,7 +1206,7 @@ class ComposeMainFragment : Fragment() {
             if (isEventGuide) return@LaunchedEffect
             searchQuery = ""
             selectedGroup = ALL_OPTION
-            if (selectedCountry != ALL_OPTION && selectedCountry != FAVORITES_GROUP) {
+            if (selectedCountry != ALL_OPTION) {
                 val country = selectedCountry
                 scope.launch {
                     runCatching { repository.loadCatalogFilters(kind, country) }
@@ -1229,7 +1228,6 @@ class ComposeMainFragment : Fragment() {
         // Carga página 1 cuando cambian los filtros
         LaunchedEffect(selectedCountry, selectedGroup, searchQuery, channelFilters) {
             if (isEventGuide) return@LaunchedEffect
-            if (selectedCountry == FAVORITES_GROUP) return@LaunchedEffect
 
             val country = selectedCountry.takeUnless { it == ALL_OPTION }
 
@@ -1254,7 +1252,7 @@ class ComposeMainFragment : Fragment() {
         // Carga páginas siguientes al hacer scroll
         LaunchedEffect(lazyGridState, selectedCountry, selectedGroup, searchQuery, hasNext, currentPage) {
             if (isEventGuide) return@LaunchedEffect
-            if (selectedCountry == FAVORITES_GROUP || !hasNext || currentPage <= 0) return@LaunchedEffect
+            if (!hasNext || currentPage <= 0) return@LaunchedEffect
 
             snapshotFlow { lazyGridState.layoutInfo }
                 .map { info -> (info.visibleItemsInfo.lastOrNull()?.index ?: -1) to info.totalItemsCount }
@@ -1893,7 +1891,8 @@ class ComposeMainFragment : Fragment() {
         val text = java.text.Normalizer.normalize(category, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
         val emoji = when {
             text.contains("futbol") -> "⚽"; text.contains("baloncesto") -> "🏀"
-            text.contains("tenis") -> "🎾"; text.contains("motociclismo") || text.contains("automovilismo") -> "🏎️"
+            text.contains("tenis") -> "🎾"; text.contains("motociclismo") -> "🏍️"
+            text.contains("automovilismo") -> "🏎️"
             text.contains("mma") || text.contains("boxeo") -> "🥊"; text.contains("rugby") -> "🏈"
             text.contains("balonmano") -> "🤾"; text.contains("hockey") -> "🏒"
             text.contains("padel") -> "🏸"; else -> "🏆"
@@ -2074,7 +2073,7 @@ class ComposeMainFragment : Fragment() {
         val series = allItems.filter { it.kind == ContentKind.SERIES }
         return buildList {
             eventSections.firstOrNull()?.let(::add)
-            buildFavoriteSection(channels)?.let(::add)
+            buildFavoriteSection(homeCatalog?.favoriteItems, channels)?.let(::add)
             buildRecentSection(channels)?.let(::add)
             addAll(buildTypeSections("Canales", channels, 24))
             addAll(buildTypeSections("Peliculas", movies, 16))
@@ -2082,9 +2081,28 @@ class ComposeMainFragment : Fragment() {
         }
     }
 
-    private fun buildFavoriteSection(channels: List<CatalogItem>): BrowseSection? {
-        val ids = channelStateStore.favoriteIds()
-        val items = channels.filter { ids.contains(it.stableId) }
+    private fun buildFavoriteSection(remoteFavoriteItems: List<CatalogItem>?, channels: List<CatalogItem>): BrowseSection? {
+        val favoriteIds = channelStateStore.favoriteIds().ifEmpty {
+            remoteFavoriteItems.orEmpty().map(CatalogItem::stableId).toSet()
+        }
+        if (favoriteIds.isEmpty()) {
+            Log.d(TAG, "FAV_BUILD: favoriteIds=EMPTY remote=${remoteFavoriteItems?.size} channels=${channels.size}")
+            return null
+        }
+
+        val channelById = (channels + CatalogMemory.channelRegistry.values).associateBy(CatalogItem::stableId)
+        val allFavoriteChannels = favoriteIds.mapNotNull(channelById::get)
+
+        val remoteOrder = remoteFavoriteItems.orEmpty()
+            .mapNotNull { channelById[it.stableId] }
+            .filter { favoriteIds.contains(it.stableId) }
+        val items = if (remoteOrder.isNotEmpty()) {
+            val orderedIds = remoteOrder.map(CatalogItem::stableId).toSet()
+            remoteOrder + allFavoriteChannels.filterNot { orderedIds.contains(it.stableId) }
+        } else {
+            allFavoriteChannels
+        }
+        Log.d(TAG, "FAV_BUILD: favoriteIds=${favoriteIds.size} remote=${remoteFavoriteItems?.size} channels=${channels.size} registry=${CatalogMemory.channelRegistry.size} remoteOrder=${remoteOrder.size} items=${items.size}")
         return items.takeIf { it.isNotEmpty() }?.let { BrowseSection("Favoritos", it) }
     }
 
@@ -2232,8 +2250,19 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun toggleFavorite(item: CatalogItem): Boolean {
+        CatalogMemory.registerChannel(item)
         val result = channelStateStore.toggleFavorite(item)
+        Log.d(TAG, "FAV_TOGGLE: item=${item.stableId} kind=${item.kind} result=$result favoriteIds=${channelStateStore.favoriteIds()}")
         rebuildHomeSections()
+        scope.launch {
+            runCatching { repository.updateChannelFavorite(item, result) }
+                .onFailure {
+                    Log.e(TAG, "No se pudo actualizar favorito ${item.stableId}", it)
+                    channelStateStore.setFavorite(item, !result)
+                    rebuildHomeSections()
+                    Toast.makeText(requireContext(), "No se pudo actualizar favoritos", Toast.LENGTH_SHORT).show()
+                }
+        }
         return result
     }
 
@@ -2314,7 +2343,6 @@ class ComposeMainFragment : Fragment() {
     companion object {
         private const val TAG = "ComposeMainFragment"
         private const val ALL_OPTION = "Todos"
-        private const val FAVORITES_GROUP = "Favoritos"
         private const val PAGINATION_PREFETCH_DISTANCE = 5
         private val EVENT_TIME_FORMAT = SimpleDateFormat("HH:mm", Locale.getDefault())
         private val REDUNDANT_BADGES = setOf("CINE", "SERIE", "Pelicula", "Serie")

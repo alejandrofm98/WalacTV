@@ -10,6 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
@@ -110,7 +111,7 @@ class IptvRepository(context: Context) {
                 val remoteDeferred = async {
                     runCatching { fetchRemoteHomeCatalog(getAccessToken()) }
                         .onFailure { Log.e(TAG, "Fallo cargando home remota", it) }
-                        .getOrDefault(HomeCatalog(emptyList(), emptyList()))
+                        .getOrDefault(HomeCatalog(emptyList(), emptyList(), null))
                 }
 
                 val eventSections = eventsDeferred.await()
@@ -121,6 +122,7 @@ class IptvRepository(context: Context) {
                     sections = eventSections + remote.sections,
                     searchableItems = (eventSections.flatMap(BrowseSection::items) + remote.searchableItems)
                         .distinctBy(CatalogItem::stableId),
+                    favoriteItems = remote.favoriteItems,
                 ).also { memoryHomeCatalog = it }
             }
         }
@@ -131,7 +133,43 @@ class IptvRepository(context: Context) {
         HomeCatalog(
             sections = resolved,
             searchableItems = resolved.flatMap(BrowseSection::items).distinctBy(CatalogItem::stableId),
+            favoriteItems = null,
         )
+    }
+
+    suspend fun updateChannelFavorite(item: CatalogItem, isFavorite: Boolean) = withContext(Dispatchers.IO) {
+        if (item.kind != ContentKind.CHANNEL) {
+            Log.d(TAG, "FAV_API: SKIP kind=${item.kind} id=${item.stableId}")
+            return@withContext
+        }
+
+        val token = getAccessToken()
+        val favoriteId = item.providerId
+            ?.takeIf { it.isNotBlank() }
+            ?: item.stableId.substringAfter("channel:", item.stableId)
+        require(favoriteId.isNotBlank()) { "No se puede actualizar el favorito sin providerId" }
+
+        Log.d(TAG, "FAV_API: START id=${item.stableId} providerId=$favoriteId favorite=$isFavorite")
+        try {
+            if (isFavorite) {
+                requestJson(
+                    method = "POST",
+                    url = "${BuildConfig.IPTV_BASE_URL}/api/channel-favorites",
+                    token = token,
+                    body = JSONObject().put("channel_provider_id", favoriteId),
+                )
+            } else {
+                requestJson(
+                    method = "DELETE",
+                    url = "${BuildConfig.IPTV_BASE_URL}/api/channel-favorites/${encodePathSegment(favoriteId)}",
+                    token = token,
+                )
+            }
+            Log.d(TAG, "FAV_API: OK id=${item.stableId} favorite=$isFavorite")
+        } catch (e: Exception) {
+            Log.e(TAG, "FAV_API: FAIL id=${item.stableId} favorite=$isFavorite", e)
+            throw e
+        }
     }
 
     // ── Filtros ───────────────────────────────────────────────────────────────
@@ -185,7 +223,12 @@ class IptvRepository(context: Context) {
             url = buildGroupsUrl(contentType, countriesForGroupQuery),
             token = token,
         )
-        val groups = parseRemoteFilterOptions(groupsPayload, "groups")
+        val groups = if (kind == ContentKind.CHANNEL) {
+            listOf(CatalogFilterOption(FAVORITES_FILTER_VALUE, FAVORITES_FILTER_LABEL)) +
+                parseRemoteFilterOptions(groupsPayload, "groups")
+        } else {
+            parseRemoteFilterOptions(groupsPayload, "groups")
+        }
 
         CatalogFilters(countries = countries, groups = groups)
             .also { filterCache[cacheKey] = it }
@@ -211,6 +254,22 @@ class IptvRepository(context: Context) {
         }
 
         val token = getAccessToken()
+        if (kind == ContentKind.CHANNEL && group == FAVORITES_FILTER_VALUE) {
+            val payload = getJsonObject(
+                url = "${BuildConfig.IPTV_BASE_URL}/api/channel-favorites",
+                token = token,
+            )
+            val parsed = parseRemoteCatalogPage(payload, expectedKind = ContentKind.CHANNEL)
+            return@withContext parsed.copy(
+                items = resolveStreamTemplates(parsed.items).distinctBy(CatalogItem::stableId),
+                page = 1,
+                pageSize = parsed.items.size,
+                pages = 1,
+                hasNext = false,
+                hasPrev = false,
+            )
+        }
+
         val url = buildContentUrl(kind.toApiType(), page, country, group, search)
         val payload = getJsonObject(url = url, token = token)
         val parsed = parseRemoteCatalogPage(payload, expectedKind = kind)
@@ -359,6 +418,7 @@ class IptvRepository(context: Context) {
     private fun resolveStreamTemplates(catalog: HomeCatalog): HomeCatalog = HomeCatalog(
         sections = catalog.sections.map { s -> s.copy(items = resolveStreamTemplates(s.items)) },
         searchableItems = resolveStreamTemplates(catalog.searchableItems),
+        favoriteItems = catalog.favoriteItems?.let(::resolveStreamTemplates),
     )
 
     private fun resolveStreamTemplates(items: List<CatalogItem>): List<CatalogItem> {
@@ -478,6 +538,40 @@ class IptvRepository(context: Context) {
             }
         }
 
+    private suspend fun requestJson(
+        method: String,
+        url: String,
+        token: String,
+        body: JSONObject? = null,
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = method
+            conn.instanceFollowRedirects = true
+            conn.connectTimeout = 20_000
+            conn.readTimeout = 20_000
+            if (body != null) conn.doOutput = true
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("User-Agent", USER_AGENT)
+            conn.setRequestProperty("Authorization", "Bearer $token")
+            if (body != null) conn.setRequestProperty("Content-Type", "application/json")
+
+            if (body != null) {
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                    writer.write(body.toString())
+                }
+            }
+
+            val status = conn.responseCode
+            val body = (if (status in 200..299) conn.inputStream else conn.errorStream ?: conn.inputStream)
+                .bufferedReader().use(BufferedReader::readText)
+            if (status !in 200..299) throw IllegalStateException("HTTP $status: $body")
+            body.takeIf { it.isNotBlank() }?.let(::JSONObject) ?: JSONObject()
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     // ── Utilidades ────────────────────────────────────────────────────────────
 
     private fun buildFormBody(vararg pairs: Pair<String, String>): String =
@@ -549,6 +643,8 @@ class IptvRepository(context: Context) {
         private const val USER_AGENT = "WalacTV AndroidTV"
         private const val PAGE_SIZE = 50
         private const val UTF8 = "UTF-8"
+        const val FAVORITES_FILTER_VALUE = "Favorites"
+        const val FAVORITES_FILTER_LABEL = "Favoritos"
         private val DATE_FORMATTER = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     }
 }

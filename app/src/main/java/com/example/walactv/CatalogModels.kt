@@ -149,6 +149,7 @@ data class BrowseSection(
 data class HomeCatalog(
     val sections: List<BrowseSection>,
     val searchableItems: List<CatalogItem>,
+    val favoriteItems: List<CatalogItem>? = null,
 )
 
 data class CatalogFilterOption(

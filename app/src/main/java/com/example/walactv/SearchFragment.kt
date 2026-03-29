@@ -2,6 +2,7 @@ package com.example.walactv
 
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -229,7 +230,16 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
     }
 
     private fun toggleFavorite(item: CatalogItem): Boolean {
-        return channelStateStore.toggleFavorite(item)
+        val result = channelStateStore.toggleFavorite(item)
+        scope.launch {
+            runCatching { repository.updateChannelFavorite(item, result) }
+                .onFailure {
+                    Log.e(TAG, "No se pudo actualizar favorito ${item.stableId}", it)
+                    channelStateStore.setFavorite(item, !result)
+                    Toast.makeText(requireContext(), "No se pudo actualizar favoritos", Toast.LENGTH_SHORT).show()
+                }
+        }
+        return result
     }
 
     private fun openFavoriteChannel(): Boolean {
@@ -249,6 +259,7 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
     }
 
     companion object {
+        private const val TAG = "SearchFragment"
         private const val PLAYER_FRAGMENT_TAG = "player_fragment"
 
         fun newInstance(items: List<CatalogItem>): SearchFragment {

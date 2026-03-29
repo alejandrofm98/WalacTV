@@ -54,7 +54,34 @@ class RemoteCatalogMappingTest {
         assertEquals("Noticias 24", catalog.sections[0].items.first().title)
         assertEquals("Informacion", catalog.sections[0].items.first().group)
         assertEquals(ContentKind.CHANNEL, catalog.sections[0].items.first().kind)
+        assertEquals(null, catalog.favoriteItems)
         assertEquals("movie:201", catalog.searchableItems.last().stableId)
+    }
+
+    @Test
+    fun `maps backend favorites row into home favorite items`() {
+        val payload = JSONObject(
+            """
+            {
+              "favorites": [
+                {
+                  "id": "101",
+                  "provider_id": "provider-101",
+                  "type": "channel",
+                  "title": "Noticias 24",
+                  "group": "Informacion",
+                  "stream_url": "https://stream/channel.m3u8"
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val catalog = parseRemoteHomeCatalog(payload)
+
+        assertEquals(1, catalog.favoriteItems?.size)
+        assertEquals("channel:provider-101", catalog.favoriteItems?.single()?.stableId)
+        assertTrue(catalog.searchableItems.any { it.stableId == "channel:provider-101" })
     }
 
     @Test

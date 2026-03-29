@@ -22,14 +22,20 @@ fun resolveStreamTemplate(template: String, username: String, password: String):
 }
 
 fun parseRemoteHomeCatalog(payload: JSONObject): HomeCatalog {
+    val favoriteItems = payload.optCatalogItems(
+        "favorites",
+        "favorite_channels",
+        "favorites_row",
+        expectedKind = ContentKind.CHANNEL,
+    )
     val sections = buildList {
         addSectionIfNotEmpty("Eventos", payload.optJSONArray("events"), expectedKind = ContentKind.EVENT)
         addSectionIfNotEmpty("Canales", payload.optJSONArray("featured_channels"), expectedKind = ContentKind.CHANNEL)
         addSectionIfNotEmpty("Peliculas", payload.optJSONArray("featured_movies"), expectedKind = ContentKind.MOVIE)
         addSeriesSectionIfNotEmpty("Series", payload.optJSONArray("featured_series"), expectedKind = ContentKind.SERIES)
     }
-    val searchableItems = sections.flatMap(BrowseSection::items).distinctBy(CatalogItem::stableId)
-    return HomeCatalog(sections = sections, searchableItems = searchableItems)
+    val searchableItems = (favoriteItems.orEmpty() + sections.flatMap(BrowseSection::items)).distinctBy(CatalogItem::stableId)
+    return HomeCatalog(sections = sections, searchableItems = searchableItems, favoriteItems = favoriteItems)
 }
 
 fun parseRemoteCatalogPage(payload: JSONObject, expectedKind: ContentKind? = null): RemoteCatalogPage {
@@ -165,6 +171,18 @@ private fun JSONArray?.toCatalogItems(expectedKind: ContentKind? = null): List<C
             add(getJSONObject(index).toCatalogItem(expectedKind))
         }
     }
+}
+
+private fun JSONObject.optCatalogItems(
+    vararg keys: String,
+    expectedKind: ContentKind? = null,
+): List<CatalogItem>? {
+    keys.forEach { key ->
+        if (has(key)) {
+            return optJSONArray(key).toCatalogItems(expectedKind)
+        }
+    }
+    return null
 }
 
 private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): CatalogItem {
