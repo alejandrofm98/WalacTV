@@ -753,8 +753,35 @@ class PlayerFragment(
             bottomPanelView.visibility = View.VISIBLE
         }
         handler.removeCallbacks(hideOverlayRunnable)
-        handler.postDelayed(hideOverlayRunnable, 3000)
-        Log.d("OverlayDebug", "Timer started, hide in 3s")
+        if (!isMenuFocused()) {
+            handler.postDelayed(hideOverlayRunnable, 3000)
+            Log.d("OverlayDebug", "Timer started, hide in 3s")
+        }
+    }
+
+    private fun isMenuFocused(): Boolean {
+        val g = btnGuide?.hasFocus() == true
+        val f = btnFavorites?.hasFocus() == true
+        val c = btnChannel?.hasFocus() == true
+        Log.d(TAG, "FAV_MENU_FOCUS: guide=$g fav=$f ch=$c")
+        return g || f || c
+    }
+
+    fun isOverlayMenuFocused(): Boolean =
+        isMenuFocused() || (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE)
+
+    fun isOverlayVisible(): Boolean =
+        ::overlayView.isInitialized && overlayView.visibility == View.VISIBLE
+
+    private fun hideOverlay() {
+        handler.removeCallbacks(hideOverlayRunnable)
+        hideOverlayRunnable.run()
+    }
+
+    fun hideOverlayMenu() {
+        handler.removeCallbacks(hideOverlayRunnable)
+        if (::overlayView.isInitialized) overlayView.visibility = View.GONE
+        if (::bottomPanelView.isInitialized) bottomPanelView.visibility = View.GONE
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -917,6 +944,13 @@ class PlayerFragment(
 
             // ── UP : previous stream option (both channels and events) ─────
             KeyEvent.KEYCODE_DPAD_UP -> {
+                if (isMenuFocused()) return true
+                if (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE) {
+                    handler.removeCallbacks(hideOverlayRunnable)
+                    val focusResult = btnGuide?.requestFocus() ?: false
+                    Log.d(TAG, "FAV_UP: btnGuide.requestFocus()=$focusResult guideHasFocus=${btnGuide?.hasFocus()} guideShown=${btnGuide?.isShown} guideAttached=${btnGuide?.isAttachedToWindow}")
+                    return true
+                }
                 val newIndex = liveOptionIndex - 1
                 if (streamOptionLabels.size > 1 && newIndex >= 0) {
                     liveOptionIndex = newIndex
@@ -930,6 +964,13 @@ class PlayerFragment(
 
             // ── DOWN : next stream option (both channels and events) ───────
             KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (isMenuFocused()) return true
+                if (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE) {
+                    handler.removeCallbacks(hideOverlayRunnable)
+                    val focusResult = btnGuide?.requestFocus() ?: false
+                    Log.d(TAG, "FAV_DOWN: btnGuide.requestFocus()=$focusResult guideHasFocus=${btnGuide?.hasFocus()} guideShown=${btnGuide?.isShown} guideAttached=${btnGuide?.isAttachedToWindow}")
+                    return true
+                }
                 val newIndex = liveOptionIndex + 1
                 if (streamOptionLabels.size > 1 && newIndex < streamOptionLabels.size) {
                     liveOptionIndex = newIndex
@@ -943,6 +984,7 @@ class PlayerFragment(
 
             // ── RIGHT : next item in lineup (channels and events) ──────────
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (isMenuFocused()) return false
                 showOverlayTemporarily()
                 onNavigateChannel(1)
                 true
@@ -950,6 +992,7 @@ class PlayerFragment(
 
             // ── LEFT : previous item in lineup (channels and events) ───────
             KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (isMenuFocused()) return false
                 showOverlayTemporarily()
                 onNavigateChannel(-1)
                 true
@@ -957,8 +1000,18 @@ class PlayerFragment(
 
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER -> {
+                val focusedButton = when {
+                    btnGuide?.hasFocus() == true -> btnGuide
+                    btnFavorites?.hasFocus() == true -> btnFavorites
+                    btnChannel?.hasFocus() == true -> btnChannel
+                    else -> null
+                }
+                Log.d(TAG, "FAV_CENTER: focusedButton=${focusedButton?.id} guide=${btnGuide?.hasFocus()} fav=${btnFavorites?.hasFocus()} ch=${btnChannel?.hasFocus()}")
+                if (focusedButton != null) {
+                    focusedButton.performClick()
+                    return true
+                }
                 showOverlayTemporarily()
-                player?.let { if (it.isPlaying) it.pause() else it.play() }
                 true
             }
 
@@ -995,7 +1048,16 @@ class PlayerFragment(
                 true
             }
 
-            KeyEvent.KEYCODE_BACK -> { releasePlayer(); true }
+            KeyEvent.KEYCODE_BACK -> {
+                Log.d(TAG, "FAV_BACK_FRAG: isMenuFocused=${isMenuFocused()} THIS_SHOULD_NOT_BE_REACHED")
+                if (isMenuFocused()) {
+                    playerView.requestFocus()
+                    hideOverlay()
+                    true
+                } else {
+                    releasePlayer(); true
+                }
+            }
 
             else -> false
         }
@@ -1120,7 +1182,8 @@ class PlayerFragment(
     // ──────────────────────────────────────────────────────────────────────
 
     private val hideOverlayRunnable = Runnable {
-        Log.d("OverlayDebug", ">>> HIDE EXECUTED <<<")
+        Log.d("OverlayDebug", "FAV_HIDE: isMenuFocused=${isMenuFocused()}, willHide=${!isMenuFocused()}")
+        if (isMenuFocused()) return@Runnable
         if (::overlayView.isInitialized) overlayView.visibility = View.GONE
         if (::bottomPanelView.isInitialized) bottomPanelView.visibility = View.GONE
     }

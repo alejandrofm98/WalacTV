@@ -385,6 +385,7 @@ class IptvRepository(context: Context) {
                 quality = ch.optString("quality"),
                 logoUrl = normalizeImageUrl(ch.optString("logo")),
                 streamUrl = ch.optString("stream_url").takeUnless { it == "null" }.orEmpty(),
+                providerId = ch.optString("provider_id").takeUnless { it.isBlank() },
             )
         }
 
@@ -394,6 +395,7 @@ class IptvRepository(context: Context) {
             else StreamOption(
                 label = listOf(ch.displayName, ch.quality).filter(String::isNotBlank).joinToString(" · "),
                 url = url,
+                providerId = ch.providerId,
             )
         }.distinctBy(StreamOption::url)
 
@@ -632,6 +634,7 @@ class IptvRepository(context: Context) {
         val quality: String,
         val logoUrl: String,
         val streamUrl: String,
+        val providerId: String? = null,
     )
 
     private data class StoredCredentials(val username: String, val password: String)

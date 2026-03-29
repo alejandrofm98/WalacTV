@@ -128,7 +128,15 @@ class MainActivity : FragmentActivity() {
         Log.d(TAG, "handleCentralizedBack: container=${container?.visibility}, playerFragment=${playerFragment != null}, playerVisible=${playerFragment?.isVisible}")
 
         if (container != null && container.visibility == View.VISIBLE && playerFragment != null && playerFragment.isVisible) {
-            Log.d(TAG, "handleCentralizedBack: PLAYER path - closing player")
+            val menuFocused = playerFragment.isOverlayMenuFocused()
+            val overlayVisible = playerFragment.isOverlayVisible()
+            Log.d(TAG, "FAV_BACK: isOverlayMenuFocused=$menuFocused overlayVisible=$overlayVisible goingTo=${if (menuFocused) "HIDE" else "CLOSE"}")
+            if (menuFocused) {
+                Log.d(TAG, "FAV_BACK: hiding overlay menu")
+                playerFragment.hideOverlayMenu()
+                return true
+            }
+            Log.d(TAG, "FAV_BACK: closing player")
             playerFragment.closeFromHost()
             val composeFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
             Log.d(TAG, "handleCentralizedBack: composeFragment=${composeFragment != null}")

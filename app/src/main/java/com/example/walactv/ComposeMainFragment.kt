@@ -1073,7 +1073,7 @@ class ComposeMainFragment : Fragment() {
 
         LaunchedEffect(section.items) {
             if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
-                val index = section.items.indexOfFirst { isLikelyLiveNow(it) }
+                val index = findNextEventIndex(section.items)
                 if (index > 0) lazyListState.scrollToItem(index)
             }
         }
@@ -1196,7 +1196,7 @@ class ComposeMainFragment : Fragment() {
         // Auto-scroll al evento en vivo
         LaunchedEffect(displayItems) {
             if (isEventGuide && displayItems.isNotEmpty()) {
-                val index = displayItems.indexOfFirst { isLikelyLiveNow(it) }
+                val index = findNextEventIndex(displayItems)
                 if (index > 0) lazyGridState.scrollToItem(index)
             }
         }
@@ -2191,6 +2191,10 @@ class ComposeMainFragment : Fragment() {
         val fm = requireActivity().supportFragmentManager
         fm.findFragmentById(R.id.player_container)?.let { fm.beginTransaction().remove(it).commitNow() }
 
+        val channelItem = resolveChannelFromEvent(item, stream)
+        val favoriteTarget = channelItem ?: item
+        Log.d(TAG, "FAV_EVENT_PLAY: item.kind=${item.kind} channelItem=${channelItem?.stableId} favoriteTarget.kind=${favoriteTarget.kind} favoriteTarget.id=${favoriteTarget.stableId} streamUrl=${stream.url}")
+
         val playerFragment = PlayerFragment(
             streamUrl = stream.url,
             overlayNumber = when {
@@ -2204,14 +2208,14 @@ class ComposeMainFragment : Fragment() {
             onNavigateChannel = ::navigateChannel,
             onNavigateOption = ::navigateOption,
             onDirectChannelNumber = ::navigateToChannelNumber,
-            onToggleFavorite = { toggleFavorite(item) },
+            onToggleFavorite = { toggleFavorite(favoriteTarget) },
             onOpenFavorites = ::openFavoriteChannel,
             onOpenRecents = ::openRecentChannel,
             onOpenGuide = ::openGuideOverlay,
             streamOptionLabels = item.streamOptions.map { it.label },
             currentOptionIndex = optionIndex,
             overlayLogoUrl = item.imageUrl,
-            isFavorite = channelStateStore.isFavorite(item),
+            isFavorite = channelStateStore.isFavorite(favoriteTarget),
             contentId = item.providerId ?: item.stableId,
             onPlayerClosed = {
                 restorePlaybackReturnState()
@@ -2266,6 +2270,39 @@ class ComposeMainFragment : Fragment() {
         return result
     }
 
+    private fun resolveChannelFromEvent(item: CatalogItem, stream: StreamOption?): CatalogItem? {
+        if (item.kind != ContentKind.EVENT) return null
+        val providerId = stream?.providerId
+        if (providerId.isNullOrBlank()) return null
+
+        val stableId = "channel:$providerId"
+        val resolved = channelLineup.firstOrNull { it.stableId == stableId }
+            ?: CatalogMemory.channelRegistry[stableId]
+        if (resolved != null) {
+            Log.d(TAG, "FAV_EVENT_RESOLVE: providerId=$providerId resolved=${resolved.stableId}")
+            return resolved
+        }
+
+        val channelName = stream?.label?.split(" · ")?.firstOrNull()
+            ?: item.description.split(" · ").firstOrNull()
+            ?: item.title
+        val fallback = CatalogItem(
+            stableId = stableId,
+            providerId = providerId,
+            title = channelName,
+            subtitle = "",
+            description = item.description,
+            imageUrl = item.imageUrl,
+            kind = ContentKind.CHANNEL,
+            group = item.group,
+            badgeText = item.badgeText,
+            streamOptions = item.streamOptions,
+        )
+        CatalogMemory.registerChannel(fallback)
+        Log.d(TAG, "FAV_EVENT_RESOLVE: providerId=$providerId built fallback stableId=$stableId")
+        return fallback
+    }
+
     private fun openFavoriteChannel(): Boolean {
         val ids = channelStateStore.favoriteIds()
         val match = channelLineup.firstOrNull { ids.contains(it.stableId) } ?: return false
@@ -2314,6 +2351,37 @@ class ComposeMainFragment : Fragment() {
         }
         val delta = (now.timeInMillis - eventCal.timeInMillis) / 60_000L
         return delta in -20..180
+    }
+
+    private fun findNextEventIndex(items: List<CatalogItem>): Int {
+        val now = Calendar.getInstance()
+        var bestUpcoming = -1
+        var bestUpcomingDelta = Long.MAX_VALUE
+        var bestLive = -1
+        var bestLiveDelta = Long.MAX_VALUE
+
+        for (i in items.indices) {
+            if (items[i].kind != ContentKind.EVENT) continue
+            val parsed = runCatching { EVENT_TIME_FORMAT.parse(items[i].badgeText) }.getOrNull() ?: continue
+            val eventCal = Calendar.getInstance().apply {
+                time = parsed
+                set(Calendar.YEAR, now.get(Calendar.YEAR))
+                set(Calendar.MONTH, now.get(Calendar.MONTH))
+                set(Calendar.DAY_OF_MONTH, now.get(Calendar.DAY_OF_MONTH))
+            }
+            val delta = (now.timeInMillis - eventCal.timeInMillis) / 60_000L
+            when {
+                delta < 0 && -delta < bestUpcomingDelta -> {
+                    bestUpcoming = i
+                    bestUpcomingDelta = -delta
+                }
+                delta in 0..180 && delta < bestLiveDelta -> {
+                    bestLive = i
+                    bestLiveDelta = delta
+                }
+            }
+        }
+        return if (bestUpcoming >= 0) bestUpcoming else bestLive
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────

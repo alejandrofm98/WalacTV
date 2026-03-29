@@ -12,6 +12,7 @@ enum class ContentKind {
 data class StreamOption(
     val label: String,
     val url: String,
+    val providerId: String? = null,
 )
 
 data class CatalogItem(
