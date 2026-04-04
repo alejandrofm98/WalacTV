@@ -2,11 +2,12 @@ package com.example.walactv.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.JsonReader
+import android.util.JsonToken
 import android.util.Log
 import com.example.walactv.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -30,9 +31,10 @@ class ContentCacheManager(private val context: Context) {
         private const val KEY_CHANNELS_TOTAL = "channels_total"
         private const val KEY_MOVIES_TOTAL = "movies_total"
         private const val KEY_SERIES_TOTAL = "series_total"
+
+        private const val BATCH_SIZE = 500
     }
 
-    // Stats from server
     data class ContentStats(
         val total: Int,
         val generatedAt: String
@@ -159,42 +161,93 @@ class ContentCacheManager(private val context: Context) {
         needsSync
     }
 
-    // ── Sync from API ──────────────────────────────────────────────────
+    // ── Sync from API (streaming + batch inserts) ──────────────────────
+
+    private fun openJsonStream(urlString: String, token: String): Pair<HttpURLConnection, JsonReader>? {
+        val url = URL(urlString)
+        val conn = url.openConnection() as HttpURLConnection
+        return try {
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("Accept-Encoding", "gzip")
+            conn.connectTimeout = 60_000
+            conn.readTimeout = 60_000
+
+            val status = conn.responseCode
+            if (status !in 200..299) {
+                Log.e(TAG, "HTTP $status")
+                conn.disconnect()
+                return null
+            }
+
+            val inputStream = if (conn.contentEncoding == "gzip") {
+                GZIPInputStream(conn.inputStream)
+            } else {
+                conn.inputStream
+            }
+
+            val reader = JsonReader(InputStreamReader(inputStream, "UTF-8"))
+            Pair(conn, reader)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error opening json stream", e)
+            conn.disconnect()
+            null
+        }
+    }
 
     suspend fun syncChannels(token: String): Result<Int> = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Syncing channels from API")
             val url = "${BuildConfig.IPTV_BASE_URL}/api/full/channels"
-            val json = downloadGzipJson(url, token) ?: return@withContext Result.failure(Exception("Failed to download channels"))
+            var generatedAt: String? = null
+            val batch = mutableListOf<ChannelEntity>()
+            var totalCount = 0
 
-            val channelsArray = json.optJSONArray("items") ?: JSONArray()
-            Log.d(TAG, "syncChannels: found ${channelsArray.length()} items in response")
-            val channels = mutableListOf<ChannelEntity>()
+            val connection = openJsonStream(url, token)
+                ?: return@withContext Result.failure(Exception("Failed to download channels"))
 
-            for (i in 0 until channelsArray.length()) {
-                val item = channelsArray.getJSONObject(i)
-                channels.add(
-                    ChannelEntity(
-                        id = item.optString("id", ""),
-                        numero = if (item.has("numero") && !item.isNull("numero")) item.optInt("numero") else null,
-                        providerId = item.optString("provider_id", ""),
-                        logo = item.optString("logo", ""),
-                        country = item.optString("country", ""),
-                        nombreNormalizado = item.optString("nombre_normalizado", ""),
-                        grupoNormalizado = item.optString("grupo_normalizado", "")
-                    )
-                )
+            val (conn, reader) = connection
+            try {
+                database.channelDao().deleteAll()
+
+                reader.beginObject()
+                while (reader.hasNext()) {
+                    val name = reader.nextName()
+                    when (name) {
+                        "generated_at" -> generatedAt = reader.nextString()
+                        "items" -> {
+                            reader.beginArray()
+                            while (reader.hasNext()) {
+                                batch.add(parseChannelObject(reader))
+                                totalCount++
+                                if (batch.size >= BATCH_SIZE) {
+                                    database.channelDao().insertAll(batch)
+                                    batch.clear()
+                                }
+                            }
+                            reader.endArray()
+                        }
+                        else -> reader.skipValue()
+                    }
+                }
+                reader.endObject()
+
+                if (batch.isNotEmpty()) {
+                    database.channelDao().insertAll(batch)
+                }
+
+                prefs.edit()
+                    .putString(KEY_CHANNELS_GENERATED_AT, generatedAt ?: "")
+                    .putInt(KEY_CHANNELS_TOTAL, totalCount)
+                    .apply()
+            } finally {
+                try { reader.close() } catch (_: Exception) {}
+                conn.disconnect()
             }
 
-            database.channelDao().deleteAll()
-            database.channelDao().insertAll(channels)
-
-            val generatedAt = json.optString("generated_at", "")
-            prefs.edit().putString(KEY_CHANNELS_GENERATED_AT, generatedAt).apply()
-            prefs.edit().putInt(KEY_CHANNELS_TOTAL, channels.size).apply()
-
-            Log.d(TAG, "Synced ${channels.size} channels")
-            Result.success(channels.size)
+            Log.d(TAG, "Synced $totalCount channels")
+            Result.success(totalCount)
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing channels", e)
             Result.failure(e)
@@ -205,35 +258,54 @@ class ContentCacheManager(private val context: Context) {
         try {
             Log.d(TAG, "Syncing movies from API")
             val url = "${BuildConfig.IPTV_BASE_URL}/api/full/movies"
-            val json = downloadGzipJson(url, token) ?: return@withContext Result.failure(Exception("Failed to download movies"))
+            var generatedAt: String? = null
+            val batch = mutableListOf<MovieEntity>()
+            var totalCount = 0
 
-            val moviesArray = json.optJSONArray("items") ?: JSONArray()
-            Log.d(TAG, "syncMovies: found ${moviesArray.length()} items in response")
-            val movies = mutableListOf<MovieEntity>()
+            val connection = openJsonStream(url, token)
+                ?: return@withContext Result.failure(Exception("Failed to download movies"))
 
-            for (i in 0 until moviesArray.length()) {
-                val item = moviesArray.getJSONObject(i)
-                movies.add(
-                    MovieEntity(
-                        id = item.optString("id", ""),
-                        providerId = item.optString("provider_id", ""),
-                        logo = item.optString("logo", ""),
-                        country = item.optString("country", ""),
-                        nombreNormalizado = item.optString("nombre_normalizado", ""),
-                        grupoNormalizado = item.optString("grupo_normalizado", "")
-                    )
-                )
+            val (conn, reader) = connection
+            try {
+                database.movieDao().deleteAll()
+
+                reader.beginObject()
+                while (reader.hasNext()) {
+                    val name = reader.nextName()
+                    when (name) {
+                        "generated_at" -> generatedAt = reader.nextString()
+                        "items" -> {
+                            reader.beginArray()
+                            while (reader.hasNext()) {
+                                batch.add(parseMovieObject(reader))
+                                totalCount++
+                                if (batch.size >= BATCH_SIZE) {
+                                    database.movieDao().insertAll(batch)
+                                    batch.clear()
+                                }
+                            }
+                            reader.endArray()
+                        }
+                        else -> reader.skipValue()
+                    }
+                }
+                reader.endObject()
+
+                if (batch.isNotEmpty()) {
+                    database.movieDao().insertAll(batch)
+                }
+
+                prefs.edit()
+                    .putString(KEY_MOVIES_GENERATED_AT, generatedAt ?: "")
+                    .putInt(KEY_MOVIES_TOTAL, totalCount)
+                    .apply()
+            } finally {
+                try { reader.close() } catch (_: Exception) {}
+                conn.disconnect()
             }
 
-            database.movieDao().deleteAll()
-            database.movieDao().insertAll(movies)
-
-            val generatedAt = json.optString("generated_at", "")
-            prefs.edit().putString(KEY_MOVIES_GENERATED_AT, generatedAt).apply()
-            prefs.edit().putInt(KEY_MOVIES_TOTAL, movies.size).apply()
-
-            Log.d(TAG, "Synced ${movies.size} movies")
-            Result.success(movies.size)
+            Log.d(TAG, "Synced $totalCount movies")
+            Result.success(totalCount)
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing movies", e)
             Result.failure(e)
@@ -244,38 +316,55 @@ class ContentCacheManager(private val context: Context) {
         try {
             Log.d(TAG, "Syncing series from API")
             val url = "${BuildConfig.IPTV_BASE_URL}/api/full/series"
-            val json = downloadGzipJson(url, token) ?: return@withContext Result.failure(Exception("Failed to download series"))
+            var generatedAt: String? = null
+            val batch = mutableListOf<SeriesEntity>()
+            var totalCount = 0
 
-            val seriesArray = json.optJSONArray("items") ?: JSONArray()
-            Log.d(TAG, "syncSeries: found ${seriesArray.length()} items in response")
-            val series = mutableListOf<SeriesEntity>()
+            val connection = openJsonStream(url, token)
+                ?: return@withContext Result.failure(Exception("Failed to download series"))
 
-            for (i in 0 until seriesArray.length()) {
-                val item = seriesArray.getJSONObject(i)
-                series.add(
-                    SeriesEntity(
-                        id = item.optString("id", ""),
-                        providerId = item.optString("provider_id", ""),
-                        logo = item.optString("logo", ""),
-                        country = item.optString("country", ""),
-                        temporada = item.optInt("temporada", 0),
-                        episodio = item.optInt("episodio", 0),
-                        serieName = item.optString("serie_name", ""),
-                        nombreNormalizado = item.optString("nombre_normalizado", ""),
-                        grupoNormalizado = item.optString("grupo_normalizado", "")
-                    )
-                )
+            val (conn, reader) = connection
+            try {
+                database.seriesDao().deleteAll()
+
+                reader.beginObject()
+                while (reader.hasNext()) {
+                    val name = reader.nextName()
+                    when (name) {
+                        "generated_at" -> generatedAt = reader.nextString()
+                        "items" -> {
+                            reader.beginArray()
+                            while (reader.hasNext()) {
+                                batch.add(parseSeriesObject(reader))
+                                totalCount++
+                                if (batch.size >= BATCH_SIZE) {
+                                    database.seriesDao().insertAll(batch)
+                                    batch.clear()
+                                    Log.d(TAG, "syncSeries: inserted batch, total so far: $totalCount")
+                                }
+                            }
+                            reader.endArray()
+                        }
+                        else -> reader.skipValue()
+                    }
+                }
+                reader.endObject()
+
+                if (batch.isNotEmpty()) {
+                    database.seriesDao().insertAll(batch)
+                }
+
+                prefs.edit()
+                    .putString(KEY_SERIES_GENERATED_AT, generatedAt ?: "")
+                    .putInt(KEY_SERIES_TOTAL, totalCount)
+                    .apply()
+            } finally {
+                try { reader.close() } catch (_: Exception) {}
+                conn.disconnect()
             }
 
-            database.seriesDao().deleteAll()
-            database.seriesDao().insertAll(series)
-
-            val generatedAt = json.optString("generated_at", "")
-            prefs.edit().putString(KEY_SERIES_GENERATED_AT, generatedAt).apply()
-            prefs.edit().putInt(KEY_SERIES_TOTAL, series.size).apply()
-
-            Log.d(TAG, "Synced ${series.size} series")
-            Result.success(series.size)
+            Log.d(TAG, "Synced $totalCount series")
+            Result.success(totalCount)
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing series", e)
             Result.failure(e)
@@ -539,36 +628,120 @@ class ContentCacheManager(private val context: Context) {
         }
     }
 
-    private fun downloadGzipJson(urlString: String, token: String): JSONObject? {
-        val url = URL(urlString)
-        val conn = url.openConnection() as HttpURLConnection
-        return try {
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Authorization", "Bearer $token")
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("Accept-Encoding", "gzip")
-            conn.connectTimeout = 60_000
-            conn.readTimeout = 60_000
+    private fun parseChannelObject(reader: JsonReader): ChannelEntity {
+        var id = ""
+        var numero: Int? = null
+        var providerId = ""
+        var logo = ""
+        var country = ""
+        var nombreNormalizado = ""
+        var grupoNormalizado = ""
 
-            val status = conn.responseCode
-            if (status !in 200..299) {
-                Log.e(TAG, "HTTP $status")
-                return null
+        reader.beginObject()
+        while (reader.hasNext()) {
+            val name = reader.nextName()
+            when (name) {
+                "id" -> id = reader.nextString()
+                "numero" -> {
+                    if (reader.peek() == JsonToken.NULL) {
+                        reader.nextNull()
+                    } else {
+                        numero = reader.nextInt()
+                    }
+                }
+                "provider_id" -> providerId = reader.nextString()
+                "logo" -> logo = reader.nextString()
+                "country" -> country = reader.nextString()
+                "nombre_normalizado" -> nombreNormalizado = reader.nextString()
+                "grupo_normalizado" -> grupoNormalizado = reader.nextString()
+                else -> reader.skipValue()
             }
-
-            val inputStream = if (conn.contentEncoding == "gzip") {
-                GZIPInputStream(conn.inputStream)
-            } else {
-                conn.inputStream
-            }
-
-            val body = inputStream.bufferedReader().use(BufferedReader::readText)
-            JSONObject(body)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error downloading gzip JSON", e)
-            null
-        } finally {
-            conn.disconnect()
         }
+        reader.endObject()
+
+        return ChannelEntity(
+            id = id,
+            numero = numero,
+            providerId = providerId,
+            logo = logo,
+            country = country,
+            nombreNormalizado = nombreNormalizado,
+            grupoNormalizado = grupoNormalizado
+        )
+    }
+
+    private fun parseMovieObject(reader: JsonReader): MovieEntity {
+        var id = ""
+        var providerId = ""
+        var logo = ""
+        var country = ""
+        var nombreNormalizado = ""
+        var grupoNormalizado = ""
+
+        reader.beginObject()
+        while (reader.hasNext()) {
+            val name = reader.nextName()
+            when (name) {
+                "id" -> id = reader.nextString()
+                "provider_id" -> providerId = reader.nextString()
+                "logo" -> logo = reader.nextString()
+                "country" -> country = reader.nextString()
+                "nombre_normalizado" -> nombreNormalizado = reader.nextString()
+                "grupo_normalizado" -> grupoNormalizado = reader.nextString()
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+
+        return MovieEntity(
+            id = id,
+            providerId = providerId,
+            logo = logo,
+            country = country,
+            nombreNormalizado = nombreNormalizado,
+            grupoNormalizado = grupoNormalizado
+        )
+    }
+
+    private fun parseSeriesObject(reader: JsonReader): SeriesEntity {
+        var id = ""
+        var providerId = ""
+        var logo = ""
+        var country = ""
+        var temporada = 0
+        var episodio = 0
+        var serieName = ""
+        var nombreNormalizado = ""
+        var grupoNormalizado = ""
+
+        reader.beginObject()
+        while (reader.hasNext()) {
+            val name = reader.nextName()
+            when (name) {
+                "id" -> id = reader.nextString()
+                "provider_id" -> providerId = reader.nextString()
+                "logo" -> logo = reader.nextString()
+                "country" -> country = reader.nextString()
+                "temporada" -> temporada = reader.nextInt()
+                "episodio" -> episodio = reader.nextInt()
+                "serie_name" -> serieName = reader.nextString()
+                "nombre_normalizado" -> nombreNormalizado = reader.nextString()
+                "grupo_normalizado" -> grupoNormalizado = reader.nextString()
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+
+        return SeriesEntity(
+            id = id,
+            providerId = providerId,
+            logo = logo,
+            country = country,
+            temporada = temporada,
+            episodio = episodio,
+            serieName = serieName,
+            nombreNormalizado = nombreNormalizado,
+            grupoNormalizado = grupoNormalizado
+        )
     }
 }
