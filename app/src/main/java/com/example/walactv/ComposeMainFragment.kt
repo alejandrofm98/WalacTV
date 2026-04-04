@@ -81,6 +81,13 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.Event
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -91,6 +98,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
@@ -197,9 +205,9 @@ class ComposeMainFragment : Fragment() {
     enum class ContentSyncState { IDLE, CHECKING, SYNCING, READY, ERROR }
     private var contentSyncState by mutableStateOf(ContentSyncState.IDLE)
     private var contentSyncError by mutableStateOf<String?>(null)
-    private var channelsSyncProgress by mutableStateOf(0)
-    private var moviesSyncProgress by mutableStateOf(0)
-    private var seriesSyncProgress by mutableStateOf(0)
+    private var currentSyncLabel by mutableStateOf("")
+    private var currentSyncCount by mutableStateOf(0)
+    private var overallSyncProgress by mutableStateOf(0f)
 
     private var currentItem: CatalogItem? = null
     private var currentStreamIndex: Int = 0
@@ -286,7 +294,7 @@ class ComposeMainFragment : Fragment() {
         scope.launch {
             errorMessage = null
             contentSyncState = ContentSyncState.CHECKING
-            Log.d(TAG, "startLoad: beginning content sync check")
+            Log.d(TAG, "startLoad: beginning content sync check (forceRefresh=$forceRefresh, homeCatalogExists=${homeCatalog != null})")
 
             val token = runCatching { repository.getAccessToken() }.getOrNull() ?: ""
             Log.d(TAG, "startLoad: token available=${token.isNotEmpty()}, length=${token.length}")
@@ -307,42 +315,56 @@ class ComposeMainFragment : Fragment() {
                 loadLocalFilters()
             } else {
                 contentSyncState = ContentSyncState.SYNCING
-                channelsSyncProgress = 0
-                moviesSyncProgress = 0
-                seriesSyncProgress = 0
+                currentSyncLabel = ""
+                currentSyncCount = 0
+                overallSyncProgress = 0f
 
                 val results = mutableListOf<Result<*>>()
+                val totalSteps = listOf(needsChannels, needsMovies, needsSeries).count { it }.coerceAtLeast(1)
+                var completedSteps = 0
 
                 if (needsChannels) {
                     Log.d(TAG, "startLoad: syncing channels from API...")
+                    currentSyncLabel = "Sincronizando canales"
                     val r = contentCacheManager.syncChannels(token)
                     results.add(r)
-                    channelsSyncProgress = if (r.isSuccess) 100 else -1
+                    completedSteps++
+                    overallSyncProgress = completedSteps.toFloat() / totalSteps
+                    currentSyncCount = r.getOrNull() as? Int ?: 0
                     Log.d(TAG, "startLoad: channels sync result: ${if (r.isSuccess) "OK (${r.getOrNull()} items)" else "FAIL (${r.exceptionOrNull()?.message})"}")
                 } else {
-                    channelsSyncProgress = 100
+                    completedSteps++
+                    overallSyncProgress = completedSteps.toFloat() / totalSteps
                     Log.d(TAG, "startLoad: channels already up to date")
                 }
 
                 if (needsMovies) {
                     Log.d(TAG, "startLoad: syncing movies from API...")
+                    currentSyncLabel = "Sincronizando películas"
                     val r = contentCacheManager.syncMovies(token)
                     results.add(r)
-                    moviesSyncProgress = if (r.isSuccess) 100 else -1
+                    completedSteps++
+                    overallSyncProgress = completedSteps.toFloat() / totalSteps
+                    currentSyncCount = r.getOrNull() as? Int ?: 0
                     Log.d(TAG, "startLoad: movies sync result: ${if (r.isSuccess) "OK (${r.getOrNull()} items)" else "FAIL (${r.exceptionOrNull()?.message})"}")
                 } else {
-                    moviesSyncProgress = 100
+                    completedSteps++
+                    overallSyncProgress = completedSteps.toFloat() / totalSteps
                     Log.d(TAG, "startLoad: movies already up to date")
                 }
 
                 if (needsSeries) {
                     Log.d(TAG, "startLoad: syncing series from API...")
+                    currentSyncLabel = "Sincronizando series"
                     val r = contentCacheManager.syncSeries(token)
                     results.add(r)
-                    seriesSyncProgress = if (r.isSuccess) 100 else -1
+                    completedSteps++
+                    overallSyncProgress = completedSteps.toFloat() / totalSteps
+                    currentSyncCount = r.getOrNull() as? Int ?: 0
                     Log.d(TAG, "startLoad: series sync result: ${if (r.isSuccess) "OK (${r.getOrNull()} items)" else "FAIL (${r.exceptionOrNull()?.message})"}")
                 } else {
-                    seriesSyncProgress = 100
+                    completedSteps++
+                    overallSyncProgress = completedSteps.toFloat() / totalSteps
                     Log.d(TAG, "startLoad: series already up to date")
                 }
 
@@ -352,6 +374,9 @@ class ComposeMainFragment : Fragment() {
                     contentSyncError = "Error al sincronizar contenido"
                     Log.e(TAG, "startLoad: sync completed with errors")
                 } else {
+                    currentSyncLabel = "Sincronización completada"
+                    currentSyncCount = 0
+                    overallSyncProgress = 1f
                     contentSyncState = ContentSyncState.READY
                     Log.d(TAG, "startLoad: all syncs completed successfully, loading local filters")
                     loadLocalFilters()
@@ -754,13 +779,11 @@ class ComposeMainFragment : Fragment() {
                 .fillMaxSize()
                 .background(IptvBackground),
         ) {
-            if (contentSyncState == ContentSyncState.SYNCING || contentSyncState == ContentSyncState.CHECKING) {
-                SyncProgressOverlay()
-            }
             when {
                 mandatoryUpdate != null -> MandatoryUpdateScreen(mandatoryUpdate!!)
                 !isSignedIn -> LoginScreen()
                 errorMessage != null -> ErrorScreen(errorMessage.orEmpty())
+                contentSyncState == ContentSyncState.SYNCING || contentSyncState == ContentSyncState.CHECKING -> SyncScreen()
                 !isLoaded -> LoadingScreen()
                 else -> MainShell()
             }
@@ -768,77 +791,106 @@ class ComposeMainFragment : Fragment() {
     }
 
     @Composable
-    private fun SyncProgressOverlay() {
-        Box(
+    private fun SyncScreen() {
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(IptvBackground.copy(alpha = 0.85f)),
-            contentAlignment = Alignment.Center
+                .background(IptvBackground)
+                .padding(horizontal = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .border(4.dp, IptvAccent, RoundedCornerShape(50))
-                        .padding(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(IptvAccent, RoundedCornerShape(50))
-                    )
-                }
+            AnimatedSyncSpinner(overallSyncProgress)
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            if (contentSyncState == ContentSyncState.CHECKING) {
                 Text(
-                    "Sincronizando contenido...",
+                    "Comprobando actualizaciones...",
                     color = IptvTextPrimary,
-                    fontSize = 18.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Medium
                 )
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.width(280.dp)
-                ) {
-                    SyncProgressRow(label = "Canales", progress = channelsSyncProgress)
-                    SyncProgressRow(label = "Peliculas", progress = moviesSyncProgress)
-                    SyncProgressRow(label = "Series", progress = seriesSyncProgress)
-                }
-                if (contentSyncState == ContentSyncState.CHECKING) {
+            } else {
+                Text(
+                    currentSyncLabel,
+                    color = IptvTextPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
+                if (currentSyncCount > 0) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Comprobando actualizaciones...",
-                        color = IptvTextMuted,
+                        "${currentSyncCount.toLocaleString()} elementos",
+                        color = IptvTextSecondary,
                         fontSize = 14.sp
                     )
                 }
-                if (contentSyncError != null) {
-                    Text(
-                        contentSyncError!!,
-                        color = IptvLive,
-                        fontSize = 14.sp
+            }
+
+            if (contentSyncError != null) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    contentSyncError!!,
+                    color = IptvLive,
+                    fontSize = 14.sp
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun AnimatedSyncSpinner(progress: Float) {
+        val infiniteTransition = rememberInfiniteTransition(label = "syncSpinner")
+        val rotation by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "rotation"
+        )
+
+        val animatedProgress by animateFloatAsState(
+            targetValue = progress.coerceIn(0f, 1f),
+            animationSpec = tween(300),
+            label = "progress"
+        )
+
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .rotate(rotation),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                val strokeWidth = 4.dp.toPx()
+                val radius = (size.minDimension - strokeWidth) / 2
+                val sweepAngle = animatedProgress * 360f
+                drawArc(
+                    color = IptvSurface,
+                    startAngle = 0f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(strokeWidth)
+                )
+                if (sweepAngle > 1f) {
+                    drawArc(
+                        color = IptvAccent,
+                        startAngle = -90f,
+                        sweepAngle = sweepAngle.coerceAtMost(360f),
+                        useCenter = false,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(strokeWidth)
                     )
                 }
             }
         }
     }
 
-    @Composable
-    private fun SyncProgressRow(label: String, progress: Int) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(label, color = IptvTextSecondary, fontSize = 14.sp)
-            if (progress < 0) {
-                Text("Error", color = IptvLive, fontSize = 12.sp)
-            } else if (progress < 100) {
-                Text("$progress%", color = IptvAccent, fontSize = 12.sp)
-            } else {
-                Text("OK", color = IptvOnline, fontSize = 12.sp)
-            }
-        }
+    private fun Int.toLocaleString(): String {
+        return this.toString().reversed().chunked(3).joinToString(".").reversed()
     }
 
     // ── Login ─────────────────────────────────────────────────────────────────
@@ -856,12 +908,12 @@ class ComposeMainFragment : Fragment() {
             ) {
                 Text("Iniciar sesion", color = IptvTextPrimary, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Introduce tu usuario y contrasena para cargar los canales.",
+                    "Introduce tu usuario y contraseña para cargar los canales.",
                     color = IptvTextMuted,
                     fontSize = 16.sp,
                 )
                 LoginField(value = loginUsername, label = "Usuario", hidden = false) { loginUsername = it }
-                LoginField(value = loginPassword, label = "Contrasena", hidden = true) { loginPassword = it }
+                LoginField(value = loginPassword, label = "Contraseña", hidden = true) { loginPassword = it }
                 loginError?.let { Text(it, color = IptvLive, fontSize = 14.sp) }
                 FocusButton(label = if (isSigningIn) "Entrando..." else "Entrar", icon = Icons.Outlined.PlayArrow) {
                     if (!isSigningIn) performSignIn()
@@ -888,7 +940,7 @@ class ComposeMainFragment : Fragment() {
                 decorationBox = { innerTextField ->
                     if (value.isBlank()) {
                         Text(
-                            if (hidden) "Escribe tu contrasena" else "Escribe tu usuario",
+                            if (hidden) "Escribe tu contraseña" else "Escribe tu usuario",
                             color = IptvTextMuted,
                             fontSize = 16.sp,
                         )
@@ -950,6 +1002,9 @@ class ComposeMainFragment : Fragment() {
         seriesFilterCountry = null
         contentSyncState = ContentSyncState.IDLE
         contentSyncError = null
+        currentSyncLabel = ""
+        currentSyncCount = 0
+        overallSyncProgress = 0f
     }
 
     // ── Loading / Error ───────────────────────────────────────────────────────

@@ -45,12 +45,23 @@ class ContentCacheManager(private val context: Context) {
     suspend fun getChannelsStats(token: String): ContentStats? = withContext(Dispatchers.IO) {
         try {
             val url = "${BuildConfig.IPTV_BASE_URL}/api/content/stats?content_type=channels"
-            val json = getJsonFromUrl(url, token) ?: return@withContext null
-            val channels = json.optJSONObject("channels") ?: return@withContext null
-            ContentStats(
+            Log.d(TAG, "getChannelsStats: requesting $url")
+            val json = getJsonFromUrl(url, token)
+            if (json == null) {
+                Log.w(TAG, "getChannelsStats: failed to fetch JSON from server (null response)")
+                return@withContext null
+            }
+            val channels = json.optJSONObject("channels")
+            if (channels == null) {
+                Log.w(TAG, "getChannelsStats: no 'channels' object in response, raw: ${json.toString(200)}")
+                return@withContext null
+            }
+            val result = ContentStats(
                 total = channels.optInt("total", 0),
                 generatedAt = channels.optString("generatedAt", "")
             )
+            Log.d(TAG, "getChannelsStats: total=${result.total}, generatedAt='${result.generatedAt}'")
+            result
         } catch (e: Exception) {
             Log.e(TAG, "Error getting channels stats", e)
             null
@@ -60,12 +71,23 @@ class ContentCacheManager(private val context: Context) {
     suspend fun getMoviesStats(token: String): ContentStats? = withContext(Dispatchers.IO) {
         try {
             val url = "${BuildConfig.IPTV_BASE_URL}/api/content/stats?content_type=movies"
-            val json = getJsonFromUrl(url, token) ?: return@withContext null
-            val movies = json.optJSONObject("movies") ?: return@withContext null
-            ContentStats(
+            Log.d(TAG, "getMoviesStats: requesting $url")
+            val json = getJsonFromUrl(url, token)
+            if (json == null) {
+                Log.w(TAG, "getMoviesStats: failed to fetch JSON from server (null response)")
+                return@withContext null
+            }
+            val movies = json.optJSONObject("movies")
+            if (movies == null) {
+                Log.w(TAG, "getMoviesStats: no 'movies' object in response, raw: ${json.toString(200)}")
+                return@withContext null
+            }
+            val result = ContentStats(
                 total = movies.optInt("total", 0),
                 generatedAt = movies.optString("generatedAt", "")
             )
+            Log.d(TAG, "getMoviesStats: total=${result.total}, generatedAt='${result.generatedAt}'")
+            result
         } catch (e: Exception) {
             Log.e(TAG, "Error getting movies stats", e)
             null
@@ -75,12 +97,23 @@ class ContentCacheManager(private val context: Context) {
     suspend fun getSeriesStats(token: String): ContentStats? = withContext(Dispatchers.IO) {
         try {
             val url = "${BuildConfig.IPTV_BASE_URL}/api/content/stats?content_type=series"
-            val json = getJsonFromUrl(url, token) ?: return@withContext null
-            val series = json.optJSONObject("series") ?: return@withContext null
-            ContentStats(
+            Log.d(TAG, "getSeriesStats: requesting $url")
+            val json = getJsonFromUrl(url, token)
+            if (json == null) {
+                Log.w(TAG, "getSeriesStats: failed to fetch JSON from server (null response)")
+                return@withContext null
+            }
+            val series = json.optJSONObject("series")
+            if (series == null) {
+                Log.w(TAG, "getSeriesStats: no 'series' object in response, raw: ${json.toString(200)}")
+                return@withContext null
+            }
+            val result = ContentStats(
                 total = series.optInt("total", 0),
                 generatedAt = series.optString("generatedAt", "")
             )
+            Log.d(TAG, "getSeriesStats: total=${result.total}, generatedAt='${result.generatedAt}'")
+            result
         } catch (e: Exception) {
             Log.e(TAG, "Error getting series stats", e)
             null
@@ -104,18 +137,23 @@ class ContentCacheManager(private val context: Context) {
         val localGenerated = getLocalGeneratedAt("channels")
         val serverGenerated = stats?.generatedAt ?: ""
 
+        Log.d(TAG, "needsSyncChannels: localCount=$localCount, statsReceived=${stats != null}")
+        Log.d(TAG, "needsSyncChannels: localGenerated='$localGenerated'")
+        Log.d(TAG, "needsSyncChannels: serverGenerated='$serverGenerated' (stats was null: ${stats == null})")
+
         if (localCount == 0) {
-            Log.d(TAG, "needsSyncChannels: local DB empty (count=0), needs=true")
+            Log.d(TAG, "needsSyncChannels: DECISION -> needsSync=true (local DB empty)")
             return@withContext true
         }
 
         if (serverGenerated.isEmpty() && localGenerated.isEmpty()) {
-            Log.d(TAG, "needsSyncChannels: both generatedAt empty, localCount=$localCount, needs=false")
+            Log.d(TAG, "needsSyncChannels: DECISION -> needsSync=false (both generatedAt empty)")
             return@withContext false
         }
 
         val needsSync = localGenerated != serverGenerated
-        Log.d(TAG, "needsSyncChannels: server=$serverGenerated, local=$localGenerated, localCount=$localCount, needs=$needsSync")
+        Log.d(TAG, "needsSyncChannels: comparison: '$localGenerated' != '$serverGenerated' = $needsSync")
+        Log.d(TAG, "needsSyncChannels: DECISION -> needsSync=$needsSync")
         needsSync
     }
 
@@ -125,18 +163,23 @@ class ContentCacheManager(private val context: Context) {
         val localGenerated = getLocalGeneratedAt("movies")
         val serverGenerated = stats?.generatedAt ?: ""
 
+        Log.d(TAG, "needsSyncMovies: localCount=$localCount, statsReceived=${stats != null}")
+        Log.d(TAG, "needsSyncMovies: localGenerated='$localGenerated'")
+        Log.d(TAG, "needsSyncMovies: serverGenerated='$serverGenerated' (stats was null: ${stats == null})")
+
         if (localCount == 0) {
-            Log.d(TAG, "needsSyncMovies: local DB empty (count=0), needs=true")
+            Log.d(TAG, "needsSyncMovies: DECISION -> needsSync=true (local DB empty)")
             return@withContext true
         }
 
         if (serverGenerated.isEmpty() && localGenerated.isEmpty()) {
-            Log.d(TAG, "needsSyncMovies: both generatedAt empty, localCount=$localCount, needs=false")
+            Log.d(TAG, "needsSyncMovies: DECISION -> needsSync=false (both generatedAt empty)")
             return@withContext false
         }
 
         val needsSync = localGenerated != serverGenerated
-        Log.d(TAG, "needsSyncMovies: server=$serverGenerated, local=$localGenerated, localCount=$localCount, needs=$needsSync")
+        Log.d(TAG, "needsSyncMovies: comparison: '$localGenerated' != '$serverGenerated' = $needsSync")
+        Log.d(TAG, "needsSyncMovies: DECISION -> needsSync=$needsSync")
         needsSync
     }
 
@@ -146,18 +189,23 @@ class ContentCacheManager(private val context: Context) {
         val localGenerated = getLocalGeneratedAt("series")
         val serverGenerated = stats?.generatedAt ?: ""
 
+        Log.d(TAG, "needsSyncSeries: localCount=$localCount, statsReceived=${stats != null}")
+        Log.d(TAG, "needsSyncSeries: localGenerated='$localGenerated'")
+        Log.d(TAG, "needsSyncSeries: serverGenerated='$serverGenerated' (stats was null: ${stats == null})")
+
         if (localCount == 0) {
-            Log.d(TAG, "needsSyncSeries: local DB empty (count=0), needs=true")
+            Log.d(TAG, "needsSyncSeries: DECISION -> needsSync=true (local DB empty)")
             return@withContext true
         }
 
         if (serverGenerated.isEmpty() && localGenerated.isEmpty()) {
-            Log.d(TAG, "needsSyncSeries: both generatedAt empty, localCount=$localCount, needs=false")
+            Log.d(TAG, "needsSyncSeries: DECISION -> needsSync=false (both generatedAt empty)")
             return@withContext false
         }
 
         val needsSync = localGenerated != serverGenerated
-        Log.d(TAG, "needsSyncSeries: server=$serverGenerated, local=$localGenerated, localCount=$localCount, needs=$needsSync")
+        Log.d(TAG, "needsSyncSeries: comparison: '$localGenerated' != '$serverGenerated' = $needsSync")
+        Log.d(TAG, "needsSyncSeries: DECISION -> needsSync=$needsSync")
         needsSync
     }
 
@@ -212,35 +260,56 @@ class ContentCacheManager(private val context: Context) {
                 database.channelDao().deleteAll()
 
                 reader.beginObject()
+                var fieldCount = 0
                 while (reader.hasNext()) {
                     val name = reader.nextName()
+                    fieldCount++
+                    Log.d(TAG, "syncChannels: read field #$fieldCount name='$name'")
                     when (name) {
-                        "generated_at" -> generatedAt = reader.nextString()
+                        "generated_at" -> {
+                            generatedAt = reader.nextString()
+                            Log.d(TAG, "syncChannels: read generatedAt='$generatedAt'")
+                        }
                         "items" -> {
                             reader.beginArray()
+                            var itemCount = 0
                             while (reader.hasNext()) {
                                 batch.add(parseChannelObject(reader))
                                 totalCount++
+                                itemCount++
+                                if (itemCount % 10000 == 0) {
+                                    Log.d(TAG, "syncChannels: read $itemCount items so far")
+                                }
                                 if (batch.size >= BATCH_SIZE) {
                                     database.channelDao().insertAll(batch)
                                     batch.clear()
                                 }
                             }
                             reader.endArray()
+                            Log.d(TAG, "syncChannels: finished items array, total=$totalCount")
                         }
-                        else -> reader.skipValue()
+                        else -> {
+                            reader.skipValue()
+                            Log.d(TAG, "syncChannels: skipped unknown field '$name'")
+                        }
                     }
                 }
                 reader.endObject()
+                Log.d(TAG, "syncChannels: finished parsing root object, fieldCount=$fieldCount, totalCount=$totalCount, generatedAt='$generatedAt'")
 
                 if (batch.isNotEmpty()) {
                     database.channelDao().insertAll(batch)
                 }
 
+                Log.d(TAG, "syncChannels: generatedAt from JSON='${generatedAt}', totalCount=$totalCount")
                 prefs.edit()
                     .putString(KEY_CHANNELS_GENERATED_AT, generatedAt ?: "")
                     .putInt(KEY_CHANNELS_TOTAL, totalCount)
                     .apply()
+                Log.d(TAG, "syncChannels: saved generatedAt to prefs, verifying: '${prefs.getString(KEY_CHANNELS_GENERATED_AT, "MISSING")}'")
+            } catch (e: Exception) {
+                Log.e(TAG, "syncChannels: exception during JSON parsing", e)
+                throw e
             } finally {
                 try { reader.close() } catch (_: Exception) {}
                 conn.disconnect()
@@ -295,10 +364,12 @@ class ContentCacheManager(private val context: Context) {
                     database.movieDao().insertAll(batch)
                 }
 
+                Log.d(TAG, "syncMovies: generatedAt from JSON='${generatedAt}', totalCount=$totalCount")
                 prefs.edit()
                     .putString(KEY_MOVIES_GENERATED_AT, generatedAt ?: "")
                     .putInt(KEY_MOVIES_TOTAL, totalCount)
                     .apply()
+                Log.d(TAG, "syncMovies: saved generatedAt to prefs, verifying: '${prefs.getString(KEY_MOVIES_GENERATED_AT, "MISSING")}'")
             } finally {
                 try { reader.close() } catch (_: Exception) {}
                 conn.disconnect()
@@ -354,10 +425,12 @@ class ContentCacheManager(private val context: Context) {
                     database.seriesDao().insertAll(batch)
                 }
 
+                Log.d(TAG, "syncSeries: generatedAt from JSON='${generatedAt}', totalCount=$totalCount")
                 prefs.edit()
                     .putString(KEY_SERIES_GENERATED_AT, generatedAt ?: "")
                     .putInt(KEY_SERIES_TOTAL, totalCount)
                     .apply()
+                Log.d(TAG, "syncSeries: saved generatedAt to prefs, verifying: '${prefs.getString(KEY_SERIES_GENERATED_AT, "MISSING")}'")
             } finally {
                 try { reader.close() } catch (_: Exception) {}
                 conn.disconnect()
