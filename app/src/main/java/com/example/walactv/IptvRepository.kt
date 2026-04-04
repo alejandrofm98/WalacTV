@@ -41,6 +41,7 @@ class IptvRepository(context: Context) {
 
     fun hasStoredCredentials(): Boolean = credentialStore.hasCredentials()
     fun currentUsername(): String = credentialStore.username()
+    fun currentPassword(): String = credentialStore.password()
 
     suspend fun signIn(username: String, password: String) {
         val user = username.trim()
@@ -276,6 +277,16 @@ class IptvRepository(context: Context) {
         parsed.copy(items = resolveStreamTemplates(parsed.items).distinctBy(CatalogItem::stableId))
     }
 
+    suspend fun loadFavoriteChannels(): List<CatalogItem> = withContext(Dispatchers.IO) {
+        val token = getAccessToken()
+        val payload = getJsonObject(
+            url = "${BuildConfig.IPTV_BASE_URL}/api/channel-favorites",
+            token = token,
+        )
+        val parsed = parseRemoteCatalogPage(payload, expectedKind = ContentKind.CHANNEL)
+        resolveStreamTemplates(parsed.items).distinctBy(CatalogItem::stableId)
+    }
+
     // ── Búsqueda ──────────────────────────────────────────────────────────────
 
     suspend fun searchCatalog(query: String): List<CatalogItem> = withContext(Dispatchers.IO) {
@@ -475,7 +486,7 @@ class IptvRepository(context: Context) {
 
     // ── Sesión / token ────────────────────────────────────────────────────────
 
-    private suspend fun getAccessToken(): String {
+    suspend fun getAccessToken(): String {
         accessToken?.let { return it }
         val c = requireCredentials()
         val response = postForm(

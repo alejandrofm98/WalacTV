@@ -2,10 +2,15 @@
 
 package com.example.walactv
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,13 +32,20 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -55,6 +67,7 @@ import com.example.walactv.ui.theme.IptvSurfaceVariant
 import com.example.walactv.ui.theme.IptvTextMuted
 import com.example.walactv.ui.theme.IptvTextPrimary
 import com.example.walactv.ui.theme.IptvTextSecondary
+import kotlinx.coroutines.launch
 
 @Composable
 fun ChangelogDialog(
@@ -62,6 +75,9 @@ fun ChangelogDialog(
     markdown: String,
     onDismiss: () -> Unit,
 ) {
+    val focusRequester = remember { FocusRequester() }
+    val scrollState = rememberScrollState()
+    val scrollScope = rememberCoroutineScope()
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -76,6 +92,11 @@ fun ChangelogDialog(
                 ) { onDismiss() },
             contentAlignment = Alignment.Center,
         ) {
+            LaunchedEffect(Unit) {
+                Log.d("ChangelogDialog", "DIALOG_FOCUS: calling requestFocus()")
+                focusRequester.requestFocus()
+                Log.d("ChangelogDialog", "DIALOG_FOCUS: requestFocus() called")
+            }
             Column(
                 modifier = Modifier
                     .width(780.dp)
@@ -115,7 +136,36 @@ fun ChangelogDialog(
                         .background(IptvCard, RoundedCornerShape(12.dp))
                         .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(12.dp))
                         .padding(24.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .focusRequester(focusRequester)
+                        .onFocusChanged {
+                            Log.d("ChangelogDialog", "DIALOG_FOCUS: scrollBox hasFocus=${it.hasFocus} isFocused=${it.isFocused}")
+                        }
+                        .focusable()
+                        .onKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                            when (event.key) {
+                                Key.DirectionDown -> {
+                                    Log.d("ChangelogDialog", "DIALOG_KEY: DOWN")
+                                    scrollScope.launch { scrollState.animateScrollBy(140f) }
+                                    true
+                                }
+
+                                Key.DirectionUp -> {
+                                    Log.d("ChangelogDialog", "DIALOG_KEY: UP")
+                                    scrollScope.launch { scrollState.animateScrollBy(-140f) }
+                                    true
+                                }
+
+                                Key.Back, Key.Escape -> {
+                                    Log.d("ChangelogDialog", "DIALOG_KEY: BACK")
+                                    onDismiss()
+                                    true
+                                }
+
+                                else -> false
+                            }
+                        }
+                        .verticalScroll(scrollState),
                 ) {
                     MarkdownText(markdown)
                 }

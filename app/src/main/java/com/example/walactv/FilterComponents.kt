@@ -13,6 +13,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.Key
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,11 +26,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -103,6 +104,16 @@ fun SearchBar(
             .focusRequester(focusRequester)
             .focusable()
             .onFocusChanged { isFocused = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.Escape || event.key == Key.Back) &&
+                    isFocused
+                ) {
+                    focusRequester.freeFocus()
+                    isFocused = false
+                    true
+                } else false
+            }
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Row(
@@ -116,7 +127,7 @@ fun SearchBar(
                 modifier = Modifier.size(18.dp)
             )
             Box(modifier = Modifier.weight(1f)) {
-                if (query.isEmpty()) {
+                if (query.isEmpty() && !isFocused) {
                     Text(
                         "Buscar...",
                         color = IptvTextMuted,
@@ -124,22 +135,24 @@ fun SearchBar(
                         fontWeight = FontWeight.Normal
                     )
                 }
-                BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = TextStyle(
-                        color = IptvTextPrimary,
-                        fontSize = 14.sp
-                    ),
-                    cursorBrush = SolidColor(IptvAccent),
-                    singleLine = true,
-                    decorationBox = { innerTextField ->
-                        Box {
-                            innerTextField()
+                if (isFocused) {
+                    BasicTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = TextStyle(
+                            color = IptvTextPrimary,
+                            fontSize = 14.sp
+                        ),
+                        cursorBrush = SolidColor(IptvAccent),
+                        singleLine = true,
+                        decorationBox = { innerTextField ->
+                            Box {
+                                innerTextField()
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }

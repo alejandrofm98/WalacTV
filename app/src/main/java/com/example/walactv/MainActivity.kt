@@ -81,8 +81,9 @@ class MainActivity : FragmentActivity() {
 
         val container = findViewById<FrameLayout>(R.id.player_container)
         if (container != null && container.visibility == View.VISIBLE) {
-            val guideFragment = supportFragmentManager.findFragmentByTag("guide_fragment")
-            if (guideFragment != null && guideFragment.isVisible) {
+            val composeFragment = supportFragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
+            if (composeFragment != null && composeFragment.composeDialogOpen) {
+                Log.d(TAG, "DIALOG_DPAD: keyCode=${event.keyCode} action=${event.action} composeDialogOpen=true -> super.dispatchKeyEvent")
                 return super.dispatchKeyEvent(event)
             }
 
@@ -115,13 +116,6 @@ class MainActivity : FragmentActivity() {
     private fun handleCentralizedBack(): Boolean {
         val fragmentManager = supportFragmentManager
         Log.d(TAG, "handleCentralizedBack: START")
-
-        val guideFragment = fragmentManager.findFragmentByTag("guide_fragment")
-        if (guideFragment != null && guideFragment.isVisible) {
-            Log.d(TAG, "handleCentralizedBack: GUIDE path")
-            fragmentManager.popBackStack()
-            return true
-        }
 
         val container = findViewById<FrameLayout>(R.id.player_container)
         val playerFragment = fragmentManager.findFragmentByTag("player_fragment") as? PlayerFragment

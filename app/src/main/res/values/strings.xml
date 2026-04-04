@@ -53,6 +53,13 @@
     <string name="guide_section_description">Abre una vista inspirada en TiviMate para recorrer la parrilla de canales por grupos.</string>
     <string name="guide_badge">GUIDE</string>
     <string name="guide_now_playing_placeholder">Canal listo para reproducir</string>
+    <string name="guide_categories">Categorias</string>
+    <string name="guide_categories_hint">Pulsa derecha para volver a la lista</string>
+    <string name="guide_all_channels">Todos los canales</string>
+    <string name="guide_loading_title">Cargando guia</string>
+    <string name="guide_loading_message">Estamos cargando categorias y canales.</string>
+    <string name="guide_empty_group">No hay canales disponibles en este grupo.</string>
+    <string name="guide_load_failed">No se pudo cargar la guia ahora mismo.</string>
 
     <!-- Live player controls -->
     <string name="live_guide">Guía</string>

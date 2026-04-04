@@ -219,6 +219,7 @@ class PlayerFragment(
     /** Wire live TV action buttons (guide, favorites, channel). */
     private fun bindLiveActionButtons() {
         btnGuide?.setOnClickListener {
+            Log.d(TAG, "btnGuide CLICK FIRED, onOpenGuide=${onOpenGuide != null}")
             onOpenGuide?.invoke(null)
         }
         btnFavorites?.setOnClickListener {
