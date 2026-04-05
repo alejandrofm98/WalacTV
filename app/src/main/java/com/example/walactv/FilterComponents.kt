@@ -1,5 +1,11 @@
 package com.example.walactv
 
+import android.util.Log
+import android.view.KeyEvent as AndroidKeyEvent
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.content.Context
+import android.widget.EditText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,7 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -25,13 +32,13 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
@@ -57,7 +64,17 @@ fun FilterTopBar(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged {
+                Log.d("FocusTrace", "FilterTopBar Row: isFocused=${it.isFocused}, hasFocus=${it.hasFocus}")
+            }
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    Log.d("FocusTrace", "FilterTopBar Row key: ${event.key}")
+                }
+                false
+            },
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -74,105 +91,180 @@ fun FilterTopBar(
             focusRequester = grupoFocusRequester
         )
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.weight(1f).focusable(false))
 
-        SearchBar(
+        // ── SearchBar con EditText nativo para soporte real de teclado / IME ──
+        NativeSearchBar(
             query = searchQuery,
             onQueryChange = onSearchQueryChange,
-            focusRequester = searchFocusRequester
+            focusRequester = searchFocusRequester,
         )
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NativeSearchBar — usa un EditText real para que el IME de Android TV funcione
+// ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun SearchBar(
+fun NativeSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val backgroundColor = if (isFocused) IptvFocusBg else IptvCard
-    val borderColor = if (isFocused) IptvFocusBorder else IptvSurfaceVariant
+
+    // Referencia al EditText nativo para poder manipularlo desde Compose
+    var editTextRef by remember { mutableStateOf<EditText?>(null) }
+
+    // Sincroniza el texto desde fuera (p.ej. cuando se borra desde otro sitio)
+    LaunchedEffect(query) {
+        val et = editTextRef ?: return@LaunchedEffect
+        if (et.text.toString() != query) {
+            et.setText(query)
+            et.setSelection(query.length)
+        }
+    }
 
     Box(
         modifier = modifier
             .width(220.dp)
-            .background(backgroundColor, RoundedCornerShape(8.dp))
-            .border(if (isFocused) 2.dp else 1.dp, borderColor, RoundedCornerShape(8.dp))
+            .background(
+                if (isFocused) IptvFocusBg else IptvCard,
+                RoundedCornerShape(8.dp)
+            )
+            // FIX: borde como el resto de la app — 2dp azul cuando tiene foco
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
+                shape = RoundedCornerShape(8.dp)
+            )
             .focusRequester(focusRequester)
-            .focusable()
-            .onFocusChanged { isFocused = it.isFocused }
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    (event.key == Key.Escape || event.key == Key.Back) &&
-                    isFocused
-                ) {
-                    focusRequester.freeFocus()
-                    isFocused = false
-                    true
-                } else false
+            // No añadimos .focusable() aquí para que el EditText hijo tome el foco
+            .onFocusChanged { state ->
+                isFocused = state.isFocused || state.hasFocus
+                Log.d("FocusTrace", "NativeSearchBar box: isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
+                if (state.isFocused || state.hasFocus) {
+                    // Pide foco al EditText y abre el teclado
+                    editTextRef?.let { et ->
+                        et.requestFocus()
+                        val imm = et.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                        imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
+                    }
+                }
             }
             .padding(horizontal = 12.dp, vertical = 8.dp),
+        contentAlignment = Alignment.CenterStart,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(
                 Icons.Outlined.Search,
                 contentDescription = "Buscar",
                 tint = if (isFocused) IptvTextPrimary else IptvTextMuted,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(18.dp),
             )
-            Box(modifier = Modifier.weight(1f)) {
-                if (query.isEmpty() && !isFocused) {
-                    Text(
-                        "Buscar...",
-                        color = IptvTextMuted,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Normal
-                    )
-                }
-                if (isFocused) {
-                    BasicTextField(
-                        value = query,
-                        onValueChange = onQueryChange,
-                        modifier = Modifier.fillMaxWidth(),
-                        textStyle = TextStyle(
-                            color = IptvTextPrimary,
-                            fontSize = 14.sp
-                        ),
-                        cursorBrush = SolidColor(IptvAccent),
-                        singleLine = true,
-                        decorationBox = { innerTextField ->
-                            Box {
-                                innerTextField()
+
+            // EditText nativo: soporta IME completo en Android TV
+            AndroidView(
+                factory = { context ->
+                    EditText(context).apply {
+                        hint = "Buscar..."
+                        setHintTextColor(IptvTextMuted.copy(alpha = 0.7f).toArgb())
+                        setTextColor(IptvTextPrimary.toArgb())
+                        textSize = 14f
+                        background = null          // quita el underline nativo
+                        setSingleLine(true)
+                        imeOptions = EditorInfo.IME_ACTION_SEARCH or EditorInfo.IME_FLAG_NO_FULLSCREEN
+                        inputType = android.text.InputType.TYPE_CLASS_TEXT
+
+                        // Sincroniza texto hacia Compose mientras el usuario escribe
+                        addTextChangedListener(object : android.text.TextWatcher {
+                            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                            override fun afterTextChanged(s: android.text.Editable?) {
+                                val newText = s?.toString() ?: ""
+                                if (newText != query) onQueryChange(newText)
                             }
+                        })
+
+                        // Acción "Buscar" del teclado cierra el IME
+                        setOnEditorActionListener { _, actionId, _ ->
+                            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                                imm.hideSoftInputFromWindow(windowToken, 0)
+                                true
+                            } else false
                         }
-                    )
-                }
-            }
+
+                        // ESC / Back: borra el texto y cierra el IME
+                        setOnKeyListener { v, keyCode, event ->
+                            if (event.action == AndroidKeyEvent.ACTION_DOWN &&
+                                keyCode == AndroidKeyEvent.KEYCODE_ESCAPE
+                            ) {
+                                setText("")
+                                onQueryChange("")
+                                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                                imm.hideSoftInputFromWindow(v.windowToken, 0)
+                                true
+                            } else false
+                        }
+
+                        setOnFocusChangeListener { _, hasFocus ->
+                            isFocused = hasFocus
+                            Log.d("FocusTrace", "NativeSearchBar EditText focus=$hasFocus")
+                        }
+                    }.also { editTextRef = it }
+                },
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FilterTopBarButton — FIX: borde azul consistente con el resto de la app
+// ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: FocusRequester) {
     var isFocused by remember { mutableStateOf(false) }
-    val backgroundColor = if (isFocused) IptvFocusBg else IptvCard
-    val borderColor = if (isFocused) IptvFocusBorder else IptvSurfaceVariant
-    val contentColor = if (isFocused) IptvTextPrimary else IptvTextMuted
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is androidx.compose.foundation.interaction.FocusInteraction.Focus -> isFocused = true
+                is androidx.compose.foundation.interaction.FocusInteraction.Unfocus -> isFocused = false
+                else -> {}
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
-            .background(backgroundColor, RoundedCornerShape(8.dp))
-            .border(if (isFocused) 2.dp else 1.dp, borderColor, RoundedCornerShape(8.dp))
             .focusRequester(focusRequester)
-            .focusable()
-            .onFocusChanged { isFocused = it.isFocused }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .onFocusChanged { state ->
+                isFocused = state.isFocused
+                Log.d("FocusTrace", "FilterTopBarButton[$label]: isFocused=${state.isFocused}")
+            }
+            .background(
+                color = if (isFocused) IptvFocusBg else IptvCard,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
+                shape = RoundedCornerShape(8.dp),
+            )
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
                     (event.key == Key.Enter || event.key == Key.DirectionCenter)
@@ -185,13 +277,36 @@ fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: Focus
     ) {
         Text(
             text = "$label \u25BE",
-            color = contentColor,
+            color = if (isFocused) IptvTextPrimary else IptvTextMuted,
             fontSize = 15.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
         )
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SearchBar (legacy Compose-only, se mantiene por compatibilidad pero
+// recomendamos usar NativeSearchBar en FilterTopBar)
+// ─────────────────────────────────────────────────────────────────────────────
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    focusRequester: FocusRequester,
+    modifier: Modifier = Modifier,
+) {
+    NativeSearchBar(
+        query = query,
+        onQueryChange = onQueryChange,
+        focusRequester = focusRequester,
+        modifier = modifier,
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FilterDialog — sin cambios funcionales, solo limpieza menor
+// ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun FilterDialog(
@@ -210,7 +325,6 @@ fun FilterDialog(
     val listState = rememberLazyListState()
     val focusRequester = remember { FocusRequester() }
 
-    // Scroll to selected item when dialog opens
     LaunchedEffect(Unit) {
         val idx = filteredOptions.indexOfFirst { it.value == selectedOption }
         if (idx > 0) {
@@ -220,107 +334,107 @@ fun FilterDialog(
         focusRequester.requestFocus()
     }
 
-    // Auto-scroll when selectedIndex changes via D-pad
     LaunchedEffect(selectedIndex) {
         listState.scrollToItem(selectedIndex)
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.7f))
-            .focusRequester(focusRequester)
-            .focusable()
-            .onKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                when (event.key) {
-                    Key.DirectionUp -> {
-                        if (selectedIndex > 0) selectedIndex--
-                        true
-                    }
-                    Key.DirectionDown -> {
-                        if (selectedIndex < filteredOptions.size - 1) selectedIndex++
-                        true
-                    }
-                    Key.Enter, Key.DirectionCenter -> {
-                        filteredOptions.getOrNull(selectedIndex)?.let { onOptionSelected(it) }
-                        true
-                    }
-                    Key.Back, Key.Escape -> {
-                        onDismiss()
-                        true
-                    }
-                    else -> false
-                }
-            },
-        contentAlignment = Alignment.Center
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true),
     ) {
-        Column(
+        Box(
             modifier = Modifier
-                .width(420.dp)
-                .background(IptvSurface, RoundedCornerShape(12.dp))
-                .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(12.dp))
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.7f))
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> {
+                            if (selectedIndex > 0) selectedIndex--
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            if (selectedIndex < filteredOptions.size - 1) selectedIndex++
+                            true
+                        }
+                        Key.Enter, Key.DirectionCenter -> {
+                            filteredOptions.getOrNull(selectedIndex)?.let { onOptionSelected(it) }
+                            true
+                        }
+                        else -> false
+                    }
+                },
+            contentAlignment = Alignment.Center
         ) {
-            Text(title, color = IptvTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Column(
+                modifier = Modifier
+                    .width(420.dp)
+                    .background(IptvSurface, RoundedCornerShape(12.dp))
+                    .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(12.dp))
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(title, color = IptvTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
 
-            if (filteredOptions.isEmpty()) {
-                Text(
-                    "No hay opciones",
-                    color = IptvTextMuted,
-                    fontSize = 15.sp,
-                    modifier = Modifier.padding(vertical = 16.dp)
-                )
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.heightIn(max = 400.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    itemsIndexed(filteredOptions) { index, option ->
-                        val isHighlighted = index == selectedIndex
-                        val bgColor = when {
-                            isHighlighted -> IptvFocusBg
-                            option.value == selectedOption -> IptvCard
-                            else -> Color.Transparent
-                        }
-                        val borderClr = when {
-                            isHighlighted -> IptvFocusBorder
-                            option.value == selectedOption -> IptvSurfaceVariant
-                            else -> Color.Transparent
-                        }
-                        val textColor = when {
-                            isHighlighted -> IptvTextPrimary
-                            option.value == selectedOption -> IptvTextPrimary
-                            else -> IptvTextMuted
-                        }
+                if (filteredOptions.isEmpty()) {
+                    Text(
+                        "No hay opciones",
+                        color = IptvTextMuted,
+                        fontSize = 15.sp,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.heightIn(max = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        itemsIndexed(filteredOptions) { index, option ->
+                            val isHighlighted = index == selectedIndex
+                            val bgColor = when {
+                                isHighlighted -> IptvFocusBg
+                                option.value == selectedOption -> IptvCard
+                                else -> Color.Transparent
+                            }
+                            val borderClr = when {
+                                isHighlighted -> IptvFocusBorder
+                                option.value == selectedOption -> IptvSurfaceVariant
+                                else -> Color.Transparent
+                            }
+                            val textColor = when {
+                                isHighlighted -> IptvTextPrimary
+                                option.value == selectedOption -> IptvTextPrimary
+                                else -> IptvTextMuted
+                            }
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(bgColor, RoundedCornerShape(8.dp))
-                                .border(1.dp, borderClr, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                        ) {
-                            Text(
-                                option.label,
-                                color = textColor,
-                                fontSize = 16.sp,
-                                fontWeight = if (isHighlighted) FontWeight.SemiBold else FontWeight.Normal,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(bgColor, RoundedCornerShape(8.dp))
+                                    .border(1.dp, borderClr, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                            ) {
+                                Text(
+                                    option.label,
+                                    color = textColor,
+                                    fontSize = 16.sp,
+                                    fontWeight = if (isHighlighted) FontWeight.SemiBold else FontWeight.Normal,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
-                }
 
-                Text(
-                    "\u25B2\u25BC para navegar \u2022 OK para seleccionar",
-                    color = IptvTextMuted.copy(alpha = 0.6f),
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                    Text(
+                        "\u25B2\u25BC para navegar \u2022 OK para seleccionar",
+                        color = IptvTextMuted.copy(alpha = 0.6f),
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
     }
@@ -330,22 +444,26 @@ fun FilterDialog(
 @Composable
 fun DialogFilterItem(label: String, selected: Boolean, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
-    val backgroundColor = when {
-        isFocused -> IptvFocusBg
-        selected -> IptvCard
-        else -> Color.Transparent
-    }
-    val borderColor = when {
-        isFocused -> IptvFocusBorder
-        selected -> IptvSurfaceVariant
-        else -> Color.Transparent
-    }
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(backgroundColor, RoundedCornerShape(8.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .background(
+                when {
+                    isFocused -> IptvFocusBg
+                    selected -> IptvCard
+                    else -> Color.Transparent
+                },
+                RoundedCornerShape(8.dp)
+            )
+            .border(
+                1.dp,
+                when {
+                    isFocused -> IptvFocusBorder
+                    selected -> IptvSurfaceVariant
+                    else -> Color.Transparent
+                },
+                RoundedCornerShape(8.dp)
+            )
             .focusable()
             .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }

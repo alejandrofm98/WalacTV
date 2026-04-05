@@ -50,12 +50,6 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    /**
-     * Intercept key events at the Activity level so that D-pad keys always
-     * reach [PlayerFragment] regardless of which child view currently holds
-     * focus. This fixes the problem where [PlayerView] steals focus and
-     * swallows D-pad events before any OnKeyListener can react.
-     */
     @androidx.media3.common.util.UnstableApi
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
@@ -105,7 +99,7 @@ class MainActivity : FragmentActivity() {
                         KeyEvent.KEYCODE_BOOKMARK,
                         KeyEvent.KEYCODE_GUIDE,
                         KeyEvent.KEYCODE_INFO,
-                        -> return true
+                            -> return true
                     }
                 }
             }
@@ -115,35 +109,57 @@ class MainActivity : FragmentActivity() {
 
     private fun handleCentralizedBack(): Boolean {
         val fragmentManager = supportFragmentManager
-        Log.d(TAG, "handleCentralizedBack: START")
+        Log.d(TAG, "handleCentralizedBack: START backStackCount=${fragmentManager.backStackEntryCount}")
 
+        // ── 1. Player visible → cerrar overlay o cerrar player ───────────────
         val container = findViewById<FrameLayout>(R.id.player_container)
         val playerFragment = fragmentManager.findFragmentByTag("player_fragment") as? PlayerFragment
-        Log.d(TAG, "handleCentralizedBack: container=${container?.visibility}, playerFragment=${playerFragment != null}, playerVisible=${playerFragment?.isVisible}")
-
-        if (container != null && container.visibility == View.VISIBLE && playerFragment != null && playerFragment.isVisible) {
+        if (container != null && container.visibility == View.VISIBLE &&
+            playerFragment != null && playerFragment.isVisible
+        ) {
             val menuFocused = playerFragment.isOverlayMenuFocused()
-            val overlayVisible = playerFragment.isOverlayVisible()
-            Log.d(TAG, "FAV_BACK: isOverlayMenuFocused=$menuFocused overlayVisible=$overlayVisible goingTo=${if (menuFocused) "HIDE" else "CLOSE"}")
+            Log.d(TAG, "handleCentralizedBack: player visible, menuFocused=$menuFocused")
             if (menuFocused) {
-                Log.d(TAG, "FAV_BACK: hiding overlay menu")
                 playerFragment.hideOverlayMenu()
                 return true
             }
-            Log.d(TAG, "FAV_BACK: closing player")
             playerFragment.closeFromHost()
             val composeFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
-            Log.d(TAG, "handleCentralizedBack: composeFragment=${composeFragment != null}")
             composeFragment?.restorePlaybackReturnState()
             composeFragment?.restoreFocusAfterPlayer()
             return true
         }
 
-        Log.d(TAG, "handleCentralizedBack: FALLTHROUGH -> navigateHomeOnBack")
-        val rootFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
-        val result = rootFragment?.navigateHomeOnBack() == true
-        Log.d(TAG, "handleCentralizedBack: navigateHomeOnBack returned $result")
-        return result
+        // ── 2. Hay fragmentos en el back stack (Search, SeriesDetail…) → pop ─
+        if (fragmentManager.backStackEntryCount > 0) {
+            Log.d(TAG, "handleCentralizedBack: popping back stack (count=${fragmentManager.backStackEntryCount})")
+            fragmentManager.popBackStack()
+            return true
+        }
+
+        // ── 3. Sin player ni back stack → gestión de modos de navegación ─────
+        val composeFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
+            ?: run {
+                Log.d(TAG, "handleCentralizedBack: no ComposeMainFragment found")
+                return false
+            }
+
+        val currentMode = composeFragment.currentNavigationMode()
+        Log.d(TAG, "handleCentralizedBack: currentMode=$currentMode")
+
+        return when (currentMode) {
+            // Ya estamos en Home → no consumir, el sistema cerrará la app
+            "Home" -> {
+                Log.d(TAG, "handleCentralizedBack: already Home, letting system handle (exit app)")
+                false
+            }
+            // En cualquier otra sección → ir a Home
+            else -> {
+                Log.d(TAG, "handleCentralizedBack: navigating to Home from $currentMode")
+                composeFragment.navigateToHome()
+                true
+            }
+        }
     }
 
     companion object {

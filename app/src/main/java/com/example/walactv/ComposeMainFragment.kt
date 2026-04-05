@@ -442,7 +442,6 @@ class ComposeMainFragment : Fragment() {
             selectedHero = defaultItemForMode(currentMode)
         }
 
-        // Load "Continue Watching" section asynchronously
         loadContinueWatching()
     }
 
@@ -566,39 +565,29 @@ class ComposeMainFragment : Fragment() {
             .orEmpty()
     }
 
-    /** Check if a CatalogItem matches a content_id by providerId or stableId. */
     private fun CatalogItem.matchesByProviderId(contentId: String): Boolean {
-        // contentId format from API: "movie:provider_id" or just "provider_id"
         val itemId = contentId.substringAfterLast(":")
         return providerId == itemId || stableId == contentId || stableId.endsWith(":$itemId")
     }
 
-    /** Find the series group item that matches a watch progress entry. */
     private fun findSeriesMatch(wp: WatchProgressItem, items: List<CatalogItem> = searchableItems): CatalogItem? {
         val seriesName = wp.seriesName ?: return null
         val seriesItems = items.filter { it.kind == ContentKind.SERIES }
 
-        // Strategy 1: exact seriesName match
         seriesItems.firstOrNull { it.seriesName == seriesName }?.let { return it }
+        seriesItems.firstOrNull { it.seriesName?.equals(seriesName, ignoreCase = true) == true }?.let { return it }
 
-        // Strategy 2: case-insensitive exact match
-        seriesItems.firstOrNull { it.seriesName?.equals(seriesName, ignoreCase = true) == true }
-            ?.let { return it }
-
-        // Strategy 3: strip year/country parens and compare base name
         val baseName = seriesName.replace(Regex("\\s*\\([^)]*\\)\\s*"), " ").trim()
         seriesItems.firstOrNull { item ->
             val itemBase = item.seriesName?.replace(Regex("\\s*\\([^)]*\\)\\s*"), " ")?.trim()
             itemBase.equals(baseName, ignoreCase = true)
         }?.let { return it }
 
-        // Strategy 4: containment check
         seriesItems.firstOrNull { item ->
             val ns = item.seriesName ?: return@firstOrNull false
             ns.contains(seriesName, ignoreCase = true) || seriesName.contains(ns, ignoreCase = true)
         }?.let { return it }
 
-        // Strategy 5: match by title
         seriesItems.firstOrNull { item ->
             item.title.contains(seriesName, ignoreCase = true) || seriesName.contains(item.title, ignoreCase = true)
         }?.let { return it }
@@ -1162,8 +1151,8 @@ class ComposeMainFragment : Fragment() {
                         keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT
                     ) {
                         val index = railItems.indexOfFirst { it.mode != null && currentMode == it.mode }
-                        if (index >= 0) focusRequesters[index].requestFocus()
-                        else focusRequesters.last().requestFocus()
+                        if (index >= 0 && index < focusRequesters.size) runCatching { focusRequesters[index].requestFocus() }
+                        else if (focusRequesters.isNotEmpty()) runCatching { focusRequesters.last().requestFocus() }
                         true
                     } else false
                 },
@@ -1239,7 +1228,6 @@ class ComposeMainFragment : Fragment() {
 
         Log.d(TAG, "Restoring playback return state: mode=${state.mode} (was $currentMode)")
 
-        // Always set the mode to ensure the UI reflects the correct section
         currentMode = state.mode
         when (state.mode) {
             MainMode.TV     -> ensureFiltersLoaded(ContentKind.CHANNEL)
@@ -1254,11 +1242,32 @@ class ComposeMainFragment : Fragment() {
 
     fun restoreFocusAfterPlayer() {
         view?.let {
-            it.requestFocus()
+            runCatching { it.requestFocus() }
             Log.d(TAG, "Requested focus on fragment view after player close")
         }
     }
 
+    // ── Métodos públicos de navegación (usados por MainActivity) ─────────────
+
+    /**
+     * Devuelve el nombre del modo actual para que MainActivity pueda decidir
+     * cómo gestionar el back sin necesidad de acceder a la enum interna.
+     */
+    fun currentNavigationMode(): String = currentMode.name
+
+    /**
+     * Navega explícitamente a Home. Usado por MainActivity cuando el usuario
+     * pulsa back desde cualquier sección que no sea Home.
+     */
+    fun navigateToHome() {
+        Log.d(TAG, "navigateToHome called, currentMode=$currentMode")
+        if (currentMode == MainMode.Home) return
+        changeMode(MainMode.Home)
+    }
+
+    /**
+     * Mantenido por compatibilidad. Preferir currentNavigationMode() + navigateToHome().
+     */
     fun navigateHomeOnBack(): Boolean {
         Log.d(TAG, "navigateHomeOnBack called, currentMode=$currentMode")
         if (currentMode == MainMode.Home) {
@@ -1268,6 +1277,16 @@ class ComposeMainFragment : Fragment() {
         Log.d(TAG, "navigateHomeOnBack: changing to Home")
         changeMode(MainMode.Home)
         return true
+    }
+
+    fun navigateHomeOnBack_unused(): Boolean {
+        // Alias legacy — no usar
+        return navigateHomeOnBack()
+    }
+
+    fun restoreFocusAfterPlayer_unused() {
+        // Alias legacy — no usar
+        restoreFocusAfterPlayer()
     }
 
     private fun ensureFiltersLoaded(kind: ContentKind, country: String? = null) {
@@ -1458,7 +1477,6 @@ class ComposeMainFragment : Fragment() {
         var isLoadingPage by remember { mutableStateOf(false) }
         val pageSize = 50
 
-        // FIX 2: groupOptions filtrados por país — se recargan cuando cambia selectedCountry
         var filteredGroupOptions by remember { mutableStateOf<List<CatalogFilterOption>>(emptyList()) }
 
         val countryOptions = remember(kind, channelFilters) {
@@ -1472,15 +1490,22 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        // Grupos: siempre desde cache local, filtrar duplicados de favoritos
-        LaunchedEffect(channelFilters) {
+        LaunchedEffect(selectedCountry, channelFilters) {
             if (isEventGuide) return@LaunchedEffect
-            filteredGroupOptions = buildList {
-                add(CatalogFilterOption(ALL_OPTION, "Todos"))
+            val country = selectedCountry.takeUnless { it == ALL_OPTION }
+            val groups = if (country != null) {
+                contentCacheManager.getChannelsByCountry(country)
+                    .distinctBy { it.grupoNormalizado }
+                    .filter { it.grupoNormalizado.isNotBlank() }
+                    .map { CatalogFilterOption(it.grupoNormalizado, it.grupoNormalizado) }
+            } else {
                 channelFilters.groups
                     .distinctBy { it.value }
                     .filter { it.value != "Favorites" && it.value != "Favoritos" }
-                    .forEach(::add)
+            }
+            filteredGroupOptions = buildList {
+                add(CatalogFilterOption(ALL_OPTION, "Todos"))
+                addAll(groups)
             }
         }
 
@@ -1521,7 +1546,6 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        // FIX 4: Scroll al canal actual cuando se carga el grid
         LaunchedEffect(displayItemsForGrid, currentItem) {
             if (!isEventGuide && displayItemsForGrid.isNotEmpty()) {
                 val current = currentItem
@@ -1534,7 +1558,6 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        // Aplica initialGroup del guide cuando llegan los filtros
         LaunchedEffect(Unit) {
             val initial = guideInitialGroup
             if (initial != null) {
@@ -1546,7 +1569,6 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        // Load events or channels
         LaunchedEffect(kind) {
             if (isEventGuide) {
                 Log.d(TAG, "GuideContent: loading events")
@@ -1563,7 +1585,6 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        // FIX 1: Foco inicial al grid, NO a la búsqueda ni sidebar
         LaunchedEffect(Unit) {
             if (!isEventGuide) {
                 kotlinx.coroutines.delay(100)
@@ -1571,7 +1592,6 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        // Load channels when filters change
         var lastLoadKey by remember { mutableStateOf("") }
         var isLoading by remember { mutableStateOf(false) }
 
@@ -1602,7 +1622,6 @@ class ComposeMainFragment : Fragment() {
             isLoading = false
         }
 
-        // Auto-scroll al evento en vivo
         LaunchedEffect(displayItemsForGrid) {
             if (isEventGuide && displayItemsForGrid.isNotEmpty()) {
                 val index = findNextEventIndex(displayItemsForGrid)
@@ -1610,14 +1629,12 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        // FIX 2: Reset grupo cuando cambia el país
         LaunchedEffect(selectedCountry) {
             if (isEventGuide) return@LaunchedEffect
             searchQuery = ""
             selectedGroup = ALL_OPTION
         }
 
-        // FIX 1: Foco al sidebar cuando se abre — pero SIN tocar el foco si ya está en el grid
         LaunchedEffect(showGroupSidebar) {
             if (showGroupSidebar) {
                 kotlinx.coroutines.delay(50)
@@ -1625,7 +1642,6 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        // Infinite scroll
         LaunchedEffect(lazyGridState, searchQuery) {
             if (isEventGuide) return@LaunchedEffect
             if (searchQuery.isNotBlank()) return@LaunchedEffect
@@ -1653,10 +1669,14 @@ class ComposeMainFragment : Fragment() {
                 }
         }
 
-        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
             ScreenHeader(title = screenTitle(kind), subtitle = if (!isEventGuide) "$totalCount canales disponibles" else "")
             Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-                // Panel lateral de países + categorías (colapsable)
                 AnimatedVisibility(visible = showGroupSidebar, enter = fadeIn(), exit = fadeOut()) {
                     Column(
                         modifier = Modifier
@@ -1688,7 +1708,7 @@ class ComposeMainFragment : Fragment() {
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
-                    items(countryOptions, key = { "cptry_${it.value}" }) { option ->
+                            items(countryOptions, key = { "cptry_${it.value}" }) { option ->
                                 val isSelected = selectedCountry == option.value
                                 Box(
                                     modifier = Modifier
@@ -1794,7 +1814,6 @@ class ComposeMainFragment : Fragment() {
                     }
                 }
 
-                // Contenido principal
                 Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     FilterTopBar(
                         showIdioma = kind == ContentKind.CHANNEL,
@@ -1823,20 +1842,20 @@ class ComposeMainFragment : Fragment() {
                             }
                         }
                     } else {
-                        val gridColumns = if (isEventGuide) 5 else 4  // FIX 3: menos columnas para cards más grandes
+                        val gridColumns = if (isEventGuide) 5 else 4
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(gridColumns),
                             state = lazyGridState,
                             modifier = Modifier
                                 .weight(1f)
-                                .focusRequester(gridFocusRequester)  // FIX 1
+                                .focusRequester(gridFocusRequester)
                                 .onPreviewKeyEvent { event ->
                                     if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
                                         event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT &&
                                         !isEventGuide && groupOptions.isNotEmpty()
                                     ) {
                                         showGroupSidebar = true
-                                        sidebarFocusRequester.requestFocus()
+                                        runCatching { sidebarFocusRequester.requestFocus() }
                                         true
                                     } else false
                                 },
@@ -1893,7 +1912,7 @@ class ComposeMainFragment : Fragment() {
         }
     }
 
-    // ── Channel Picker Dialog ───────────────────────────────────────────────────
+    // ── Channel Picker Dialog ─────────────────────────────────────────────────
 
     @OptIn(ExperimentalTvMaterial3Api::class)
     @Composable
@@ -1910,7 +1929,7 @@ class ComposeMainFragment : Fragment() {
         onDismiss: () -> Unit
     ) {
         var selectedIndex by remember { mutableStateOf(0) }
-        var activePanel by remember { mutableStateOf(2) } // 0=país, 1=categoría, 2=canales
+        var activePanel by remember { mutableStateOf(2) }
 
         val channelListState = rememberLazyListState()
         val countryListState = rememberLazyListState()
@@ -1954,30 +1973,9 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        LaunchedEffect(currentCountry) {
-            val country = currentCountry.takeUnless { it == ALL_OPTION }
-            val groups = if (country != null) {
-                contentCacheManager.getChannelsByCountry(country)
-                    .distinctBy { it.grupoNormalizado }
-                    .filter { it.grupoNormalizado.isNotBlank() }
-                    .map { CatalogFilterOption(it.grupoNormalizado, it.grupoNormalizado) }
-            } else {
-                channelFilters.groups
-                    .distinctBy { it.value }
-                    .filter { it.value != "Favorites" && it.value != "Favoritos" }
-            }
-            groupOptions = buildList {
-                add(CatalogFilterOption(ALL_OPTION, "Todas las categorías"))
-                add(CatalogFilterOption("__favs__", "⭐ Favoritos"))
-                addAll(groups)
-            }
-        }
-
-        // Colores con transparencia para el diseño glassmorphism
         val panelBg = Color(0xFF0D0D1E).copy(alpha = 0.92f)
         val activePanelBg = Color(0xFF13132B).copy(alpha = 0.96f)
         val selectedItemBg = Color(0xFF2A2A6E).copy(alpha = 0.85f)
-        val focusedItemBg = Color(0xFF1E1E50).copy(alpha = 0.8f)
         val dividerColor = Color(0xFF2D2D60).copy(alpha = 0.6f)
         val accentColor = IptvAccent
         val borderGlow = Color(0xFF4444AA).copy(alpha = 0.5f)
@@ -2015,13 +2013,9 @@ class ComposeMainFragment : Fragment() {
         }
 
         LaunchedEffect(selectedIndex, displayChannels.size) {
-            Log.d(TAG, "ChannelPickerDialog scroll: selectedIndex=$selectedIndex, total=${displayChannels.size}, firstVisible=${channelListState.firstVisibleItemIndex}")
             if (selectedIndex in displayChannels.indices) {
                 kotlinx.coroutines.delay(10)
                 channelListState.scrollToItem(selectedIndex)
-                Log.d(TAG, "ChannelPickerDialog scroll: after scrollToItem($selectedIndex), firstVisible=${channelListState.firstVisibleItemIndex}")
-            } else {
-                Log.w(TAG, "ChannelPickerDialog scroll: selectedIndex=$selectedIndex OUT OF BOUNDS [0..${displayChannels.size - 1}]")
             }
         }
 
@@ -2046,7 +2040,6 @@ class ComposeMainFragment : Fragment() {
                 }
         }
 
-        // ── Layout principal: 3 paneles horizontales ─────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxSize(0.90f)
@@ -2055,52 +2048,28 @@ class ComposeMainFragment : Fragment() {
         ) {
             Row(modifier = Modifier.fillMaxSize()) {
 
-                // ── Panel 1: País ─────────────────────────────────────────────────
+                // Panel 1: País
                 Column(
                     modifier = Modifier
                         .width(200.dp)
                         .fillMaxHeight()
-                        .background(
-                            if (activePanel == 0) activePanelBg else panelBg,
-                            RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
-                        )
-                        .border(
-                            width = 0.dp,
-                            color = Color.Transparent,
-                            shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
-                        )
+                        .background(if (activePanel == 0) activePanelBg else panelBg, RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
                 ) {
-                    // Header panel País
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(
-                                Color(0xFF1A1A40).copy(alpha = 0.7f),
-                                RoundedCornerShape(topStart = 16.dp)
-                            )
+                            .background(Color(0xFF1A1A40).copy(alpha = 0.7f), RoundedCornerShape(topStart = 16.dp))
                             .padding(horizontal = 16.dp, vertical = 14.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("🌍", fontSize = 16.sp)
-                            Text(
-                                "País",
-                                color = if (activePanel == 0) accentColor else IptvTextSecondary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Text("País", color = if (activePanel == 0) accentColor else IptvTextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-
                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(dividerColor))
-
                     LazyColumn(
                         state = countryListState,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentPadding = PaddingValues(vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
@@ -2111,14 +2080,8 @@ class ComposeMainFragment : Fragment() {
                                     .fillMaxWidth()
                                     .padding(horizontal = 8.dp)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (isSelected) selectedItemBg else Color.Transparent
-                                    )
-                                    .border(
-                                        width = if (isSelected) 1.dp else 0.dp,
-                                        color = if (isSelected) accentColor.copy(alpha = 0.5f) else Color.Transparent,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
+                                    .background(if (isSelected) selectedItemBg else Color.Transparent)
+                                    .border(if (isSelected) 1.dp else 0.dp, if (isSelected) accentColor.copy(alpha = 0.5f) else Color.Transparent, RoundedCornerShape(8.dp))
                                     .clickable {
                                         onCountryChange(option.value)
                                         onGroupChange(ALL_OPTION)
@@ -2131,73 +2094,40 @@ class ComposeMainFragment : Fragment() {
                                     }
                                     .padding(horizontal = 12.dp, vertical = 9.dp)
                             ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (isSelected) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .background(accentColor, RoundedCornerShape(50))
-                                        )
-                                    } else {
-                                        Spacer(modifier = Modifier.size(6.dp))
-                                    }
-                                    Text(
-                                        option.label,
-                                        color = if (isSelected) IptvTextPrimary else IptvTextMuted,
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (isSelected) Box(modifier = Modifier.size(6.dp).background(accentColor, RoundedCornerShape(50)))
+                                    else Spacer(modifier = Modifier.size(6.dp))
+                                    Text(option.label, color = if (isSelected) IptvTextPrimary else IptvTextMuted, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
                     }
                 }
 
-                // Divisor vertical
                 Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(dividerColor))
 
-                // ── Panel 2: Categoría ────────────────────────────────────────────
+                // Panel 2: Categoría
                 Column(
                     modifier = Modifier
                         .width(210.dp)
                         .fillMaxHeight()
-                        .background(
-                            if (activePanel == 1) activePanelBg else panelBg
-                        )
+                        .background(if (activePanel == 1) activePanelBg else panelBg)
                 ) {
-                    // Header panel Categoría
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Color(0xFF1A1A40).copy(alpha = 0.7f))
                             .padding(horizontal = 16.dp, vertical = 14.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("📂", fontSize = 16.sp)
-                            Text(
-                                "Categoría",
-                                color = if (activePanel == 1) accentColor else IptvTextSecondary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Text("Categoría", color = if (activePanel == 1) accentColor else IptvTextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-
                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(dividerColor))
-
                     LazyColumn(
                         state = groupListState,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentPadding = PaddingValues(vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
@@ -2209,18 +2139,10 @@ class ComposeMainFragment : Fragment() {
                                     .padding(horizontal = 8.dp)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isSelected) selectedItemBg else Color.Transparent)
-                                    .border(
-                                        width = if (isSelected) 1.dp else 0.dp,
-                                        color = if (isSelected) accentColor.copy(alpha = 0.5f) else Color.Transparent,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
+                                    .border(if (isSelected) 1.dp else 0.dp, if (isSelected) accentColor.copy(alpha = 0.5f) else Color.Transparent, RoundedCornerShape(8.dp))
                                     .clickable {
-                                        if (option.value == "__favs__") {
-                                            onFavoritesChange(true)
-                                        } else {
-                                            onFavoritesChange(false)
-                                            onGroupChange(option.value)
-                                        }
+                                        if (option.value == "__favs__") onFavoritesChange(true)
+                                        else { onFavoritesChange(false); onGroupChange(option.value) }
                                         selectedIndex = 0
                                         activePanel = 2
                                         kotlinx.coroutines.GlobalScope.launch {
@@ -2230,106 +2152,35 @@ class ComposeMainFragment : Fragment() {
                                     }
                                     .padding(horizontal = 12.dp, vertical = 9.dp)
                             ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (isSelected) {
-                                        Box(modifier = Modifier.size(6.dp).background(accentColor, RoundedCornerShape(50)))
-                                    } else {
-                                        Spacer(modifier = Modifier.size(6.dp))
-                                    }
-                                    Text(
-                                        option.label,
-                                        color = if (isSelected) IptvTextPrimary else IptvTextMuted,
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (isSelected) Box(modifier = Modifier.size(6.dp).background(accentColor, RoundedCornerShape(50)))
+                                    else Spacer(modifier = Modifier.size(6.dp))
+                                    Text(option.label, color = if (isSelected) IptvTextPrimary else IptvTextMuted, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
                     }
                 }
 
-                // Divisor vertical
                 Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(dividerColor))
 
-                // ── Panel 3: Canales ──────────────────────────────────────────────
+                // Panel 3: Canales
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .background(
-                            if (activePanel == 2) activePanelBg else panelBg,
-                            RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
-                        )
+                        .background(if (activePanel == 2) activePanelBg else panelBg, RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
                 ) {
-                    // Header panel Canales con búsqueda
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(
-                                Color(0xFF1A1A40).copy(alpha = 0.7f),
-                                RoundedCornerShape(topEnd = 16.dp)
-                            )
+                            .background(Color(0xFF1A1A40).copy(alpha = 0.7f), RoundedCornerShape(topEnd = 16.dp))
                             .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.LiveTv,
-                                contentDescription = null,
-                                tint = if (activePanel == 2) accentColor else IptvTextSecondary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                "Canales",
-                                color = if (activePanel == 2) accentColor else IptvTextSecondary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = if (activePanel == 2) accentColor else IptvTextSecondary, modifier = Modifier.size(16.dp))
+                            Text("Canales", color = if (activePanel == 2) accentColor else IptvTextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.weight(1f))
-
-                            // Barra de búsqueda inline
-                            var isSearchFocused by remember { mutableStateOf(false) }
-                            Box(
-                                modifier = Modifier
-                                    .width(200.dp)
-                                    .background(
-                                        if (isSearchFocused) IptvFocusBg else Color(0xFF0D0D28).copy(alpha = 0.8f),
-                                        RoundedCornerShape(6.dp)
-                                    )
-                                    .border(
-                                        if (isSearchFocused) 1.dp else 0.5.dp,
-                                        if (isSearchFocused) IptvFocusBorder else dividerColor,
-                                        RoundedCornerShape(6.dp)
-                                    )
-                                    .clickable { isSearchFocused = true }
-                                    .padding(horizontal = 10.dp, vertical = 7.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Search,
-                                        contentDescription = null,
-                                        tint = if (isSearchFocused) accentColor else IptvTextMuted,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    if (searchQuery.isEmpty()) {
-                                        Text("Buscar...", color = IptvTextMuted, fontSize = 12.sp)
-                                    } else {
-                                        Text(searchQuery, color = IptvTextPrimary, fontSize = 12.sp)
-                                    }
-                                }
-                            }
-
-                            // Contador
                             val countLabel = when {
                                 searchQuery.isNotBlank() -> "${displayChannels.size}"
                                 showFavorites -> "${displayChannels.size} ⭐"
@@ -2338,120 +2189,29 @@ class ComposeMainFragment : Fragment() {
                             Text(countLabel, color = IptvTextMuted, fontSize = 11.sp)
                         }
                     }
-
                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(dividerColor))
-
-                    // Lista de canales
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
                             .focusable()
-                            .onFocusChanged { focusState ->
-                                if (focusState.hasFocus) {
-                                    activePanel = 2
-                                    Log.d(TAG, "ChannelPickerDialog: channels panel focused, activePanel=2")
-                                }
-                            }
+                            .onFocusChanged { if (it.hasFocus) activePanel = 2 }
                             .onPreviewKeyEvent { event ->
                                 if (event.type == KeyEventType.KeyDown) {
                                     when (event.key) {
-                                        Key.DirectionUp -> {
-                                            Log.d(TAG, "ChannelPickerDialog key: UP, selectedIndex=$selectedIndex -> ${selectedIndex - 1}")
-                                            if (selectedIndex > 0) selectedIndex--
-                                            true
-                                        }
-                                        Key.DirectionDown -> {
-                                            Log.d(TAG, "ChannelPickerDialog key: DOWN, selectedIndex=$selectedIndex -> ${selectedIndex + 1}")
-                                            if (selectedIndex < displayChannels.size - 1) selectedIndex++
-                                            true
-                                        }
-                                        Key.DirectionLeft -> {
-                                            Log.d(TAG, "ChannelPickerDialog key: LEFT, activePanel=$activePanel -> 1")
-                                            activePanel = 1
-                                            true
-                                        }
-                                        Key.Enter, Key.DirectionCenter -> {
-                                            Log.d(TAG, "ChannelPickerDialog key: ENTER, selectedIndex=$selectedIndex")
-                                            displayChannels.getOrNull(selectedIndex)?.let { onChannelSelected(it) }
-                                            true
-                                        }
-                                        Key.Backspace -> {
-                                            if (searchQuery.isNotEmpty()) {
-                                                onSearchChange(searchQuery.dropLast(1))
-                                                selectedIndex = 0
-                                            }
-                                            true
-                                        }
-                                        Key.Spacebar -> {
-                                            onSearchChange(searchQuery + " ")
-                                            selectedIndex = 0
-                                            true
-                                        }
-                                        Key.A -> { onSearchChange(searchQuery + "a"); selectedIndex = 0; true }
-                                        Key.B -> { onSearchChange(searchQuery + "b"); selectedIndex = 0; true }
-                                        Key.C -> { onSearchChange(searchQuery + "c"); selectedIndex = 0; true }
-                                        Key.D -> { onSearchChange(searchQuery + "d"); selectedIndex = 0; true }
-                                        Key.E -> { onSearchChange(searchQuery + "e"); selectedIndex = 0; true }
-                                        Key.F -> { onSearchChange(searchQuery + "f"); selectedIndex = 0; true }
-                                        Key.G -> { onSearchChange(searchQuery + "g"); selectedIndex = 0; true }
-                                        Key.H -> { onSearchChange(searchQuery + "h"); selectedIndex = 0; true }
-                                        Key.I -> { onSearchChange(searchQuery + "i"); selectedIndex = 0; true }
-                                        Key.J -> { onSearchChange(searchQuery + "j"); selectedIndex = 0; true }
-                                        Key.K -> { onSearchChange(searchQuery + "k"); selectedIndex = 0; true }
-                                        Key.L -> { onSearchChange(searchQuery + "l"); selectedIndex = 0; true }
-                                        Key.M -> { onSearchChange(searchQuery + "m"); selectedIndex = 0; true }
-                                        Key.N -> { onSearchChange(searchQuery + "n"); selectedIndex = 0; true }
-                                        Key.O -> { onSearchChange(searchQuery + "o"); selectedIndex = 0; true }
-                                        Key.P -> { onSearchChange(searchQuery + "p"); selectedIndex = 0; true }
-                                        Key.Q -> { onSearchChange(searchQuery + "q"); selectedIndex = 0; true }
-                                        Key.R -> { onSearchChange(searchQuery + "r"); selectedIndex = 0; true }
-                                        Key.S -> { onSearchChange(searchQuery + "s"); selectedIndex = 0; true }
-                                        Key.T -> { onSearchChange(searchQuery + "t"); selectedIndex = 0; true }
-                                        Key.U -> { onSearchChange(searchQuery + "u"); selectedIndex = 0; true }
-                                        Key.V -> { onSearchChange(searchQuery + "v"); selectedIndex = 0; true }
-                                        Key.W -> { onSearchChange(searchQuery + "w"); selectedIndex = 0; true }
-                                        Key.X -> { onSearchChange(searchQuery + "x"); selectedIndex = 0; true }
-                                        Key.Y -> { onSearchChange(searchQuery + "y"); selectedIndex = 0; true }
-                                        Key.Z -> { onSearchChange(searchQuery + "z"); selectedIndex = 0; true }
-                                        Key.Zero -> { onSearchChange(searchQuery + "0"); selectedIndex = 0; true }
-                                        Key.One -> { onSearchChange(searchQuery + "1"); selectedIndex = 0; true }
-                                        Key.Two -> { onSearchChange(searchQuery + "2"); selectedIndex = 0; true }
-                                        Key.Three -> { onSearchChange(searchQuery + "3"); selectedIndex = 0; true }
-                                        Key.Four -> { onSearchChange(searchQuery + "4"); selectedIndex = 0; true }
-                                        Key.Five -> { onSearchChange(searchQuery + "5"); selectedIndex = 0; true }
-                                        Key.Six -> { onSearchChange(searchQuery + "6"); selectedIndex = 0; true }
-                                        Key.Seven -> { onSearchChange(searchQuery + "7"); selectedIndex = 0; true }
-                                        Key.Eight -> { onSearchChange(searchQuery + "8"); selectedIndex = 0; true }
-                                        Key.Nine -> { onSearchChange(searchQuery + "9"); selectedIndex = 0; true }
+                                        Key.DirectionUp -> { if (selectedIndex > 0) selectedIndex--; true }
+                                        Key.DirectionDown -> { if (selectedIndex < displayChannels.size - 1) selectedIndex++; true }
+                                        Key.DirectionLeft -> { activePanel = 1; true }
+                                        Key.Enter, Key.DirectionCenter -> { displayChannels.getOrNull(selectedIndex)?.let { onChannelSelected(it) }; true }
                                         Key.Back, Key.Escape -> { onDismiss(); true }
-                                        else -> {
-                                            Log.d(TAG, "ChannelPickerDialog key: OTHER key=${event.key}")
-                                            false
-                                        }
+                                        else -> false
                                     }
                                 } else false
                             }
                     ) {
                         if (displayChannels.isEmpty() && !isLoadingPage) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.LiveTv,
-                                        contentDescription = null,
-                                        tint = IptvTextMuted.copy(alpha = 0.4f),
-                                        modifier = Modifier.size(40.dp)
-                                    )
-                                    Text(
-                                        if (searchQuery.isNotBlank()) "Sin resultados para \"$searchQuery\""
-                                        else "No hay canales disponibles",
-                                        color = IptvTextMuted,
-                                        fontSize = 14.sp,
-                                    )
-                                }
+                                Text(if (searchQuery.isNotBlank()) "Sin resultados" else "No hay canales disponibles", color = IptvTextMuted, fontSize = 14.sp)
                             }
                         } else {
                             LazyColumn(
@@ -2463,127 +2223,33 @@ class ComposeMainFragment : Fragment() {
                                     val item = displayChannels[index]
                                     val isHighlighted = index == selectedIndex
                                     val isPlaying = currentItem?.stableId == item.stableId
-
-                                    // ── Fila de canal rediseñada ──────────────────
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(
-                                                when {
-                                                    isPlaying && isHighlighted -> accentColor.copy(alpha = 0.28f)
-                                                    isPlaying -> accentColor.copy(alpha = 0.14f)
-                                                    isHighlighted -> selectedItemBg
-                                                    else -> Color.Transparent
-                                                }
-                                            )
-                                            .border(
-                                                width = when {
-                                                    isPlaying || isHighlighted -> 1.dp
-                                                    else -> 0.dp
-                                                },
-                                                color = when {
-                                                    isPlaying -> accentColor.copy(alpha = 0.7f)
-                                                    isHighlighted -> IptvFocusBorder.copy(alpha = 0.6f)
-                                                    else -> Color.Transparent
-                                                },
-                                                shape = RoundedCornerShape(8.dp)
-                                            )
+                                            .background(when { isPlaying && isHighlighted -> accentColor.copy(alpha = 0.28f); isPlaying -> accentColor.copy(alpha = 0.14f); isHighlighted -> selectedItemBg; else -> Color.Transparent })
+                                            .border(if (isPlaying || isHighlighted) 1.dp else 0.dp, when { isPlaying -> accentColor.copy(alpha = 0.7f); isHighlighted -> IptvFocusBorder.copy(alpha = 0.6f); else -> Color.Transparent }, RoundedCornerShape(8.dp))
                                             .clickable { onChannelSelected(item) }
                                             .padding(horizontal = 10.dp, vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        // Número
                                         item.channelNumber?.let { num ->
-                                            Text(
-                                                num.toString().padStart(3, ' '),
-                                                color = if (isPlaying) accentColor else IptvTextMuted.copy(alpha = 0.5f),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.width(26.dp),
-                                                textAlign = TextAlign.End,
-                                            )
+                                            Text(num.toString().padStart(3, ' '), color = if (isPlaying) accentColor else IptvTextMuted.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(26.dp), textAlign = TextAlign.End)
                                         } ?: Box(modifier = Modifier.width(26.dp))
-
-                                        // Logo
-                                        Box(
-                                            modifier = Modifier
-                                                .size(34.dp)
-                                                .background(
-                                                    Color(0xFF1A1A40).copy(alpha = 0.8f),
-                                                    RoundedCornerShape(6.dp)
-                                                )
-                                                .clip(RoundedCornerShape(6.dp)),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            if (item.imageUrl.isNotBlank()) {
-                                                RemoteImage(
-                                                    url = item.imageUrl,
-                                                    width = 64,
-                                                    height = 64,
-                                                    scaleType = ScaleType.FIT_CENTER,
-                                                )
-                                            } else {
-                                                Icon(
-                                                    Icons.Outlined.LiveTv,
-                                                    contentDescription = null,
-                                                    tint = IptvTextMuted.copy(alpha = 0.4f),
-                                                    modifier = Modifier.size(16.dp),
-                                                )
-                                            }
+                                        Box(modifier = Modifier.size(34.dp).background(Color(0xFF1A1A40).copy(alpha = 0.8f), RoundedCornerShape(6.dp)).clip(RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                                            if (item.imageUrl.isNotBlank()) RemoteImage(url = item.imageUrl, width = 64, height = 64, scaleType = ScaleType.FIT_CENTER)
+                                            else Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = IptvTextMuted.copy(alpha = 0.4f), modifier = Modifier.size(16.dp))
                                         }
-
-                                        // Nombre + grupo (ahora siempre visible)
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.Center
-                                        ) {
-                                            Text(
-                                                text = item.title,
-                                                color = when {
-                                                    isPlaying -> accentColor
-                                                    isHighlighted -> IptvTextPrimary
-                                                    else -> IptvTextSecondary
-                                                },
-                                                fontSize = 13.sp,
-                                                fontWeight = if (isHighlighted || isPlaying) FontWeight.SemiBold else FontWeight.Normal,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            if (item.group.isNotBlank()) {
-                                                Text(
-                                                    text = item.group,
-                                                    color = IptvTextMuted.copy(alpha = 0.5f),
-                                                    fontSize = 10.sp,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            }
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                                            Text(item.title, color = when { isPlaying -> accentColor; isHighlighted -> IptvTextPrimary; else -> IptvTextSecondary }, fontSize = 13.sp, fontWeight = if (isHighlighted || isPlaying) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            if (item.group.isNotBlank()) Text(item.group, color = IptvTextMuted.copy(alpha = 0.5f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
-
-                                        // Badge "EN VIVO"
-                                        if (isPlaying) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .background(IptvLive.copy(alpha = 0.85f), RoundedCornerShape(3.dp))
-                                                    .padding(horizontal = 5.dp, vertical = 2.dp),
-                                            ) {
-                                                Text("▶", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                                            }
-                                        }
+                                        if (isPlaying) Box(modifier = Modifier.background(IptvLive.copy(alpha = 0.85f), RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 2.dp)) { Text("▶", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold) }
                                     }
                                 }
-
                                 if (isLoadingPage) {
-                                    item {
-                                        Box(
-                                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text("Cargando...", color = IptvTextMuted, fontSize = 12.sp)
-                                        }
-                                    }
+                                    item { Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { Text("Cargando...", color = IptvTextMuted, fontSize = 12.sp) } }
                                 }
                             }
                         }
@@ -2593,343 +2259,7 @@ class ComposeMainFragment : Fragment() {
         }
     }
 
-    @Composable
-    private fun ChannelListItem(
-        item: CatalogItem,
-        isHighlighted: Boolean,
-        onClick: () -> Unit,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(
-                    if (isHighlighted) IptvFocusBg else Color.Transparent,
-                )
-                .border(
-                    width = if (isHighlighted) 1.5.dp else 0.dp,
-                    color = if (isHighlighted) IptvFocusBorder else Color.Transparent,
-                    shape = RoundedCornerShape(8.dp),
-                )
-                .clickable(onClick = onClick)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Número de canal
-                item.channelNumber?.let { num ->
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .background(IptvCard, RoundedCornerShape(6.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "$num",
-                            color = IptvAccent,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-
-                // Logo
-                if (item.imageUrl.isNotBlank()) {
-                    RemoteImage(
-                        url = item.imageUrl,
-                        width = 36,
-                        height = 36,
-                        scaleType = ScaleType.FIT_CENTER,
-                    )
-                }
-
-                // Nombre
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = item.title,
-                        color = IptvTextPrimary,
-                        fontSize = 13.sp,
-                        fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Normal,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (item.group.isNotBlank()) {
-                        Text(
-                            text = item.group,
-                            color = IptvTextMuted,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Chip de país (rectangular, estilo tab) ────────────────────────────────────
-    @Composable
-    private fun CountryChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
-        var isFocused by remember { mutableStateOf(false) }
-        Box(
-            modifier = Modifier
-                .background(
-                    when {
-                        isSelected -> IptvAccent
-                        isFocused -> IptvFocusBg
-                        else -> Color(0xFF2D2D50)
-                    },
-                    RoundedCornerShape(4.dp),
-                )
-                .border(
-                    width = if (isFocused || isSelected) 1.5.dp else 0.dp,
-                    color = if (isFocused) IptvFocusBorder else if (isSelected) IptvTextPrimary.copy(alpha = 0.4f) else Color.Transparent,
-                    shape = RoundedCornerShape(4.dp),
-                )
-                .onFocusChanged { isFocused = it.isFocused }
-                .clickable { onClick() }
-                .onKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown &&
-                        (event.key == Key.Enter || event.key == Key.DirectionCenter)
-                    ) { onClick(); true } else false
-                }
-                .focusable()
-                .padding(horizontal = 12.dp, vertical = 5.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                label,
-                color = if (isSelected) Color.White else if (isFocused) IptvTextPrimary else IptvTextMuted,
-                fontSize = 11.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1,
-            )
-        }
-    }
-
-    // ── Chip de categoría (pill redondeado) ───────────────────────────────────────
-    @Composable
-    private fun CategoryChip(label: String, isSelected: Boolean, isLive: Boolean, onClick: () -> Unit) {
-        var isFocused by remember { mutableStateOf(false) }
-        val bg = when {
-            isLive && isSelected -> IptvLive
-            isSelected -> IptvAccent
-            isFocused -> IptvFocusBg
-            else -> Color(0xFF2D2D50)
-        }
-        Box(
-            modifier = Modifier
-                .background(bg, RoundedCornerShape(12.dp))
-                .border(
-                    width = if (isFocused) 1.5.dp else 0.dp,
-                    color = if (isFocused) IptvFocusBorder else Color.Transparent,
-                    shape = RoundedCornerShape(12.dp),
-                )
-                .onFocusChanged { isFocused = it.isFocused }
-                .clickable { onClick() }
-                .onKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown &&
-                        (event.key == Key.Enter || event.key == Key.DirectionCenter)
-                    ) { onClick(); true } else false
-                }
-                .focusable()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                label,
-                color = if (isSelected || isLive && isSelected) Color.White else if (isFocused) IptvTextPrimary else IptvTextMuted,
-                fontSize = 11.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1,
-            )
-        }
-    }
-
-    // ── Fila de canal en el EPG ───────────────────────────────────────────────────
-    @Composable
-    private fun EpgChannelRow(
-        item: CatalogItem,
-        isHighlighted: Boolean,
-        isCurrentChannel: Boolean,
-        onClick: () -> Unit,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-                .clip(RoundedCornerShape(7.dp))
-                .background(
-                    when {
-                        isCurrentChannel && isHighlighted -> IptvAccent.copy(alpha = 0.28f)
-                        isCurrentChannel -> IptvAccent.copy(alpha = 0.14f)
-                        isHighlighted -> IptvFocusBg
-                        else -> Color.Transparent
-                    }
-                )
-                .border(
-                    width = when {
-                        isCurrentChannel || isHighlighted -> 1.5.dp
-                        else -> 0.dp
-                    },
-                    color = when {
-                        isCurrentChannel -> IptvAccent
-                        isHighlighted -> IptvFocusBorder
-                        else -> Color.Transparent
-                    },
-                    shape = RoundedCornerShape(7.dp),
-                )
-                .clickable { onClick() }
-                .padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            // Número de canal
-            Text(
-                text = item.channelNumber?.toString()?.padStart(3, ' ') ?: "   ",
-                color = if (isCurrentChannel) IptvAccent else IptvTextMuted.copy(alpha = 0.6f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.width(26.dp),
-                textAlign = TextAlign.End,
-            )
-
-            // Logo
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .background(IptvSurfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                    .clip(RoundedCornerShape(4.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (item.imageUrl.isNotBlank()) {
-                    RemoteImage(url = item.imageUrl, width = 64, height = 64, scaleType = ScaleType.FIT_CENTER)
-                } else {
-                    Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = IptvTextMuted, modifier = Modifier.size(15.dp))
-                }
-            }
-
-            // Nombre + grupo
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text(
-                    text = item.title,
-                    color = if (isCurrentChannel) IptvAccent else IptvTextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = if (isCurrentChannel || isHighlighted) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (item.group.isNotBlank()) {
-                    Text(
-                        text = item.group,
-                        color = IptvTextMuted.copy(alpha = 0.6f),
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-
-            // Badge canal activo
-            if (isCurrentChannel) {
-                Box(
-                    modifier = Modifier
-                        .background(IptvLive, RoundedCornerShape(3.dp))
-                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                ) {
-                    Text("▶ EN VIVO", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun ChannelPickerItem(
-        item: CatalogItem,
-        isSelected: Boolean,
-        onClick: () -> Unit
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(if (isSelected) IptvFocusBg else Color.Transparent)
-                .border(
-                    width = if (isSelected) 2.dp else 0.dp,
-                    color = if (isSelected) IptvFocusBorder else Color.Transparent,
-                    shape = RoundedCornerShape(8.dp)
-                )
-                .clickable { onClick() }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                item.channelNumber?.let { num ->
-                    Text(
-                        num.toString().padStart(3, ' '),
-                        color = IptvAccent,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.width(40.dp)
-                    )
-                }
-                Column {
-                    Text(
-                        item.title,
-                        color = IptvTextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    item.subtitle.takeIf { it.isNotBlank() }?.let { subtitle ->
-                        Text(
-                            subtitle,
-                            color = IptvTextMuted,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-            item.group.takeIf { it.isNotBlank() }?.let { group ->
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(IptvSurface)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        group,
-                        color = IptvTextSecondary,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-        }
-    }
-
     // ── VOD grid (Movies / Series) ────────────────────────────────────────────
-    //
-    // FIXES aplicados:
-    //  1. activeFilters era una variable local no reactiva → reemplazada por
-    //     currentFilters que lee directamente movieFilters / seriesFilders (State).
-    //  2. El LaunchedEffect de página 1 ahora lee `filters` dentro del bloque
-    //     en lugar de la copia estática, y tiene movieFilters/seriesFilters
-    //     como claves para re-ejecutarse cuando lleguen del repositorio.
-    //  3. Eliminado el doble filtrado local por idioma/subgrupo: la API ya
-    //     filtra server-side; hacerlo también en cliente vaciaba la lista.
 
     @Composable
     private fun VodGridContent(kind: ContentKind) {
@@ -2958,34 +2288,51 @@ class ComposeMainFragment : Fragment() {
                 currentFilters.countries.forEach(::add)
             }
         }
-        val groupOptions = remember(currentFilters) {
-            buildList {
-                add(CatalogFilterOption(ALL_OPTION, "Todos"))
+        var groupOptions by remember { mutableStateOf<List<CatalogFilterOption>>(emptyList()) }
+
+        LaunchedEffect(selectedCountry, currentFilters) {
+            val country = selectedCountry.takeUnless { it == ALL_OPTION }
+            val groups = if (country != null) {
+                if (kind == ContentKind.MOVIE) {
+                    contentCacheManager.getMoviesByCountry(country)
+                        .distinctBy { it.grupoNormalizado }
+                        .filter { it.grupoNormalizado.isNotBlank() }
+                        .map { CatalogFilterOption(it.grupoNormalizado, it.grupoNormalizado) }
+                } else {
+                    contentCacheManager.getSeriesByCountry(country)
+                        .distinctBy { it.grupoNormalizado }
+                        .filter { it.grupoNormalizado.isNotBlank() }
+                        .map { CatalogFilterOption(it.grupoNormalizado, it.grupoNormalizado) }
+                }
+            } else {
                 currentFilters.groups
                     .distinctBy { it.value }
                     .filter { it.value != "Favorites" && it.value != "Favoritos" }
-                    .forEach(::add)
+            }
+            groupOptions = buildList {
+                add(CatalogFilterOption(ALL_OPTION, "Todos"))
+                addAll(groups)
             }
         }
 
-        val displayItemsForGrid = remember(displayItems) {
-            displayItems.sortedBy { it.title }
-        }
+        val displayItemsForGrid = remember(displayItems) { displayItems.sortedBy { it.title } }
 
         var lastLoadKey by remember { mutableStateOf("") }
         var isLoading by remember { mutableStateOf(false) }
 
-        // Load data when filters change
+        // Reset group when country changes
+        LaunchedEffect(selectedCountry) {
+            selectedGroup = ALL_OPTION
+        }
+
         LaunchedEffect(selectedCountry, selectedGroup, searchQuery) {
             val key = "$selectedCountry|$selectedGroup|$searchQuery"
             if (key == lastLoadKey || isLoading) return@LaunchedEffect
             lastLoadKey = key
             isLoading = true
-
             loader.clear()
             currentPage = 0
             isLoadingPage = false
-
             if (searchQuery.isNotBlank()) {
                 loader.loadSearch(searchQuery)
                 displayItems = loader.getDisplayItems()
@@ -3001,16 +2348,12 @@ class ComposeMainFragment : Fragment() {
             isLoading = false
         }
 
-        // Infinite scroll
         LaunchedEffect(lazyGridState, searchQuery) {
             if (searchQuery.isNotBlank()) return@LaunchedEffect
-
             snapshotFlow { lazyGridState.layoutInfo }
                 .map { info -> (info.visibleItemsInfo.lastOrNull()?.index ?: -1) to info.totalItemsCount }
                 .distinctUntilChanged()
-                .filter { (lastVisibleIndex, totalItemsCount) ->
-                    lastVisibleIndex >= 0 && totalItemsCount > 0 && lastVisibleIndex >= totalItemsCount - 10
-                }
+                .filter { (lastVisibleIndex, totalItemsCount) -> lastVisibleIndex >= 0 && totalItemsCount > 0 && lastVisibleIndex >= totalItemsCount - 10 }
                 .collect {
                     if (isLoadingPage || loader.isCurrentlyLoading()) return@collect
                     val nextPage = currentPage + 1
@@ -3033,10 +2376,7 @@ class ComposeMainFragment : Fragment() {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             ScreenHeader(title = screenTitle(kind), subtitle = "")
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
+            Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 FilterTopBar(
                     showIdioma           = true,
                     selectedIdioma       = countryOptions.firstOrNull { it.value == selectedCountry }?.label ?: selectedCountry,
@@ -3052,11 +2392,7 @@ class ComposeMainFragment : Fragment() {
                 )
                 if (displayItemsForGrid.isEmpty() && !isLoadingPage) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            if (searchQuery.isNotBlank()) "No hay resultados para \"$searchQuery\""
-                            else "No hay contenido disponible",
-                            color = IptvTextMuted, fontSize = 18.sp,
-                        )
+                        Text(if (searchQuery.isNotBlank()) "No hay resultados para \"$searchQuery\"" else "No hay contenido disponible", color = IptvTextMuted, fontSize = 18.sp)
                     }
                 } else {
                     LazyVerticalGrid(
@@ -3071,14 +2407,7 @@ class ComposeMainFragment : Fragment() {
                             MediaCard(item = item, onFocused = { selectedHero = item }) { handleCardClick(item, displayItemsForGrid) }
                         }
                         if (isLoadingPage) {
-                            item {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(24.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("Cargando...", color = IptvTextMuted, fontSize = 14.sp)
-                                }
-                            }
+                            item { Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { Text("Cargando...", color = IptvTextMuted, fontSize = 14.sp) } }
                         }
                     }
                 }
@@ -3086,48 +2415,20 @@ class ComposeMainFragment : Fragment() {
         }
 
         if (showCountryDialog) {
-            FilterDialog(
-                title            = COUNTRY_FILTER_DIALOG_TITLE,
-                options          = countryOptions,
-                selectedOption   = selectedCountry,
-                onOptionSelected = { selectedCountry = it.value; showCountryDialog = false },
-                onDismiss        = { showCountryDialog = false },
-            )
+            FilterDialog(title = COUNTRY_FILTER_DIALOG_TITLE, options = countryOptions, selectedOption = selectedCountry, onOptionSelected = { selectedCountry = it.value; showCountryDialog = false }, onDismiss = { showCountryDialog = false })
         }
         if (showGroupDialog) {
-            FilterDialog(
-                title            = "Selecciona grupo",
-                options          = groupOptions,
-                selectedOption   = selectedGroup,
-                onOptionSelected = { selectedGroup = it.value; showGroupDialog = false },
-                onDismiss        = { showGroupDialog = false },
-            )
+            FilterDialog(title = "Selecciona grupo", options = groupOptions, selectedOption = selectedGroup, onOptionSelected = { selectedGroup = it.value; showGroupDialog = false }, onDismiss = { showGroupDialog = false })
         }
     }
 
-    // ── Channel card (compact) ────────────────────────────────────────────────
+    // ── Channel card (EPG compact) ────────────────────────────────────────────
 
-    // FIX 3: Card compacta estilo EPG con número de canal
     @Composable
-    private fun EpgChannelCard(
-        item: CatalogItem,
-        isCurrentChannel: Boolean,
-        onFocused: () -> Unit,
-        onClick: () -> Unit
-    ) {
+    private fun EpgChannelCard(item: CatalogItem, isCurrentChannel: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
         var isFocused by remember { mutableStateOf(false) }
-
-        val bgColor = when {
-            isCurrentChannel && isFocused -> IptvAccent.copy(alpha = 0.35f)
-            isCurrentChannel -> IptvAccent.copy(alpha = 0.18f)
-            isFocused -> IptvFocusBg
-            else -> IptvCard.copy(alpha = 0.7f)
-        }
-        val borderColor = when {
-            isCurrentChannel -> IptvAccent
-            isFocused -> IptvFocusBorder
-            else -> IptvSurfaceVariant.copy(alpha = 0.5f)
-        }
+        val bgColor = when { isCurrentChannel && isFocused -> IptvAccent.copy(alpha = 0.35f); isCurrentChannel -> IptvAccent.copy(alpha = 0.18f); isFocused -> IptvFocusBg; else -> IptvCard.copy(alpha = 0.7f) }
+        val borderColor = when { isCurrentChannel -> IptvAccent; isFocused -> IptvFocusBorder; else -> IptvSurfaceVariant.copy(alpha = 0.5f) }
         val borderWidth = if (isFocused || isCurrentChannel) 2.dp else 1.dp
 
         Row(
@@ -3142,80 +2443,20 @@ class ComposeMainFragment : Fragment() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Número de canal
             item.channelNumber?.let { num ->
-                Text(
-                    text = num.toString().padStart(3, ' '),
-                    color = if (isCurrentChannel) IptvAccent else IptvTextMuted,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.width(28.dp),
-                    textAlign = TextAlign.End,
-                )
+                Text(text = num.toString().padStart(3, ' '), color = if (isCurrentChannel) IptvAccent else IptvTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(28.dp), textAlign = TextAlign.End)
             } ?: Box(modifier = Modifier.width(28.dp))
-
-            // Logo del canal
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(IptvSurfaceVariant, RoundedCornerShape(4.dp))
-                    .clip(RoundedCornerShape(4.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (item.imageUrl.isNotBlank()) {
-                    RemoteImage(
-                        url = item.imageUrl,
-                        width = 64,
-                        height = 64,
-                        scaleType = ScaleType.FIT_CENTER,
-                    )
-                } else {
-                    Icon(
-                        Icons.Outlined.LiveTv,
-                        contentDescription = null,
-                        tint = IptvTextMuted,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+            Box(modifier = Modifier.size(36.dp).background(IptvSurfaceVariant, RoundedCornerShape(4.dp)).clip(RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
+                if (item.imageUrl.isNotBlank()) RemoteImage(url = item.imageUrl, width = 64, height = 64, scaleType = ScaleType.FIT_CENTER)
+                else Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = IptvTextMuted, modifier = Modifier.size(18.dp))
             }
-
-            // Nombre del canal
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    text = item.title,
-                    color = if (isCurrentChannel) IptvAccent else IptvTextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = if (isCurrentChannel) FontWeight.Bold else FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (item.group.isNotBlank()) {
-                    Text(
-                        text = item.group,
-                        color = IptvTextMuted,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text(text = item.title, color = if (isCurrentChannel) IptvAccent else IptvTextPrimary, fontSize = 13.sp, fontWeight = if (isCurrentChannel) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (item.group.isNotBlank()) Text(text = item.group, color = IptvTextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-
-            // Indicador "EN VIVO" si es el canal actual
             if (isCurrentChannel) {
-                Box(
-                    modifier = Modifier
-                        .background(IptvLive, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                ) {
-                    Text(
-                        "▶",
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                Box(modifier = Modifier.background(IptvLive, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                    Text("▶", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -3239,72 +2480,32 @@ class ComposeMainFragment : Fragment() {
                 .clickable { onClick() },
         ) {
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(imageHeight)
-                    .background(IptvSurfaceVariant, RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
-                    .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)),
+                modifier = Modifier.fillMaxWidth().height(imageHeight).background(IptvSurfaceVariant, RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)).clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 when {
                     item.kind == ContentKind.EVENT -> EventSportPlaceholder(item)
-                    item.imageUrl.isNotBlank() -> RemoteImage(
-                        url = item.imageUrl,
-                        width = 300,
-                        height = 400,
-                        scaleType = if (item.kind == ContentKind.CHANNEL) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP,
-                    )
+                    item.imageUrl.isNotBlank() -> RemoteImage(url = item.imageUrl, width = 300, height = 400, scaleType = if (item.kind == ContentKind.CHANNEL) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP)
                     else -> PlaceholderIcon(kind = item.kind)
                 }
-                item.badgeText
-                    .takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES && item.kind != ContentKind.CHANNEL }
-                    ?.let { badge ->
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(10.dp)
-                            .background(if (item.kind == ContentKind.EVENT) IptvLive else IptvSurface, RoundedCornerShape(6.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    ) { Text(badge, color = IptvTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
+                item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES && item.kind != ContentKind.CHANNEL }?.let { badge ->
+                    Box(modifier = Modifier.align(Alignment.TopStart).padding(10.dp).background(if (item.kind == ContentKind.EVENT) IptvLive else IptvSurface, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        Text(badge, color = IptvTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
             val isVod = item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (isChannelOrEvent) Modifier.height(78.dp) else Modifier.height(64.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().then(if (isChannelOrEvent) Modifier.height(78.dp) else Modifier.height(64.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = if (isVod) Arrangement.Center else Arrangement.Top,
             ) {
-                val displayTitle = item.normalizedTitle
-                    ?.takeUnless { it.equals("null", ignoreCase = true) }
-                    ?.takeIf { it.isNotBlank() }
-                    ?: item.title
-                        .takeUnless { it.equals("null", ignoreCase = true) }
-                        .orEmpty()
-                Text(
-                    displayTitle,
-                    color = IptvTextPrimary,
-                    fontSize = if (isChannelOrEvent) 15.sp else 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                val displayTitle = item.normalizedTitle?.takeUnless { it.equals("null", ignoreCase = true) }?.takeIf { it.isNotBlank() } ?: item.title.takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
+                Text(displayTitle, color = IptvTextPrimary, fontSize = if (isChannelOrEvent) 15.sp else 14.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (!isVod) {
                     Spacer(Modifier.weight(1f))
                     val rawSubtitle = item.subtitle
-                    val displaySubtitle = if (item.badgeText.isNotBlank() && rawSubtitle.contains(item.badgeText)) {
-                        rawSubtitle.replace(item.badgeText, "").replace("•", "").trim()
-                    } else {
-                        rawSubtitle
-                    }.ifBlank { item.group.ifBlank { kindLabel(item.kind) } }
-                    Text(
-                        displaySubtitle,
-                        color = IptvTextMuted,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    val displaySubtitle = if (item.badgeText.isNotBlank() && rawSubtitle.contains(item.badgeText)) rawSubtitle.replace(item.badgeText, "").replace("•", "").trim() else rawSubtitle
+                    Text(displaySubtitle.ifBlank { item.group.ifBlank { kindLabel(item.kind) } }, color = IptvTextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -3315,21 +2516,11 @@ class ComposeMainFragment : Fragment() {
     @Composable
     private fun DetailPanel(item: CatalogItem, modifier: Modifier = Modifier, primaryActionLabel: String, onPrimaryAction: () -> Unit) {
         Column(
-            modifier = modifier
-                .background(IptvSurface, RoundedCornerShape(10.dp))
-                .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(10.dp))
-                .padding(24.dp),
+            modifier = modifier.background(IptvSurface, RoundedCornerShape(10.dp)).border(1.dp, IptvSurfaceVariant, RoundedCornerShape(10.dp)).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                Box(
-                    modifier = Modifier
-                        .width(if (item.kind == ContentKind.CHANNEL) 220.dp else 260.dp)
-                        .height(if (item.kind == ContentKind.CHANNEL) 140.dp else 320.dp)
-                        .background(IptvSurfaceVariant, RoundedCornerShape(8.dp))
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
+                Box(modifier = Modifier.width(if (item.kind == ContentKind.CHANNEL) 220.dp else 260.dp).height(if (item.kind == ContentKind.CHANNEL) 140.dp else 320.dp).background(IptvSurfaceVariant, RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
                     when {
                         item.kind == ContentKind.EVENT -> EventSportPlaceholder(item, emojiSize = 72.sp)
                         item.imageUrl.isNotBlank() -> RemoteImage(url = item.imageUrl, width = 360, height = 480, scaleType = if (item.kind == ContentKind.CHANNEL) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP)
@@ -3339,12 +2530,8 @@ class ComposeMainFragment : Fragment() {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(item.title, color = IptvTextPrimary, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(listOf(item.group.ifBlank { null }, item.subtitle.ifBlank { null }, kindLabel(item.kind)).filterNotNull().joinToString("  •  "), color = IptvTextMuted, fontSize = 16.sp)
-                    item.badgeText
-                        .takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES }
-                        ?.let { badge ->
-                        Box(modifier = Modifier.background(if (item.kind == ContentKind.EVENT) IptvLive else IptvCard, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
-                            Text(badge, color = IptvTextPrimary, fontSize = 12.sp)
-                        }
+                    item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES }?.let { badge ->
+                        Box(modifier = Modifier.background(if (item.kind == ContentKind.EVENT) IptvLive else IptvCard, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) { Text(badge, color = IptvTextPrimary, fontSize = 12.sp) }
                     }
                     Text(item.description.ifBlank { "Listo para reproducir" }, color = IptvTextPrimary, fontSize = 16.sp, maxLines = 7, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(8.dp))
@@ -3365,87 +2552,36 @@ class ComposeMainFragment : Fragment() {
         val availableLanguages = listOf("ES" to "Español", "EN" to "Inglés")
         val installedVersionLabel = installedAppVersion?.let { "${it.versionName} (${it.versionCode})" } ?: "Desconocida"
         val hasUpdate = availableUpdate?.let { evaluateAppUpdate(installedAppVersion ?: InstalledAppVersion("0", 0), it) != AppUpdateAvailability.UP_TO_DATE } == true
-        val updateActionLabel = when {
-            isUpdateDownloading -> "Descargando..."
-            isCheckingUpdates   -> "Comprobando..."
-            hasUpdate           -> "Descargar actualización"
-            else                -> "Buscar actualizaciones"
-        }
+        val updateActionLabel = when { isUpdateDownloading -> "Descargando..."; isCheckingUpdates -> "Comprobando..."; hasUpdate -> "Descargar actualización"; else -> "Buscar actualizaciones" }
 
         Column(modifier = Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
             ScreenHeader(title = "Ajustes", subtitle = "Actualizaciones, idioma y sesion")
-            Column(
-                modifier = Modifier
-                    .width(760.dp)
-                    .background(IptvSurface, RoundedCornerShape(10.dp))
-                    .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(10.dp))
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
+            Column(modifier = Modifier.width(760.dp).background(IptvSurface, RoundedCornerShape(10.dp)).border(1.dp, IptvSurfaceVariant, RoundedCornerShape(10.dp)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 val selectedLanguageLabel = availableLanguages.find { it.first == preferredLanguage }?.second ?: "Español"
                 SettingsRowClickable(label = "Idioma de series", value = selectedLanguageLabel) { showLanguageDialog = true }
                 SettingsRow("Version de la app", installedVersionLabel)
                 SettingsRow("Canales cargados", channelLineup.size.toString())
                 SettingsRow("Contenido indexado", searchableItems.size.toString())
                 updateErrorMessage?.let { Text(it, color = IptvLive, fontSize = 14.sp) }
-
                 val update = availableUpdate
-                if (hasUpdate && update != null) {
-                    Text(
-                        "Ultima version: v${update.latestVersionName}",
-                        color = IptvAccent,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                } else if (update != null) {
-                    Text(
-                        "Actualizado a la ultima version",
-                        color = IptvOnline,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-
+                if (hasUpdate && update != null) Text("Ultima version: v${update.latestVersionName}", color = IptvAccent, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                else if (update != null) Text("Actualizado a la ultima version", color = IptvOnline, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 val changelogText = update?.changelog
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (!changelogText.isNullOrBlank()) {
-                        FocusButton(
-                            label = "Ver novedades",
-                            icon = Icons.Outlined.Info,
-                            modifier = Modifier.weight(1f),
-                        ) { showChangelogDialog = true }
+                        FocusButton(label = "Ver novedades", icon = Icons.Outlined.Info, modifier = Modifier.weight(1f)) { showChangelogDialog = true }
                     }
-                    FocusButton(
-                        label = updateActionLabel,
-                        icon = Icons.Outlined.PlayArrow,
-                        modifier = Modifier.weight(1f),
-                    ) {
+                    FocusButton(label = updateActionLabel, icon = Icons.Outlined.PlayArrow, modifier = Modifier.weight(1f)) {
                         if (!isUpdateDownloading && !isCheckingUpdates) {
                             scope.launch {
                                 isCheckingUpdates = true
-
-                                val remoteUpdate = runCatching {
-                                    appUpdateRepository.fetchRemoteUpdate()
-                                }.getOrNull()
-
-                                if (remoteUpdate != null) {
-                                    appUpdateRepository.cacheUpdate(remoteUpdate)
-                                    availableUpdate = remoteUpdate
-                                }
-
+                                val remoteUpdate = runCatching { appUpdateRepository.fetchRemoteUpdate() }.getOrNull()
+                                if (remoteUpdate != null) { appUpdateRepository.cacheUpdate(remoteUpdate); availableUpdate = remoteUpdate }
                                 val installed = installedAppVersion
                                 val latest = remoteUpdate ?: availableUpdate
-
                                 isCheckingUpdates = false
-
-                                if (latest == null || installed == null ||
-                                    evaluateAppUpdate(installed, latest) == AppUpdateAvailability.UP_TO_DATE
-                                ) {
-                                    Toast.makeText(
-                                        requireContext(),
-                                        "Ya tienes la última versión instalada",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
+                                if (latest == null || installed == null || evaluateAppUpdate(installed, latest) == AppUpdateAvailability.UP_TO_DATE) {
+                                    Toast.makeText(requireContext(), "Ya tienes la última versión instalada", Toast.LENGTH_SHORT).show()
                                 } else {
                                     startUpdateFlow()
                                 }
@@ -3453,7 +2589,6 @@ class ComposeMainFragment : Fragment() {
                         }
                     }
                 }
-
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     FocusButton(label = "Cerrar sesion", icon = Icons.Outlined.Settings) { performSignOut() }
                 }
@@ -3465,32 +2600,19 @@ class ComposeMainFragment : Fragment() {
                 title = "Idioma preferido",
                 options = availableLanguages.map { CatalogFilterOption(value = it.first, label = it.second) },
                 selectedOption = preferredLanguage,
-                onOptionSelected = {
-                    PreferencesManager.preferredLanguage = it.value
-                    preferredLanguage = it.value
-                    showLanguageDialog = false
-                },
+                onOptionSelected = { PreferencesManager.preferredLanguage = it.value; preferredLanguage = it.value; showLanguageDialog = false },
                 onDismiss = { showLanguageDialog = false; runCatching { languageFocusRequester.requestFocus() } },
             )
         }
 
         if (showChangelogDialog) {
             composeDialogOpen = true
-            Log.d(TAG, "DIALOG_STATE: composeDialogOpen=true")
             val update = availableUpdate ?: mandatoryUpdate
             if (update != null) {
-                ChangelogDialog(
-                    versionName = update.latestVersionName,
-                    markdown = update.changelog.ifBlank { "Sin notas de la version." },
-                    onDismiss = { showChangelogDialog = false; composeDialogOpen = false; Log.d(TAG, "DIALOG_STATE: composeDialogOpen=false (dismiss 1)") },
-                )
+                ChangelogDialog(versionName = update.latestVersionName, markdown = update.changelog.ifBlank { "Sin notas de la version." }, onDismiss = { showChangelogDialog = false; composeDialogOpen = false })
             } else {
                 val installed = installedAppVersion
-                ChangelogDialog(
-                    versionName = installed?.versionName ?: "Desconocida",
-                    markdown = "No hay informacion de actualizacion disponible en este momento.",
-                    onDismiss = { showChangelogDialog = false; composeDialogOpen = false; Log.d(TAG, "DIALOG_STATE: composeDialogOpen=false (dismiss 2)") },
-                )
+                ChangelogDialog(versionName = installed?.versionName ?: "Desconocida", markdown = "No hay informacion de actualizacion disponible en este momento.", onDismiss = { showChangelogDialog = false; composeDialogOpen = false })
             }
         }
     }
@@ -3499,15 +2621,8 @@ class ComposeMainFragment : Fragment() {
     private fun SettingsRowClickable(label: String, value: String, onClick: () -> Unit) {
         var isFocused by remember { mutableStateOf(false) }
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(if (isFocused) IptvFocusBg else Color.Transparent, RoundedCornerShape(8.dp))
-                .border(1.dp, if (isFocused) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
-                .onFocusChanged { isFocused = it.isFocused }
-                .clickable { onClick() }
-                .padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().background(if (isFocused) IptvFocusBg else Color.Transparent, RoundedCornerShape(8.dp)).border(1.dp, if (isFocused) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp)).onFocusChanged { isFocused = it.isFocused }.clickable { onClick() }.padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(label, color = IptvTextPrimary, fontSize = 16.sp)
             Text("$value ▸", color = IptvAccent, fontSize = 16.sp)
@@ -3528,13 +2643,7 @@ class ComposeMainFragment : Fragment() {
     private fun FocusButton(label: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
         var isFocused by remember { mutableStateOf(false) }
         Row(
-            modifier = modifier
-                .height(52.dp)
-                .background(if (isFocused) IptvAccent else IptvCard, RoundedCornerShape(8.dp))
-                .border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvTextPrimary else IptvSurfaceVariant, RoundedCornerShape(8.dp))
-                .onFocusChanged { isFocused = it.isFocused }
-                .clickable { onClick() }
-                .padding(horizontal = 18.dp),
+            modifier = modifier.height(52.dp).background(if (isFocused) IptvAccent else IptvCard, RoundedCornerShape(8.dp)).border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvTextPrimary else IptvSurfaceVariant, RoundedCornerShape(8.dp)).onFocusChanged { isFocused = it.isFocused }.clickable { onClick() }.padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(icon, contentDescription = label, tint = IptvTextPrimary, modifier = Modifier.size(18.dp))
@@ -3545,12 +2654,7 @@ class ComposeMainFragment : Fragment() {
 
     @Composable
     private fun PlaceholderIcon(kind: ContentKind, size: androidx.compose.ui.unit.Dp = 32.dp) {
-        val icon = when (kind) {
-            ContentKind.EVENT   -> Icons.Outlined.Event
-            ContentKind.CHANNEL -> Icons.Outlined.LiveTv
-            ContentKind.MOVIE   -> Icons.Outlined.Movie
-            ContentKind.SERIES  -> Icons.Outlined.Tv
-        }
+        val icon = when (kind) { ContentKind.EVENT -> Icons.Outlined.Event; ContentKind.CHANNEL -> Icons.Outlined.LiveTv; ContentKind.MOVIE -> Icons.Outlined.Movie; ContentKind.SERIES -> Icons.Outlined.Tv }
         Icon(icon, contentDescription = null, tint = IptvTextMuted, modifier = Modifier.size(size))
     }
 
@@ -3558,26 +2662,8 @@ class ComposeMainFragment : Fragment() {
     private fun EventSportPlaceholder(item: CatalogItem, emojiSize: TextUnit = 48.sp) {
         val category = item.group.lowercase()
         val text = java.text.Normalizer.normalize(category, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
-        val emoji = when {
-            text.contains("futbol") -> "⚽"; text.contains("baloncesto") -> "🏀"
-            text.contains("tenis") -> "🎾"; text.contains("motociclismo") -> "🏍️"
-            text.contains("automovilismo") -> "🏎️"
-            text.contains("mma") || text.contains("boxeo") -> "🥊"; text.contains("rugby") -> "🏈"
-            text.contains("balonmano") -> "🤾"; text.contains("hockey") -> "🏒"
-            text.contains("padel") -> "🏸"; else -> "🏆"
-        }
-        val colors = when {
-            text.contains("futbol") -> listOf(Color(0xFF0B6E4F), Color(0xFF1A936F))
-            text.contains("baloncesto") -> listOf(Color(0xFF7F4F24), Color(0xFFD68C45))
-            text.contains("tenis") -> listOf(Color(0xFF254441), Color(0xFF43AA8B))
-            text.contains("motociclismo") || text.contains("automovilismo") -> listOf(Color(0xFF1D3557), Color(0xFF457B9D))
-            text.contains("mma") || text.contains("boxeo") -> listOf(Color(0xFF5F0F40), Color(0xFF9A031E))
-            text.contains("rugby") -> listOf(Color(0xFF4A1942), Color(0xFF893642))
-            text.contains("balonmano") -> listOf(Color(0xFF1E3A5F), Color(0xFF3D5A80))
-            text.contains("padel") -> listOf(Color(0xFF2E7D32), Color(0xFF66BB6A))
-            text.contains("hockey") -> listOf(Color(0xFF37474F), Color(0xFF78909C))
-            else -> listOf(Color(0xFF102A43), Color(0xFFD64550))
-        }
+        val emoji = when { text.contains("futbol") -> "⚽"; text.contains("baloncesto") -> "🏀"; text.contains("tenis") -> "🎾"; text.contains("motociclismo") -> "🏍️"; text.contains("automovilismo") -> "🏎️"; text.contains("mma") || text.contains("boxeo") -> "🥊"; text.contains("rugby") -> "🏈"; text.contains("balonmano") -> "🤾"; text.contains("hockey") -> "🏒"; text.contains("padel") -> "🏸"; else -> "🏆" }
+        val colors = when { text.contains("futbol") -> listOf(Color(0xFF0B6E4F), Color(0xFF1A936F)); text.contains("baloncesto") -> listOf(Color(0xFF7F4F24), Color(0xFFD68C45)); text.contains("tenis") -> listOf(Color(0xFF254441), Color(0xFF43AA8B)); text.contains("motociclismo") || text.contains("automovilismo") -> listOf(Color(0xFF1D3557), Color(0xFF457B9D)); text.contains("mma") || text.contains("boxeo") -> listOf(Color(0xFF5F0F40), Color(0xFF9A031E)); text.contains("rugby") -> listOf(Color(0xFF4A1942), Color(0xFF893642)); text.contains("balonmano") -> listOf(Color(0xFF1E3A5F), Color(0xFF3D5A80)); text.contains("padel") -> listOf(Color(0xFF2E7D32), Color(0xFF66BB6A)); text.contains("hockey") -> listOf(Color(0xFF37474F), Color(0xFF78909C)); else -> listOf(Color(0xFF102A43), Color(0xFFD64550)) }
         Box(modifier = Modifier.fillMaxSize().background(Brush.linearGradient(colors)), contentAlignment = Alignment.Center) {
             Text(text = emoji, fontSize = emojiSize, textAlign = TextAlign.Center)
         }
@@ -3587,9 +2673,7 @@ class ComposeMainFragment : Fragment() {
     private fun ScreenHeader(title: String, subtitle: String) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = IptvTextPrimary, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
-            if (subtitle.isNotBlank()) {
-                Text(subtitle, color = IptvTextMuted, fontSize = 16.sp)
-            }
+            if (subtitle.isNotBlank()) Text(subtitle, color = IptvTextMuted, fontSize = 16.sp)
         }
     }
 
@@ -3636,24 +2720,17 @@ class ComposeMainFragment : Fragment() {
         val item = repository.fetchContentItem(ContentKind.MOVIE, progress.contentId)
         if (item == null) {
             Log.w(TAG, "CW movie unresolved: ${progress.contentId}")
-            withContext(Dispatchers.Main) {
-                Toast.makeText(requireContext(), "No se pudo abrir la pelicula", Toast.LENGTH_SHORT).show()
-            }
+            withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la pelicula", Toast.LENGTH_SHORT).show() }
             return
         }
-        withContext(Dispatchers.Main) {
-            activePlaybackLineup = emptyList()
-            playResolvedCatalogItem(item, 0)
-        }
+        withContext(Dispatchers.Main) { activePlaybackLineup = emptyList(); playResolvedCatalogItem(item, 0) }
     }
 
     private suspend fun openContinueWatchingSeries(cardItem: CatalogItem, progress: WatchProgressItem) {
         val episode = repository.fetchContentItem(ContentKind.SERIES, progress.contentId)
         if (episode == null) {
             Log.w(TAG, "CW series episode unresolved: ${progress.contentId}")
-            withContext(Dispatchers.Main) {
-                Toast.makeText(requireContext(), "No se pudo abrir la serie", Toast.LENGTH_SHORT).show()
-            }
+            withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la serie", Toast.LENGTH_SHORT).show() }
             return
         }
         val seriesName = episode.seriesName ?: progress.seriesName ?: cardItem.seriesName ?: cardItem.title
@@ -3662,50 +2739,31 @@ class ComposeMainFragment : Fragment() {
             .groupBy { Triple(it.seriesName, it.seasonNumber, it.episodeNumber) }
             .values
             .mapNotNull { variants ->
-                variants.firstOrNull { normalizeLanguageCode(it.idioma) == normalizeLanguageCode(PreferencesManager.getPreferredLanguageOrDefault()) }
-                    ?: variants.firstOrNull()
+                variants.firstOrNull { normalizeLanguageCode(it.idioma) == normalizeLanguageCode(PreferencesManager.getPreferredLanguageOrDefault()) } ?: variants.firstOrNull()
             }
             .sortedWith(compareBy<CatalogItem>({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
 
         val nextEpisodeCallback: (() -> Unit)? = logicalEpisodes.indexOfFirst {
-            it.seriesName == episode.seriesName &&
-                it.seasonNumber == episode.seasonNumber &&
-                it.episodeNumber == episode.episodeNumber
-        }.takeIf { it >= 0 && it < logicalEpisodes.lastIndex }
-            ?.let { currentIndex ->
-                { openContinueWatchingItem(cardItem, progress.copy(contentId = logicalEpisodes[currentIndex + 1].providerId ?: logicalEpisodes[currentIndex + 1].stableId, seasonNumber = logicalEpisodes[currentIndex + 1].seasonNumber, episodeNumber = logicalEpisodes[currentIndex + 1].episodeNumber, seriesName = logicalEpisodes[currentIndex + 1].seriesName, title = logicalEpisodes[currentIndex + 1].title, imageUrl = logicalEpisodes[currentIndex + 1].imageUrl)) }
-            }
+            it.seriesName == episode.seriesName && it.seasonNumber == episode.seasonNumber && it.episodeNumber == episode.episodeNumber
+        }.takeIf { it >= 0 && it < logicalEpisodes.lastIndex }?.let { currentIndex ->
+            { openContinueWatchingItem(cardItem, progress.copy(contentId = logicalEpisodes[currentIndex + 1].providerId ?: logicalEpisodes[currentIndex + 1].stableId, seasonNumber = logicalEpisodes[currentIndex + 1].seasonNumber, episodeNumber = logicalEpisodes[currentIndex + 1].episodeNumber, seriesName = logicalEpisodes[currentIndex + 1].seriesName, title = logicalEpisodes[currentIndex + 1].title, imageUrl = logicalEpisodes[currentIndex + 1].imageUrl)) }
+        }
 
         val stream = episode.streamOptions.firstOrNull()
         if (stream == null) {
-            withContext(Dispatchers.Main) {
-                Toast.makeText(requireContext(), "No hay streams disponibles", Toast.LENGTH_SHORT).show()
-            }
+            withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No hay streams disponibles", Toast.LENGTH_SHORT).show() }
             return
         }
 
         withContext(Dispatchers.Main) {
             val playerFragment = PlayerFragment(
-                streamUrl = stream.url,
-                overlayNumber = episode.kind.name,
-                overlayTitle = episode.title,
-                overlayMeta = episode.description.ifBlank { stream.label },
-                contentKind = episode.kind,
-                onNavigateChannel = { false },
-                onNavigateOption = { false },
-                onDirectChannelNumber = { false },
-                onToggleFavorite = { false },
-                onOpenFavorites = { false },
-                onOpenRecents = { false },
-                onNextEpisode = nextEpisodeCallback,
-                allSeriesEpisodes = allEpisodes,
-                currentEpisode = episode,
-                overlayLogoUrl = episode.imageUrl,
-                contentId = episode.providerId ?: progress.contentId,
-                onPlayerClosed = {
-                    restorePlaybackReturnState()
-                    restoreFocusAfterPlayer()
-                },
+                streamUrl = stream.url, overlayNumber = episode.kind.name, overlayTitle = episode.title,
+                overlayMeta = episode.description.ifBlank { stream.label }, contentKind = episode.kind,
+                onNavigateChannel = { false }, onNavigateOption = { false }, onDirectChannelNumber = { false },
+                onToggleFavorite = { false }, onOpenFavorites = { false }, onOpenRecents = { false },
+                onNextEpisode = nextEpisodeCallback, allSeriesEpisodes = allEpisodes, currentEpisode = episode,
+                overlayLogoUrl = episode.imageUrl, contentId = episode.providerId ?: progress.contentId,
+                onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             )
             rememberPlaybackReturnState(cardItem)
             currentItem = cardItem
@@ -3717,20 +2775,13 @@ class ComposeMainFragment : Fragment() {
             container.visibility = View.VISIBLE
             container.isFocusable = true
             container.isFocusableInTouchMode = true
-            container.requestFocus()
+            runCatching { container.requestFocus() }
         }
     }
 
     private fun refreshCatalog() {
-        homeCatalog = null
-        homeSections = emptyList()
-        continueWatchingSection = null
-        continueWatchingEntries = emptyMap()
-        searchableItems = emptyList()
-        channelLineup = emptyList()
-        activePlaybackLineup = emptyList()
-        selectedHero = null
-        isLoaded = false
+        homeCatalog = null; homeSections = emptyList(); continueWatchingSection = null; continueWatchingEntries = emptyMap()
+        searchableItems = emptyList(); channelLineup = emptyList(); activePlaybackLineup = emptyList(); selectedHero = null; isLoaded = false
         repository.clearHomeMemoryCache()
         startLoad(forceRefresh = true)
     }
@@ -3751,27 +2802,15 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun buildFavoriteSection(remoteFavoriteItems: List<CatalogItem>?, channels: List<CatalogItem>): BrowseSection? {
-        val favoriteIds = channelStateStore.favoriteIds().ifEmpty {
-            remoteFavoriteItems.orEmpty().map(CatalogItem::stableId).toSet()
-        }
-        if (favoriteIds.isEmpty()) {
-            Log.d(TAG, "FAV_BUILD: favoriteIds=EMPTY remote=${remoteFavoriteItems?.size} channels=${channels.size}")
-            return null
-        }
-
+        val favoriteIds = channelStateStore.favoriteIds().ifEmpty { remoteFavoriteItems.orEmpty().map(CatalogItem::stableId).toSet() }
+        if (favoriteIds.isEmpty()) return null
         val channelById = (channels + CatalogMemory.channelRegistry.values).associateBy(CatalogItem::stableId)
         val allFavoriteChannels = favoriteIds.mapNotNull(channelById::get)
-
-        val remoteOrder = remoteFavoriteItems.orEmpty()
-            .mapNotNull { channelById[it.stableId] }
-            .filter { favoriteIds.contains(it.stableId) }
+        val remoteOrder = remoteFavoriteItems.orEmpty().mapNotNull { channelById[it.stableId] }.filter { favoriteIds.contains(it.stableId) }
         val items = if (remoteOrder.isNotEmpty()) {
             val orderedIds = remoteOrder.map(CatalogItem::stableId).toSet()
             remoteOrder + allFavoriteChannels.filterNot { orderedIds.contains(it.stableId) }
-        } else {
-            allFavoriteChannels
-        }
-        Log.d(TAG, "FAV_BUILD: favoriteIds=${favoriteIds.size} remote=${remoteFavoriteItems?.size} channels=${channels.size} registry=${CatalogMemory.channelRegistry.size} remoteOrder=${remoteOrder.size} items=${items.size}")
+        } else allFavoriteChannels
         return items.takeIf { it.isNotEmpty() }?.let { BrowseSection("Favoritos", it) }
     }
 
@@ -3786,48 +2825,18 @@ class ComposeMainFragment : Fragment() {
         return buildList {
             add(BrowseSection(title, items.take(mainLimit)))
             items.groupBy { it.group.ifBlank { "Sin categoria" } }
-                .entries
-                .sortedWith(compareByDescending<Map.Entry<String, List<CatalogItem>>> { it.value.size }.thenBy { it.key })
-                .take(3)
-                .forEach { add(BrowseSection(it.key, it.value.take(14))) }
+                .entries.sortedWith(compareByDescending<Map.Entry<String, List<CatalogItem>>> { it.value.size }.thenBy { it.key })
+                .take(3).forEach { add(BrowseSection(it.key, it.value.take(14))) }
         }
     }
 
-    private fun screenTitle(kind: ContentKind) = when (kind) {
-        ContentKind.EVENT   -> "Eventos"
-        ContentKind.CHANNEL -> "TV en directo"
-        ContentKind.MOVIE   -> "Peliculas"
-        ContentKind.SERIES  -> "Series"
-    }
-
-    private fun kindLabel(kind: ContentKind) = when (kind) {
-        ContentKind.EVENT   -> "Evento"
-        ContentKind.CHANNEL -> "Canal"
-        ContentKind.MOVIE   -> "Pelicula"
-        ContentKind.SERIES  -> "Serie"
-    }
-
+    private fun screenTitle(kind: ContentKind) = when (kind) { ContentKind.EVENT -> "Eventos"; ContentKind.CHANNEL -> "TV en directo"; ContentKind.MOVIE -> "Peliculas"; ContentKind.SERIES -> "Series" }
+    private fun kindLabel(kind: ContentKind) = when (kind) { ContentKind.EVENT -> "Evento"; ContentKind.CHANNEL -> "Canal"; ContentKind.MOVIE -> "Pelicula"; ContentKind.SERIES -> "Serie" }
     private fun sectionKindLabel(items: List<CatalogItem>): String {
         val kind = items.firstOrNull()?.kind ?: return ""
         val count = items.size
-        val (singular, plural) = when (kind) {
-            ContentKind.CHANNEL -> "canal" to "canales"
-            ContentKind.EVENT   -> "evento" to "eventos"
-            ContentKind.MOVIE   -> "pelicula" to "peliculas"
-            ContentKind.SERIES  -> "serie" to "series"
-        }
+        val (singular, plural) = when (kind) { ContentKind.CHANNEL -> "canal" to "canales"; ContentKind.EVENT -> "evento" to "eventos"; ContentKind.MOVIE -> "pelicula" to "peliculas"; ContentKind.SERIES -> "serie" to "series" }
         return if (count == 1) "1 $singular" else "$count $plural"
-    }
-
-    private fun formatBytes(bytes: Long): String {
-        if (bytes <= 0L) return "0 B"
-        val kb = bytes / 1024f
-        val mb = kb / 1024f
-        return when {
-            mb >= 1f -> String.format(Locale.US, "%.1f MB", mb)
-            kb >= 1f -> String.format(Locale.US, "%.0f KB", kb)
-            else -> "$bytes B"
-        }
     }
 
     // ── Playback ──────────────────────────────────────────────────────────────
@@ -3837,10 +2846,7 @@ class ComposeMainFragment : Fragment() {
         if (item.kind == ContentKind.EVENT) {
             scope.launch {
                 val resolved = repository.resolveEventItem(item)
-                if (resolved.streamOptions.isEmpty()) {
-                    Toast.makeText(requireContext(), R.string.no_streams_available, Toast.LENGTH_SHORT).show()
-                    return@launch
-                }
+                if (resolved.streamOptions.isEmpty()) { Toast.makeText(requireContext(), R.string.no_streams_available, Toast.LENGTH_SHORT).show(); return@launch }
                 playResolvedCatalogItem(resolved, optionIndex.coerceIn(resolved.streamOptions.indices))
             }
             return
@@ -3854,23 +2860,14 @@ class ComposeMainFragment : Fragment() {
         rememberPlaybackReturnState(item)
         currentItem = item
         currentStreamIndex = optionIndex
-
         if (item.kind == ContentKind.CHANNEL) channelStateStore.markRecent(item)
-
         val fm = requireActivity().supportFragmentManager
         fm.findFragmentById(R.id.player_container)?.let { fm.beginTransaction().remove(it).commitNow() }
-
         val channelItem = resolveChannelFromEvent(item, stream)
         val favoriteTarget = channelItem ?: item
-        Log.d(TAG, "FAV_EVENT_PLAY: item.kind=${item.kind} channelItem=${channelItem?.stableId} favoriteTarget.kind=${favoriteTarget.kind} favoriteTarget.id=${favoriteTarget.stableId} streamUrl=${stream.url}")
-
         val playerFragment = PlayerFragment(
             streamUrl = stream.url,
-            overlayNumber = when {
-                item.kind == ContentKind.CHANNEL && item.channelNumber != null -> "CH ${item.channelNumber}"
-                item.kind == ContentKind.EVENT -> "EN DIRECTO"
-                else -> item.kind.name
-            },
+            overlayNumber = when { item.kind == ContentKind.CHANNEL && item.channelNumber != null -> "CH ${item.channelNumber}"; item.kind == ContentKind.EVENT -> "EN DIRECTO"; else -> item.kind.name },
             overlayTitle = item.title,
             overlayMeta = listOf(item.subtitle, stream.label).filter { it.isNotBlank() }.joinToString("  •  ").ifBlank { item.description },
             contentKind = item.kind,
@@ -3886,17 +2883,14 @@ class ComposeMainFragment : Fragment() {
             overlayLogoUrl = item.imageUrl,
             isFavorite = channelStateStore.isFavorite(favoriteTarget),
             contentId = item.providerId ?: item.stableId,
-            onPlayerClosed = {
-                restorePlaybackReturnState()
-                restoreFocusAfterPlayer()
-            },
+            onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
         )
         fm.beginTransaction().replace(R.id.player_container, playerFragment, "player_fragment").commitNow()
         val container = requireActivity().findViewById<FrameLayout>(R.id.player_container)
         container.visibility = View.VISIBLE
         container.isFocusable = true
         container.isFocusableInTouchMode = true
-        container.requestFocus()
+        runCatching { container.requestFocus() }
     }
 
     private fun navigateChannel(direction: Int) {
@@ -3925,7 +2919,6 @@ class ComposeMainFragment : Fragment() {
     private fun toggleFavorite(item: CatalogItem): Boolean {
         CatalogMemory.registerChannel(item)
         val result = channelStateStore.toggleFavorite(item)
-        Log.d(TAG, "FAV_TOGGLE: item=${item.stableId} kind=${item.kind} result=$result favoriteIds=${channelStateStore.favoriteIds()}")
         rebuildHomeSections()
         scope.launch {
             runCatching { repository.updateChannelFavorite(item, result) }
@@ -3943,32 +2936,12 @@ class ComposeMainFragment : Fragment() {
         if (item.kind != ContentKind.EVENT) return null
         val providerId = stream?.providerId
         if (providerId.isNullOrBlank()) return null
-
         val stableId = "channel:$providerId"
-        val resolved = channelLineup.firstOrNull { it.stableId == stableId }
-            ?: CatalogMemory.channelRegistry[stableId]
-        if (resolved != null) {
-            Log.d(TAG, "FAV_EVENT_RESOLVE: providerId=$providerId resolved=${resolved.stableId}")
-            return resolved
-        }
-
-        val channelName = stream?.label?.split(" · ")?.firstOrNull()
-            ?: item.description.split(" · ").firstOrNull()
-            ?: item.title
-        val fallback = CatalogItem(
-            stableId = stableId,
-            providerId = providerId,
-            title = channelName,
-            subtitle = "",
-            description = item.description,
-            imageUrl = item.imageUrl,
-            kind = ContentKind.CHANNEL,
-            group = item.group,
-            badgeText = item.badgeText,
-            streamOptions = item.streamOptions,
-        )
+        val resolved = channelLineup.firstOrNull { it.stableId == stableId } ?: CatalogMemory.channelRegistry[stableId]
+        if (resolved != null) return resolved
+        val channelName = stream?.label?.split(" · ")?.firstOrNull() ?: item.description.split(" · ").firstOrNull() ?: item.title
+        val fallback = CatalogItem(stableId = stableId, providerId = providerId, title = channelName, subtitle = "", description = item.description, imageUrl = item.imageUrl, kind = ContentKind.CHANNEL, group = item.group, badgeText = item.badgeText, streamOptions = item.streamOptions)
         CatalogMemory.registerChannel(fallback)
-        Log.d(TAG, "FAV_EVENT_RESOLVE: providerId=$providerId built fallback stableId=$stableId")
         return fallback
     }
 
@@ -3982,8 +2955,7 @@ class ComposeMainFragment : Fragment() {
     private fun openRecentChannel(): Boolean {
         val byId = channelLineup.associateBy(CatalogItem::stableId)
         val match = channelStateStore.recentIds().drop(1).mapNotNull(byId::get).firstOrNull()
-            ?: channelStateStore.recentIds().mapNotNull(byId::get).firstOrNull()
-            ?: return false
+            ?: channelStateStore.recentIds().mapNotNull(byId::get).firstOrNull() ?: return false
         playCatalogItem(match, 0)
         return true
     }
@@ -3992,32 +2964,15 @@ class ComposeMainFragment : Fragment() {
         Log.d(TAG, "openGuideOverlay CALLED initialGroup=$initialGroup currentMode=$currentMode")
         val fm = requireActivity().supportFragmentManager
         val playerFragment = fm.findFragmentByTag("player_fragment") as? PlayerFragment
-        Log.d(TAG, "openGuideOverlay: playerFragment=${playerFragment != null}")
         playerFragment?.closeFromHost()
-        Log.d(TAG, "openGuideOverlay: closeFromHost DONE")
-
-        // Explicitly remove the player fragment so the container is fully clean
         playerFragment?.let { fm.beginTransaction().remove(it).commitNow() }
-        Log.d(TAG, "openGuideOverlay: fragment removed")
         val container = requireActivity().findViewById<FrameLayout>(R.id.player_container)
         container?.visibility = View.GONE
-        Log.d(TAG, "openGuideOverlay: container GONE")
-
-        if (initialGroup != null) {
-            guideInitialGroup = initialGroup
-        }
-
-        // Pre-load filters BEFORE switching mode so GuideContent renders with data
+        if (initialGroup != null) guideInitialGroup = initialGroup
         scope.launch {
-            Log.d(TAG, "openGuideOverlay: pre-loading filters...")
             ensureFiltersLoadedAwait(ContentKind.CHANNEL)
-            Log.d(TAG, "openGuideOverlay: filters pre-loaded, countries=${channelFilters.countries.size}")
-
-            // Force switch to TV mode — bypass changeMode same-mode no-op
-            Log.d(TAG, "openGuideOverlay: setting currentMode=TV (was $currentMode)")
             currentMode = MainMode.TV
             selectedHero = defaultItemForMode(MainMode.TV)
-            Log.d(TAG, "openGuideOverlay: DONE currentMode=$currentMode isLoaded=$isLoaded isSignedIn=$isSignedIn")
             restoreFocusAfterPlayer()
         }
     }
@@ -4038,30 +2993,19 @@ class ComposeMainFragment : Fragment() {
 
     private fun findNextEventIndex(items: List<CatalogItem>): Int {
         val now = Calendar.getInstance()
-        var bestUpcoming = -1
-        var bestUpcomingDelta = Long.MAX_VALUE
-        var bestLive = -1
-        var bestLiveDelta = Long.MAX_VALUE
-
+        var bestUpcoming = -1; var bestUpcomingDelta = Long.MAX_VALUE
+        var bestLive = -1; var bestLiveDelta = Long.MAX_VALUE
         for (i in items.indices) {
             if (items[i].kind != ContentKind.EVENT) continue
             val parsed = runCatching { EVENT_TIME_FORMAT.parse(items[i].badgeText) }.getOrNull() ?: continue
             val eventCal = Calendar.getInstance().apply {
                 time = parsed
-                set(Calendar.YEAR, now.get(Calendar.YEAR))
-                set(Calendar.MONTH, now.get(Calendar.MONTH))
-                set(Calendar.DAY_OF_MONTH, now.get(Calendar.DAY_OF_MONTH))
+                set(Calendar.YEAR, now.get(Calendar.YEAR)); set(Calendar.MONTH, now.get(Calendar.MONTH)); set(Calendar.DAY_OF_MONTH, now.get(Calendar.DAY_OF_MONTH))
             }
             val delta = (now.timeInMillis - eventCal.timeInMillis) / 60_000L
             when {
-                delta < 0 && -delta < bestUpcomingDelta -> {
-                    bestUpcoming = i
-                    bestUpcomingDelta = -delta
-                }
-                delta in 0..180 && delta < bestLiveDelta -> {
-                    bestLive = i
-                    bestLiveDelta = delta
-                }
+                delta < 0 && -delta < bestUpcomingDelta -> { bestUpcoming = i; bestUpcomingDelta = -delta }
+                delta in 0..180 && delta < bestLiveDelta -> { bestLive = i; bestLiveDelta = delta }
             }
         }
         return if (bestUpcoming >= 0) bestUpcoming else bestLive
