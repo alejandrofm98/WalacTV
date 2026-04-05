@@ -1,13 +1,14 @@
 package com.example.walactv.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.example.walactv.BuildConfig
 import com.example.walactv.CatalogItem
 import com.example.walactv.ContentKind
 import com.example.walactv.StreamOption
 
-@Entity(tableName = "channels")
+@Entity(tableName = "channels", indices = [Index(value = ["nombreNormalizado"])])
 data class ChannelEntity(
     @PrimaryKey val id: String,
     val numero: Int?,
@@ -18,7 +19,7 @@ data class ChannelEntity(
     val grupoNormalizado: String
 )
 
-@Entity(tableName = "movies")
+@Entity(tableName = "movies", indices = [Index(value = ["nombreNormalizado"])])
 data class MovieEntity(
     @PrimaryKey val id: String,
     val providerId: String,
@@ -28,7 +29,7 @@ data class MovieEntity(
     val grupoNormalizado: String
 )
 
-@Entity(tableName = "series")
+@Entity(tableName = "series", indices = [Index(value = ["serieName"])])
 data class SeriesEntity(
     @PrimaryKey val id: String,
     val providerId: String,

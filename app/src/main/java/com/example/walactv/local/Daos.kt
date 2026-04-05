@@ -112,7 +112,7 @@ interface SeriesDao {
     @Query("SELECT MIN(id) as id, MIN(providerId) as providerId, MIN(logo) as logo, MIN(country) as country, 0 as temporada, 0 as episodio, serieName, serieName as nombreNormalizado, MIN(grupoNormalizado) as grupoNormalizado FROM series WHERE country = :country AND grupoNormalizado = :group GROUP BY serieName ORDER BY serieName ASC LIMIT :limit OFFSET :offset")
     suspend fun getByCountryAndGroupPaged(country: String, group: String, limit: Int, offset: Int): List<SeriesEntity>
 
-    @Query("SELECT MIN(id) as id, MIN(providerId) as providerId, MIN(logo) as logo, MIN(country) as country, 0 as temporada, 0 as episodio, serieName, serieName as nombreNormalizado, MIN(grupoNormalizado) as grupoNormalizado FROM series WHERE nombreNormalizado LIKE '%' || :query || '%' GROUP BY serieName ORDER BY serieName ASC LIMIT 100")
+    @Query("SELECT id, providerId, logo, country, temporada, episodio, serieName, nombreNormalizado, grupoNormalizado FROM series WHERE serieName LIKE '%' || :query || '%' LIMIT 500")
     suspend fun search(query: String): List<SeriesEntity>
 
     @Query("SELECT COUNT(DISTINCT serieName) FROM series")

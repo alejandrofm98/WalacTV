@@ -66,16 +66,8 @@ fun FilterTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .onFocusChanged {
-                Log.d("FocusTrace", "FilterTopBar Row: isFocused=${it.isFocused}, hasFocus=${it.hasFocus}")
-            }
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    Log.d("FocusTrace", "FilterTopBar Row key: ${event.key}")
-                }
-                false
-            },
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showIdioma) {
@@ -114,58 +106,51 @@ fun NativeSearchBar(
     modifier: Modifier = Modifier,
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
     // Referencia al EditText nativo para poder manipularlo desde Compose
     var editTextRef by remember { mutableStateOf<EditText?>(null) }
 
-    // Sincroniza el texto desde fuera (p.ej. cuando se borra desde otro sitio)
-    LaunchedEffect(query) {
-        val et = editTextRef ?: return@LaunchedEffect
-        if (et.text.toString() != query) {
-            et.setText(query)
-            et.setSelection(query.length)
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is androidx.compose.foundation.interaction.FocusInteraction.Focus -> isFocused = true
+                is androidx.compose.foundation.interaction.FocusInteraction.Unfocus -> isFocused = false
+                else -> {}
+            }
         }
     }
 
     Box(
         modifier = modifier
-            .width(220.dp)
+            .width(280.dp)
             .background(
                 if (isFocused) IptvFocusBg else IptvCard,
-                RoundedCornerShape(8.dp)
+                RoundedCornerShape(6.dp)
             )
-            // FIX: borde como el resto de la app — 2dp azul cuando tiene foco
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
                 color = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(6.dp)
             )
             .focusRequester(focusRequester)
-            // No añadimos .focusable() aquí para que el EditText hijo tome el foco
-            .onFocusChanged { state ->
-                isFocused = state.isFocused || state.hasFocus
-                Log.d("FocusTrace", "NativeSearchBar box: isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
-                if (state.isFocused || state.hasFocus) {
-                    // Pide foco al EditText y abre el teclado
-                    editTextRef?.let { et ->
-                        et.requestFocus()
-                        val imm = et.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                        imm.showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
-                    }
-                }
-            }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = { editTextRef?.requestFocus() }
+            )
+            .padding(horizontal = 10.dp, vertical = 5.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Icon(
                 Icons.Outlined.Search,
                 contentDescription = "Buscar",
                 tint = if (isFocused) IptvTextPrimary else IptvTextMuted,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(14.dp),
             )
 
             // EditText nativo: soporta IME completo en Android TV
@@ -175,11 +160,23 @@ fun NativeSearchBar(
                         hint = "Buscar..."
                         setHintTextColor(IptvTextMuted.copy(alpha = 0.7f).toArgb())
                         setTextColor(IptvTextPrimary.toArgb())
-                        textSize = 14f
+                        textSize = 12f
                         background = null          // quita el underline nativo
                         setSingleLine(true)
+                        setLines(1)
+                        minHeight = 0
+                        minimumHeight = 0
                         imeOptions = EditorInfo.IME_ACTION_SEARCH or EditorInfo.IME_FLAG_NO_FULLSCREEN
                         inputType = android.text.InputType.TYPE_CLASS_TEXT
+
+                        setOnFocusChangeListener { _, hasFocus ->
+                            isFocused = hasFocus
+                            Log.d("FocusTrace", "NativeSearchBar EditText focus=$hasFocus")
+                            if (hasFocus) {
+                                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                                imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                            }
+                        }
 
                         // Sincroniza texto hacia Compose mientras el usuario escribe
                         addTextChangedListener(object : android.text.TextWatcher {
@@ -187,7 +184,8 @@ fun NativeSearchBar(
                             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
                             override fun afterTextChanged(s: android.text.Editable?) {
                                 val newText = s?.toString() ?: ""
-                                if (newText != query) onQueryChange(newText)
+                                Log.d("FocusTrace", "NativeSearchBar textChanged: '$newText'")
+                                onQueryChange(newText)
                             }
                         })
 
@@ -211,11 +209,6 @@ fun NativeSearchBar(
                                 imm.hideSoftInputFromWindow(v.windowToken, 0)
                                 true
                             } else false
-                        }
-
-                        setOnFocusChangeListener { _, hasFocus ->
-                            isFocused = hasFocus
-                            Log.d("FocusTrace", "NativeSearchBar EditText focus=$hasFocus")
                         }
                     }.also { editTextRef = it }
                 },
@@ -273,12 +266,12 @@ fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: Focus
                     true
                 } else false
             }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Text(
             text = "$label \u25BE",
             color = if (isFocused) IptvTextPrimary else IptvTextMuted,
-            fontSize = 15.sp,
+            fontSize = 13.sp,
             fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
         )
     }
@@ -440,6 +433,9 @@ fun FilterDialog(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NativeSearchBar — usa un EditText real para que el IME de Android TV funcione
+// ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun DialogFilterItem(label: String, selected: Boolean, onClick: () -> Unit) {

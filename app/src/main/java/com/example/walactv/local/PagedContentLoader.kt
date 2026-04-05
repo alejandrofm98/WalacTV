@@ -86,6 +86,7 @@ class PagedContentLoader(
     }
 
     suspend fun loadSearch(query: String) {
+        Log.d(TAG, "loadSearch: starting search for '$query' with kind=$kind")
         cache.clear()
         loadedPages.clear()
         isSearchMode = true
@@ -93,24 +94,28 @@ class PagedContentLoader(
         try {
             val user = repository.currentUsername()
             val pass = repository.currentPassword()
+            Log.d(TAG, "loadSearch: calling search for kind=$kind, query='$query'")
             val items = when (kind) {
                 ContentKind.CHANNEL -> {
                     val entities = withContext(Dispatchers.IO) { contentCacheManager.searchChannels(query) }
+                    Log.d(TAG, "loadSearch: channels search returned ${entities.size} entities")
                     entities.map { it.toCatalogItem(user, pass) }
                 }
                 ContentKind.MOVIE -> {
                     val entities = withContext(Dispatchers.IO) { contentCacheManager.searchMovies(query) }
+                    Log.d(TAG, "loadSearch: movies search returned ${entities.size} entities")
                     entities.map { it.toCatalogItem(user, pass) }
                 }
                 ContentKind.SERIES -> {
                     val entities = withContext(Dispatchers.IO) { contentCacheManager.searchSeries(query) }
+                    Log.d(TAG, "loadSearch: series search returned ${entities.size} entities")
                     entities.map { it.toCatalogItem(user, pass) }
                 }
                 else -> emptyList()
             }
 
             cache.addAll(items)
-            Log.d(TAG, "loadSearch($kind, query=$query): found ${cache.size} results")
+            Log.d(TAG, "loadSearch($kind, query='$query'): found ${cache.size} results")
         } finally {
             isLoading = false
         }

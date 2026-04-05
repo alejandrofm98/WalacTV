@@ -550,9 +550,18 @@ class ContentCacheManager(private val context: Context) {
     }
 
     suspend fun searchSeries(query: String): List<SeriesEntity> = withContext(Dispatchers.IO) {
-        val result = database.seriesDao().search(query)
-        Log.d(TAG, "searchSeries($query): returning ${result.size} entities")
-        result
+        val total = database.seriesDao().getCount()
+        Log.d(TAG, "searchSeries: DB has $total total episodes, searching for '$query'")
+        val allSeries = database.seriesDao().getAllPaged(50000, 0)
+        val uniqueSeries = allSeries.distinctBy { it.serieName }
+        val filtered = uniqueSeries.filter { it.serieName.contains(query, ignoreCase = true) }
+            .sortedBy { it.serieName }
+            .take(100)
+        Log.d(TAG, "searchSeries('$query'): $total episodes -> ${uniqueSeries.size} unique -> ${filtered.size} matches")
+        if (filtered.isNotEmpty()) {
+            Log.d(TAG, "searchSeries: first result serieName='${filtered.first().serieName}'")
+        }
+        filtered
     }
 
     suspend fun getSeriesCount(): Int = withContext(Dispatchers.IO) {

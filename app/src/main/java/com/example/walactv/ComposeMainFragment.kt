@@ -1461,12 +1461,9 @@ class ComposeMainFragment : Fragment() {
         var searchQuery by remember { mutableStateOf("") }
         var showCountryDialog by remember { mutableStateOf(false) }
         var showGroupDialog by remember { mutableStateOf(false) }
-        var showGroupSidebar by remember { mutableStateOf(false) }
         val countryFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
         val groupFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
         val searchFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-        val sidebarFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-        val gridFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
         val lazyGridState = rememberLazyGridState()
 
         var eventItems by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
@@ -1588,7 +1585,6 @@ class ComposeMainFragment : Fragment() {
         LaunchedEffect(Unit) {
             if (!isEventGuide) {
                 kotlinx.coroutines.delay(100)
-                runCatching { gridFocusRequester.requestFocus() }
             }
         }
 
@@ -1635,13 +1631,6 @@ class ComposeMainFragment : Fragment() {
             selectedGroup = ALL_OPTION
         }
 
-        LaunchedEffect(showGroupSidebar) {
-            if (showGroupSidebar) {
-                kotlinx.coroutines.delay(50)
-                runCatching { sidebarFocusRequester.requestFocus() }
-            }
-        }
-
         LaunchedEffect(lazyGridState, searchQuery) {
             if (isEventGuide) return@LaunchedEffect
             if (searchQuery.isNotBlank()) return@LaunchedEffect
@@ -1676,215 +1665,59 @@ class ComposeMainFragment : Fragment() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             ScreenHeader(title = screenTitle(kind), subtitle = if (!isEventGuide) "$totalCount canales disponibles" else "")
-            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-                AnimatedVisibility(visible = showGroupSidebar, enter = fadeIn(), exit = fadeOut()) {
-                    Column(
-                        modifier = Modifier
-                            .width(220.dp)
-                            .fillMaxHeight()
-                            .background(IptvSurface.copy(alpha = 0.85f), RoundedCornerShape(12.dp))
-                            .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(12.dp))
-                            .padding(vertical = 12.dp)
-                            .focusRequester(sidebarFocusRequester)
-                            .onPreviewKeyEvent { event ->
-                                if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
-                                ) {
-                                    showGroupSidebar = false
-                                    true
-                                } else false
-                            }
-                            .focusable(),
-                    ) {
-                        Text(
-                            "🌍 País",
-                            color = IptvTextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                        LazyColumn(
-                            modifier = Modifier.weight(0.5f).fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            items(countryOptions, key = { "cptry_${it.value}" }) { option ->
-                                val isSelected = selectedCountry == option.value
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isSelected) IptvFocusBg else Color.Transparent)
-                                        .border(
-                                            width = if (isSelected) 1.dp else 0.dp,
-                                            color = if (isSelected) IptvFocusBorder else Color.Transparent,
-                                            shape = RoundedCornerShape(6.dp),
-                                        )
-                                        .clickable {
-                                            selectedCountry = option.value
-                                            selectedGroup = ALL_OPTION
-                                        }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                                        .onPreviewKeyEvent { event ->
-                                            if (event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
-                                            when (event.nativeKeyEvent.keyCode) {
-                                                android.view.KeyEvent.KEYCODE_DPAD_CENTER,
-                                                android.view.KeyEvent.KEYCODE_ENTER -> {
-                                                    selectedCountry = option.value
-                                                    selectedGroup = ALL_OPTION
-                                                    true
-                                                }
-                                                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                                    showGroupSidebar = false
-                                                    true
-                                                }
-                                                else -> false
-                                            }
-                                        }
-                                        .focusable(),
-                                ) {
-                                    Text(
-                                        text = option.label,
-                                        color = if (isSelected) IptvTextPrimary else IptvTextSecondary,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                        }
-
-                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(IptvSurfaceVariant).padding(horizontal = 16.dp, vertical = 8.dp))
-
-                        Text(
-                            "📂 Categoría",
-                            color = IptvTextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                        LazyColumn(
-                            modifier = Modifier.weight(0.5f).fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            items(groupOptions, key = { "grp_${it.value}" }) { option ->
-                                val isSelected = selectedGroup == option.value
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isSelected) IptvFocusBg else Color.Transparent)
-                                        .border(
-                                            width = if (isSelected) 1.dp else 0.dp,
-                                            color = if (isSelected) IptvFocusBorder else Color.Transparent,
-                                            shape = RoundedCornerShape(6.dp),
-                                        )
-                                        .clickable { selectedGroup = option.value }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                                        .onPreviewKeyEvent { event ->
-                                            if (event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
-                                            when (event.nativeKeyEvent.keyCode) {
-                                                android.view.KeyEvent.KEYCODE_DPAD_CENTER,
-                                                android.view.KeyEvent.KEYCODE_ENTER -> {
-                                                    selectedGroup = option.value
-                                                    true
-                                                }
-                                                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                                    showGroupSidebar = false
-                                                    true
-                                                }
-                                                else -> false
-                                            }
-                                        }
-                                        .focusable(),
-                                ) {
-                                    Text(
-                                        text = option.label,
-                                        color = if (isSelected) IptvTextPrimary else IptvTextSecondary,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    FilterTopBar(
-                        showIdioma = kind == ContentKind.CHANNEL,
-                        selectedIdioma = countryOptions.firstOrNull { it.value == selectedCountry }?.label ?: selectedCountry,
-                        selectedGrupo = groupOptions.firstOrNull { it.value == selectedGroup }?.label ?: selectedGroup,
-                        onIdiomaClicked = { showCountryDialog = true },
-                        onGrupoClicked = { showGroupDialog = true },
-                        idiomaFocusRequester = countryFocusRequester,
-                        grupoFocusRequester = groupFocusRequester,
-                        searchQuery = searchQuery,
-                        onSearchQueryChange = { searchQuery = it },
-                        searchFocusRequester = searchFocusRequester,
-                        idiomaLabel = COUNTRY_FILTER_LABEL,
-                    )
-                    if (displayItemsForGrid.isEmpty() && !isLoadingPage) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            if (!isEventGuide && channelFilters.countries.isEmpty()) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text("Cargando categorias...", color = IptvTextMuted, fontSize = 18.sp)
-                                }
-                            } else {
-                                Text(
-                                    if (searchQuery.isNotBlank()) "No hay resultados para \"$searchQuery\"" else "No hay contenido disponible",
-                                    color = IptvTextMuted, fontSize = 18.sp,
-                                )
-                            }
+            FilterTopBar(
+                showIdioma = kind == ContentKind.CHANNEL,
+                selectedIdioma = countryOptions.firstOrNull { it.value == selectedCountry }?.label ?: selectedCountry,
+                selectedGrupo = groupOptions.firstOrNull { it.value == selectedGroup }?.label ?: selectedGroup,
+                onIdiomaClicked = { showCountryDialog = true },
+                onGrupoClicked = { showGroupDialog = true },
+                idiomaFocusRequester = countryFocusRequester,
+                grupoFocusRequester = groupFocusRequester,
+                searchQuery = searchQuery,
+                onSearchQueryChange = { searchQuery = it },
+                searchFocusRequester = searchFocusRequester,
+                idiomaLabel = COUNTRY_FILTER_LABEL,
+            )
+            if (displayItemsForGrid.isEmpty() && !isLoadingPage) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (!isEventGuide && channelFilters.countries.isEmpty()) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Cargando categorias...", color = IptvTextMuted, fontSize = 18.sp)
                         }
                     } else {
-                        val gridColumns = if (isEventGuide) 5 else 4
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(gridColumns),
-                            state = lazyGridState,
-                            modifier = Modifier
-                                .weight(1f)
-                                .focusRequester(gridFocusRequester)
-                                .onPreviewKeyEvent { event ->
-                                    if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT &&
-                                        !isEventGuide && groupOptions.isNotEmpty()
-                                    ) {
-                                        showGroupSidebar = true
-                                        runCatching { sidebarFocusRequester.requestFocus() }
-                                        true
-                                    } else false
-                                },
-                            contentPadding = PaddingValues(bottom = 24.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            items(displayItemsForGrid.size) { index ->
-                                val item = displayItemsForGrid[index]
-                                val isCurrentChannel = currentItem?.stableId == item.stableId
-                                if (isEventGuide) {
-                                    MediaCard(item = item, onFocused = { selectedHero = item }) { handleCardClick(item, displayItemsForGrid) }
-                                } else {
-                                    EpgChannelCard(
-                                        item = item,
-                                        isCurrentChannel = isCurrentChannel,
-                                        onFocused = { selectedHero = item }
-                                    ) { handleCardClick(item, displayItemsForGrid) }
-                                }
-                            }
-                            if (isLoadingPage) {
-                                item {
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth().padding(24.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("Cargando...", color = IptvTextMuted, fontSize = 14.sp)
-                                    }
-                                }
+                        Text(
+                            if (searchQuery.isNotBlank()) "No hay resultados para \"$searchQuery\"" else "No hay contenido disponible",
+                            color = IptvTextMuted, fontSize = 18.sp,
+                        )
+                    }
+                }
+            } else {
+                val gridColumns = if (isEventGuide) 5 else 3
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(gridColumns),
+                    state = lazyGridState,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(displayItemsForGrid.size) { index ->
+                        val item = displayItemsForGrid[index]
+                        val isCurrentChannel = currentItem?.stableId == item.stableId
+                        if (isEventGuide) {
+                            MediaCard(item = item, onFocused = { selectedHero = item }) { handleCardClick(item, displayItemsForGrid) }
+                        } else {
+                            EpgChannelCard(
+                                item = item,
+                                isCurrentChannel = isCurrentChannel,
+                                onFocused = { selectedHero = item }
+                            ) { handleCardClick(item, displayItemsForGrid) }
+                        }
+                    }
+                    if (isLoadingPage) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                Text("Cargando...", color = IptvTextMuted, fontSize = 12.sp)
                             }
                         }
                     }
@@ -2320,31 +2153,61 @@ class ComposeMainFragment : Fragment() {
         var lastLoadKey by remember { mutableStateOf("") }
         var isLoading by remember { mutableStateOf(false) }
 
+        var searchDebounceJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
         // Reset group when country changes
         LaunchedEffect(selectedCountry) {
             selectedGroup = ALL_OPTION
         }
 
-        LaunchedEffect(selectedCountry, selectedGroup, searchQuery) {
-            val key = "$selectedCountry|$selectedGroup|$searchQuery"
+        // Debounced search: wait 500ms after last keystroke before executing
+        LaunchedEffect(searchQuery) {
+            searchDebounceJob?.cancel()
+            searchDebounceJob = launch {
+                kotlinx.coroutines.delay(500)
+                val key = "$selectedCountry|$selectedGroup|$searchQuery"
+                if (key == lastLoadKey) return@launch
+                lastLoadKey = key
+                isLoading = true
+                Log.d(TAG, "VodGridContent: search debounce fired for '$searchQuery', kind=$kind")
+                loader.clear()
+                currentPage = 0
+                isLoadingPage = false
+                if (searchQuery.isNotBlank()) {
+                    Log.d(TAG, "VodGridContent: executing search for '$searchQuery'")
+                    loader.loadSearch(searchQuery)
+                    displayItems = loader.getDisplayItems()
+                    totalCount = loader.getTotalCount()
+                    Log.d(TAG, "VodGridContent: search returned ${displayItems.size} items")
+                } else {
+                    val country = selectedCountry.takeUnless { it == ALL_OPTION }
+                    val group = selectedGroup.takeUnless { it == ALL_OPTION }
+                    loader.refreshTotalCount(country, group)
+                    totalCount = loader.getTotalCount()
+                    loader.loadPage(0, country, group)
+                    displayItems = loader.getDisplayItems()
+                }
+                isLoading = false
+            }
+        }
+
+        // Load initial data when country/group changes (not search)
+        LaunchedEffect(selectedCountry, selectedGroup) {
+            if (searchQuery.isNotBlank()) return@LaunchedEffect
+            val key = "$selectedCountry|$selectedGroup|"
             if (key == lastLoadKey || isLoading) return@LaunchedEffect
             lastLoadKey = key
             isLoading = true
+            Log.d(TAG, "VodGridContent: loading with key='$key'")
             loader.clear()
             currentPage = 0
             isLoadingPage = false
-            if (searchQuery.isNotBlank()) {
-                loader.loadSearch(searchQuery)
-                displayItems = loader.getDisplayItems()
-                totalCount = loader.getTotalCount()
-            } else {
-                val country = selectedCountry.takeUnless { it == ALL_OPTION }
-                val group = selectedGroup.takeUnless { it == ALL_OPTION }
-                loader.refreshTotalCount(country, group)
-                totalCount = loader.getTotalCount()
-                loader.loadPage(0, country, group)
-                displayItems = loader.getDisplayItems()
-            }
+            val country = selectedCountry.takeUnless { it == ALL_OPTION }
+            val group = selectedGroup.takeUnless { it == ALL_OPTION }
+            loader.refreshTotalCount(country, group)
+            totalCount = loader.getTotalCount()
+            loader.loadPage(0, country, group)
+            displayItems = loader.getDisplayItems()
             isLoading = false
         }
 
@@ -2434,29 +2297,29 @@ class ComposeMainFragment : Fragment() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-                .background(bgColor, RoundedCornerShape(8.dp))
-                .border(borderWidth, borderColor, RoundedCornerShape(8.dp))
+                .height(72.dp)
+                .background(bgColor, RoundedCornerShape(10.dp))
+                .border(borderWidth, borderColor, RoundedCornerShape(10.dp))
                 .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocused() }
                 .clickable { onClick() }
-                .padding(horizontal = 10.dp),
+                .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item.channelNumber?.let { num ->
-                Text(text = num.toString().padStart(3, ' '), color = if (isCurrentChannel) IptvAccent else IptvTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(28.dp), textAlign = TextAlign.End)
-            } ?: Box(modifier = Modifier.width(28.dp))
-            Box(modifier = Modifier.size(36.dp).background(IptvSurfaceVariant, RoundedCornerShape(4.dp)).clip(RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
-                if (item.imageUrl.isNotBlank()) RemoteImage(url = item.imageUrl, width = 64, height = 64, scaleType = ScaleType.FIT_CENTER)
-                else Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = IptvTextMuted, modifier = Modifier.size(18.dp))
+                Text(text = num.toString().padStart(3, ' '), color = if (isCurrentChannel) IptvAccent else IptvTextMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp), textAlign = TextAlign.End)
+            } ?: Box(modifier = Modifier.width(36.dp))
+            Box(modifier = Modifier.size(48.dp).background(IptvSurfaceVariant, RoundedCornerShape(6.dp)).clip(RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                if (item.imageUrl.isNotBlank()) RemoteImage(url = item.imageUrl, width = 80, height = 80, scaleType = ScaleType.FIT_CENTER)
+                else Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = IptvTextMuted, modifier = Modifier.size(22.dp))
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text(text = item.title, color = if (isCurrentChannel) IptvAccent else IptvTextPrimary, fontSize = 13.sp, fontWeight = if (isCurrentChannel) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (item.group.isNotBlank()) Text(text = item.group, color = IptvTextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = item.title, color = if (isCurrentChannel) IptvAccent else IptvTextPrimary, fontSize = 15.sp, fontWeight = if (isCurrentChannel) FontWeight.Bold else FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (item.group.isNotBlank()) Text(text = item.group, color = IptvTextMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (isCurrentChannel) {
-                Box(modifier = Modifier.background(IptvLive, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                    Text("▶", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Box(modifier = Modifier.background(IptvLive, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                    Text("▶", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
