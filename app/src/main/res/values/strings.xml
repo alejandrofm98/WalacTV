@@ -79,8 +79,10 @@
     <!-- VOD player controls -->
     <string name="vod_subtitles">Subtitulos</string>
     <string name="vod_audio">Audio</string>
+    <string name="vod_quality">Calidad</string>
     <string name="vod_play_pause">Reproducir / Pausar</string>
     <string name="vod_next_episode">Siguiente capitulo</string>
+    <string name="vod_prev_episode">Capitulo anterior</string>
     <string name="vod_subtitle_off">Desactivados</string>
     <string name="vod_audio_off">Desactivado</string>
     <string name="vod_subtitle_dialog_title">Subtitulos</string>

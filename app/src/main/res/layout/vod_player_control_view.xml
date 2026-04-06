@@ -113,6 +113,21 @@
                     android:focusable="true"
                     android:scaleType="centerInside" />
 
+                <!-- Previous episode (only visible for series when previous exists) -->
+                <ImageButton
+                    android:id="@+id/vod_btn_prev"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="20dp"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/vod_prev_episode"
+                    android:focusable="true"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_vod_next"
+                    android:rotation="180"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+
                 <!-- Next episode (only visible for series) -->
                 <ImageButton
                     android:id="@+id/vod_btn_next"
@@ -138,6 +153,20 @@
                     android:focusable="true"
                     android:scaleType="centerInside"
                     android:src="@drawable/ic_vod_audio" />
+
+                <!-- Quality selector (only visible when multiple qualities available) -->
+                <ImageButton
+                    android:id="@+id/vod_btn_quality"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="20dp"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/vod_quality"
+                    android:focusable="true"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/ic_vod_quality"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
 
                 <!-- Subtitles -->
                 <ImageButton

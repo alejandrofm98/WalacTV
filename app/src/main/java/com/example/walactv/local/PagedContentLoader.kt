@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.walactv.CatalogItem
 import com.example.walactv.ContentKind
 import com.example.walactv.IptvRepository
+import com.example.walactv.uniqueMovies
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -57,7 +58,7 @@ class PagedContentLoader(
                     val entities = withContext(Dispatchers.IO) {
                         contentCacheManager.getMoviesPaged(country, group, page, pageSize)
                     }
-                    entities.map { it.toCatalogItem(user, pass) }
+                    entities.map { it.toCatalogItem(user, pass) }.uniqueMovies()
                 }
                 ContentKind.SERIES -> {
                     val entities = withContext(Dispatchers.IO) {
@@ -104,7 +105,7 @@ class PagedContentLoader(
                 ContentKind.MOVIE -> {
                     val entities = withContext(Dispatchers.IO) { contentCacheManager.searchMovies(query) }
                     Log.d(TAG, "loadSearch: movies search returned ${entities.size} entities")
-                    entities.map { it.toCatalogItem(user, pass) }
+                    entities.map { it.toCatalogItem(user, pass) }.uniqueMovies()
                 }
                 ContentKind.SERIES -> {
                     val entities = withContext(Dispatchers.IO) { contentCacheManager.searchSeries(query) }

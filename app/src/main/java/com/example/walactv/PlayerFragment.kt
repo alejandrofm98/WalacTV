@@ -59,10 +59,12 @@ class PlayerFragment(
     private val onOpenRecents: () -> Boolean,
     private val onOpenGuide: ((String?) -> Unit)? = null,
     private val onNextEpisode: (() -> Unit)? = null,
+    private val onPreviousEpisode: (() -> Unit)? = null,
     private val allSeriesEpisodes: List<CatalogItem> = emptyList(),
     private val currentEpisode: CatalogItem? = null,
     private val streamOptionLabels: List<String> = emptyList(),
     private val currentOptionIndex: Int = 0,
+    private val onSelectQuality: ((Int) -> Unit)? = null,
     private val overlayLogoUrl: String = "",
     private val isFavorite: Boolean = false,
     private val contentId: String = "",
@@ -363,12 +365,28 @@ class PlayerFragment(
             showSubtitleSelector()
         }
 
+        val qualityBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_quality)
+        if (streamOptionLabels.size > 1 && onSelectQuality != null) {
+            qualityBtn?.visibility = View.VISIBLE
+            qualityBtn?.setOnClickListener { showQualitySelector() }
+        } else {
+            qualityBtn?.visibility = View.GONE
+        }
+
         val nextBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_next)
         if (contentKind == ContentKind.SERIES && onNextEpisode != null) {
             nextBtn?.visibility = View.VISIBLE
             nextBtn?.setOnClickListener { onNextEpisode.invoke() }
         } else {
             nextBtn?.visibility = View.GONE
+        }
+
+        val prevBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_prev)
+        if (contentKind == ContentKind.SERIES && onPreviousEpisode != null) {
+            prevBtn?.visibility = View.VISIBLE
+            prevBtn?.setOnClickListener { onPreviousEpisode.invoke() }
+        } else {
+            prevBtn?.visibility = View.GONE
         }
 
         handler.removeCallbacks(timeUpdateRunnable)
@@ -660,6 +678,22 @@ class PlayerFragment(
         exoPlayer.trackSelectionParameters = paramsBuilder.build()
     }
 
+    private fun showQualitySelector() {
+        val ctx = context ?: return
+        val labels = streamOptionLabels.toTypedArray()
+        if (labels.isEmpty()) return
+
+        AlertDialog.Builder(ctx, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(R.string.vod_quality)
+            .setSingleChoiceItems(labels, currentOptionIndex) { dialog, which ->
+                if (which != currentOptionIndex) {
+                    onSelectQuality?.invoke(which)
+                }
+                dialog.dismiss()
+            }
+            .show()
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     //  Option indicator (live / events)
     // ──────────────────────────────────────────────────────────────────────
@@ -835,17 +869,21 @@ class PlayerFragment(
             if (ctx != null) {
                 Toast.makeText(
                     ctx,
-                    "Este contenido 4K Dolby Vision no es compatible con este dispositivo",
-                    Toast.LENGTH_LONG
+                    "Calidad no soportada por este dispositivo",
+                    Toast.LENGTH_LONG,
                 ).show()
             }
-            releasePlayer()
-            runCatching {
-                parentFragmentManager.beginTransaction()
-                    .remove(this)
-                    .commitAllowingStateLoss()
-            }.onFailure {
-                Log.e(TAG, "No se pudo cerrar el reproductor tras error fatal", it)
+            if (isVodMode && streamOptionLabels.size > 1 && onSelectQuality != null) {
+                handler.postDelayed({ showQualitySelector() }, 500)
+            } else {
+                releasePlayer()
+                runCatching {
+                    parentFragmentManager.beginTransaction()
+                        .remove(this)
+                        .commitAllowingStateLoss()
+                }.onFailure {
+                    Log.e(TAG, "No se pudo cerrar el reproductor tras error fatal", it)
+                }
             }
             return
         }

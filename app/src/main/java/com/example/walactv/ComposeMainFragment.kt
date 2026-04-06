@@ -2926,6 +2926,12 @@ class ComposeMainFragment : Fragment() {
             { openContinueWatchingItem(cardItem, progress.copy(contentId = logicalEpisodes[currentIndex + 1].providerId ?: logicalEpisodes[currentIndex + 1].stableId, seasonNumber = logicalEpisodes[currentIndex + 1].seasonNumber, episodeNumber = logicalEpisodes[currentIndex + 1].episodeNumber, seriesName = logicalEpisodes[currentIndex + 1].seriesName, title = logicalEpisodes[currentIndex + 1].title, imageUrl = logicalEpisodes[currentIndex + 1].imageUrl)) }
         }
 
+        val previousEpisodeCallback: (() -> Unit)? = logicalEpisodes.indexOfFirst {
+            it.seriesName == episode.seriesName && it.seasonNumber == episode.seasonNumber && it.episodeNumber == episode.episodeNumber
+        }.takeIf { it > 0 }?.let { currentIndex ->
+            { openContinueWatchingItem(cardItem, progress.copy(contentId = logicalEpisodes[currentIndex - 1].providerId ?: logicalEpisodes[currentIndex - 1].stableId, seasonNumber = logicalEpisodes[currentIndex - 1].seasonNumber, episodeNumber = logicalEpisodes[currentIndex - 1].episodeNumber, seriesName = logicalEpisodes[currentIndex - 1].seriesName, title = logicalEpisodes[currentIndex - 1].title, imageUrl = logicalEpisodes[currentIndex - 1].imageUrl)) }
+        }
+
         val stream = episode.streamOptions.firstOrNull()
         if (stream == null) {
             withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No hay streams disponibles", Toast.LENGTH_SHORT).show() }
@@ -2938,7 +2944,9 @@ class ComposeMainFragment : Fragment() {
                 overlayMeta = episode.description.ifBlank { stream.label }, contentKind = episode.kind,
                 onNavigateChannel = { false }, onNavigateOption = { false }, onDirectChannelNumber = { false },
                 onToggleFavorite = { false }, onOpenFavorites = { false }, onOpenRecents = { false },
-                onNextEpisode = nextEpisodeCallback, allSeriesEpisodes = allEpisodes, currentEpisode = episode,
+                onNextEpisode = nextEpisodeCallback,
+                onPreviousEpisode = previousEpisodeCallback,
+                allSeriesEpisodes = allEpisodes, currentEpisode = episode,
                 overlayLogoUrl = episode.imageUrl, contentId = episode.providerId ?: progress.contentId,
                 onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             )
@@ -3057,6 +3065,7 @@ class ComposeMainFragment : Fragment() {
             onOpenGuide = { showChannelPicker = true },
             streamOptionLabels = item.streamOptions.map { it.label },
             currentOptionIndex = optionIndex,
+            onSelectQuality = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) { newIndex -> playCatalogItem(item, newIndex) } else null,
             overlayLogoUrl = item.imageUrl,
             isFavorite = channelStateStore.isFavorite(favoriteTarget),
             contentId = item.providerId ?: item.stableId,

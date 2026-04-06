@@ -755,6 +755,7 @@ class ContentCacheManager(private val context: Context) {
     private fun parseMovieObject(reader: JsonReader): MovieEntity {
         var id = ""
         var providerId = ""
+        var nombre = ""
         var logo = ""
         var country = ""
         var nombreNormalizado = ""
@@ -766,6 +767,7 @@ class ContentCacheManager(private val context: Context) {
             when (name) {
                 "id" -> id = reader.nextString()
                 "provider_id" -> providerId = reader.nextString()
+                "nombre" -> nombre = reader.nextString()
                 "logo" -> logo = reader.nextString()
                 "country" -> country = reader.nextString()
                 "nombre_normalizado" -> nombreNormalizado = reader.nextString()
@@ -778,6 +780,7 @@ class ContentCacheManager(private val context: Context) {
         return MovieEntity(
             id = id,
             providerId = providerId,
+            nombre = nombre,
             logo = logo,
             country = country,
             nombreNormalizado = nombreNormalizado,

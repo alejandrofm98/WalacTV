@@ -89,6 +89,11 @@ class SeriesDetailFragment : Fragment() {
         } else {
             null
         }
+        val previousEpisodeCallback: (() -> Unit)? = if (currentIndex > 0) {
+            { playEpisode(logicalEpisodes[currentIndex - 1], allEpisodesForSeries, logicalEpisodes) }
+        } else {
+            null
+        }
 
         val playerFragment = PlayerFragment(
             streamUrl = stream.url,
@@ -103,6 +108,7 @@ class SeriesDetailFragment : Fragment() {
             onOpenFavorites = { false },
             onOpenRecents = { false },
             onNextEpisode = nextEpisodeCallback,
+            onPreviousEpisode = previousEpisodeCallback,
             allSeriesEpisodes = allEpisodesForSeries,
             currentEpisode = episodeToPlay,
             contentId = episodeToPlay.providerId ?: episodeToPlay.stableId,

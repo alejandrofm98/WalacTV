@@ -23,6 +23,7 @@ data class ChannelEntity(
 data class MovieEntity(
     @PrimaryKey val id: String,
     val providerId: String,
+    val nombre: String,
     val logo: String,
     val country: String,
     val nombreNormalizado: String,
@@ -87,7 +88,8 @@ fun MovieEntity.toCatalogItem(username: String, password: String): CatalogItem {
     return CatalogItem(
         stableId = id,
         providerId = providerId,
-        title = nombreNormalizado,
+        title = nombre,
+        normalizedTitle = nombreNormalizado,
         subtitle = "",
         description = "",
         imageUrl = logo,

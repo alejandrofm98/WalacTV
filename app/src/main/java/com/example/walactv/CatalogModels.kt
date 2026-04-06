@@ -142,6 +142,52 @@ fun List<CatalogItem>.findEquivalentSeriesEpisode(current: CatalogItem, targetLa
     }
 }
 
+private val QUALITY_REGEX = Regex(
+    "\\s*[\\[(]\\s*(UHD|FHD|HD|SD|4K|HEVC|H265|HQ|LQ)\\s*[\\])]\\s*|\\b(UHD|FHD|HD|SD|4K|HEVC|H265|HQ|LQ)\\b",
+    RegexOption.IGNORE_CASE,
+)
+
+private val QUALITY_ORDER = mapOf(
+    "UHD" to 7, "4K" to 6, "FHD" to 5, "HD" to 4, "SD" to 3, "HQ" to 2, "LQ" to 1,
+)
+
+private fun extractQualityLabel(title: String): String? {
+    val match = QUALITY_REGEX.find(title) ?: return null
+    return (match.groupValues[1].ifBlank { match.groupValues[2] }).uppercase().ifBlank { null }
+}
+
+private fun qualityScore(item: CatalogItem): Int {
+    return extractQualityLabel(item.title)
+        ?.let { QUALITY_ORDER[it] ?: 0 }
+        ?: 0
+}
+
+fun List<CatalogItem>.uniqueMovies(): List<CatalogItem> {
+    return groupBy { item -> (item.normalizedTitle ?: item.title).lowercase().trim() }
+        .values
+        .map { variants ->
+            if (variants.size == 1) {
+                val single = variants.first()
+                single.copy(title = single.normalizedTitle ?: single.title)
+            } else {
+                val best = variants.maxByOrNull { qualityScore(it) } ?: variants.first()
+                val qualityOptions = variants.flatMap { variant ->
+                    val quality = extractQualityLabel(variant.title) ?: "Ver"
+                    variant.streamOptions.map { it.copy(label = quality) }
+                }.distinctBy { it.url }
+                    .sortedByDescending { QUALITY_ORDER[it.label] ?: 0 }
+                best.copy(
+                    title = best.normalizedTitle ?: best.title,
+                    streamOptions = qualityOptions,
+                    badgeText = variants.mapNotNull { extractQualityLabel(it.title) }
+                        .distinct()
+                        .sortedByDescending { QUALITY_ORDER[it] ?: 0 }
+                        .joinToString(" | "),
+                )
+            }
+        }
+}
+
 data class BrowseSection(
     val title: String,
     val items: List<CatalogItem>,
