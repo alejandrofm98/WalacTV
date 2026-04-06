@@ -521,13 +521,11 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun buildContinueWatchingItem(wp: WatchProgressItem, searchableSnapshot: List<CatalogItem>): CatalogItem {
-        val progressLabel = "${wp.progressPercent}% visto"
         val kind = if (wp.contentType == "series") ContentKind.SERIES else ContentKind.MOVIE
         val subtitle = if (wp.contentType == "series") {
-            val ep = buildEpisodeLabel(wp.seasonNumber, wp.episodeNumber)
-            if (ep.isNotBlank()) "$ep · $progressLabel" else progressLabel
+            buildEpisodeLabel(wp.seasonNumber, wp.episodeNumber)
         } else {
-            progressLabel
+            ""
         }
         val fallbackTitle = wp.normalizedTitle.cleanDisplayText()
             .ifBlank { wp.seriesName.cleanDisplayText() }
@@ -1496,6 +1494,7 @@ class ComposeMainFragment : Fragment() {
                     if (section.title == "Continuar viendo") {
                         ContinueWatchingCard(
                             item = item,
+                            progressPercent = continueWatchingEntries[item.stableId]?.progressPercent ?: 0,
                             onFocused = { onFocused(item) },
                             onDeleteRequest = {
                                 Log.d(TAG, "CW_DELETE: onDeleteRequest called for ${it.title}")
@@ -1513,6 +1512,7 @@ class ComposeMainFragment : Fragment() {
     @Composable
     private fun ContinueWatchingCard(
         item: CatalogItem,
+        progressPercent: Int = 0,
         onFocused: (CatalogItem) -> Unit,
         onDeleteRequest: (CatalogItem) -> Unit,
     ) {
@@ -1605,15 +1605,32 @@ class ComposeMainFragment : Fragment() {
                     PlaceholderIcon(kind = item.kind)
                 }
             }
+            if (progressPercent in 1..99) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .background(IptvSurfaceVariant),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progressPercent / 100f)
+                            .background(IptvAccent),
+                    )
+                }
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(78.dp)
+                    .height(if (item.subtitle.isNotBlank()) 78.dp else 56.dp)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 val displayTitle = item.normalizedTitle?.takeUnless { it.equals("null", ignoreCase = true) }?.takeIf { it.isNotBlank() } ?: item.title.takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
                 Text(displayTitle, color = IptvTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(item.subtitle.ifBlank { kindLabel(item.kind) }, color = IptvTextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (item.subtitle.isNotBlank()) {
+                    Text(item.subtitle, color = IptvTextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }
