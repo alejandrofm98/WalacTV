@@ -882,13 +882,14 @@ class PlayerFragment(
     //  Key handling
     // ──────────────────────────────────────────────────────────────────────
 
-    fun dispatchKeyToPlayer(keyCode: Int): Boolean = handleKeyPress(keyCode)
+    fun dispatchKeyToPlayer(event: KeyEvent): Boolean = handleKeyPress(event)
 
-    private fun handleKeyPress(keyCode: Int): Boolean =
-        if (isVodMode) handleVodKeyPress(keyCode) else handleLiveKeyPress(keyCode)
+    private fun handleKeyPress(event: KeyEvent): Boolean =
+        if (isVodMode) handleVodKeyPress(event) else handleLiveKeyPress(event)
 
     /** D-pad handling for VOD: seek, play/pause, back. */
-    private fun handleVodKeyPress(keyCode: Int): Boolean {
+    private fun handleVodKeyPress(event: KeyEvent): Boolean {
+        val keyCode = event.keyCode
         return when (keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 seekRelative(-VOD_SEEK_INCREMENT_MS); playerView.showController(); true
@@ -932,7 +933,8 @@ class PlayerFragment(
      * EVENTS    → UP/DOWN    changes stream option (onNavigateOption ±1)
      *             LEFT/RIGHT are ignored (no channel lineup for events)
      */
-    private fun handleLiveKeyPress(keyCode: Int): Boolean {
+    private fun handleLiveKeyPress(event: KeyEvent): Boolean {
+        val keyCode = event.keyCode
         // Digits only apply to channels
         if (contentKind == ContentKind.CHANNEL) {
             mapDigit(keyCode)?.let { digit ->

@@ -40,7 +40,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.Interaction
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,6 +95,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -152,6 +155,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -174,6 +178,8 @@ class ComposeMainFragment : Fragment() {
     private var homeSections by mutableStateOf<List<BrowseSection>>(emptyList())
     private var continueWatchingSection by mutableStateOf<BrowseSection?>(null)
     private var continueWatchingEntries by mutableStateOf<Map<String, WatchProgressItem>>(emptyMap())
+    private var deleteContinueWatchingItem by mutableStateOf<CatalogItem?>(null)
+    private var longPressDialogShown by mutableStateOf(false)
     private var searchableItems by mutableStateOf<List<CatalogItem>>(emptyList())
     private var channelLineup by mutableStateOf<List<CatalogItem>>(emptyList())
     private var channelFilters by mutableStateOf(CatalogFilters())
@@ -496,6 +502,21 @@ class ComposeMainFragment : Fragment() {
             } catch (e: Exception) {
                 Log.w(TAG, "Could not load continue watching[$requestVersion]: ${e.message}", e)
             }
+        }
+    }
+
+    private suspend fun deleteAllSeriesProgress(seriesName: String) {
+        try {
+            val entriesToDelete = continueWatchingEntries.filter { (_, wp) ->
+                wp.seriesName == seriesName
+            }
+            Log.d(TAG, "Deleting ${entriesToDelete.size} episodes for series: $seriesName")
+            entriesToDelete.forEach { (stableId, wp) ->
+                watchProgressRepo.deleteProgress(wp.contentId)
+                Log.d(TAG, "Deleted progress for episode: ${wp.contentId}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting series progress for $seriesName", e)
         }
     }
 
@@ -1421,6 +1442,34 @@ class ComposeMainFragment : Fragment() {
                 ContentSection(section = section) { selectedHero = it }
             }
         }
+
+        deleteContinueWatchingItem?.let { item ->
+            val isSeries = item.kind == ContentKind.SERIES
+            DeleteConfirmationOverlay(
+                item = item,
+                isSeries = isSeries,
+                onDismiss = {
+                    Log.d(TAG, "HOME: Delete dialog dismissed")
+                    deleteContinueWatchingItem = null
+                },
+                onConfirm = {
+                    Log.d(TAG, "HOME: Delete confirmed for ${item.title}")
+                    scope.launch {
+                        val contentId = item.providerId.orEmpty().ifBlank { item.stableId.orEmpty().substringAfterLast(":") }
+                        if (isSeries) {
+                            val seriesName = item.seriesName ?: item.title
+                            Log.d(TAG, "Deleting all episodes for series: $seriesName")
+                            deleteAllSeriesProgress(seriesName)
+                        } else {
+                            watchProgressRepo.deleteProgress(contentId)
+                            Log.d(TAG, "Deleted continue watching: $contentId")
+                        }
+                        deleteContinueWatchingItem = null
+                        loadContinueWatching()
+                    }
+                },
+            )
+        }
     }
 
     @Composable
@@ -1444,7 +1493,255 @@ class ComposeMainFragment : Fragment() {
             }
             LazyRow(state = lazyListState, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(section.items) { item ->
-                    MediaCard(item = item, onFocused = { onFocused(item) }) { handleCardClick(item, section.items) }
+                    if (section.title == "Continuar viendo") {
+                        ContinueWatchingCard(
+                            item = item,
+                            onFocused = { onFocused(item) },
+                            onDeleteRequest = {
+                                Log.d(TAG, "CW_DELETE: onDeleteRequest called for ${it.title}")
+                                deleteContinueWatchingItem = it
+                            }
+                        )
+                    } else {
+                        MediaCard(item = item, onFocused = { onFocused(item) }) { handleCardClick(item, section.items) }
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun ContinueWatchingCard(
+        item: CatalogItem,
+        onFocused: (CatalogItem) -> Unit,
+        onDeleteRequest: (CatalogItem) -> Unit,
+    ) {
+        var isFocused by remember { mutableStateOf(false) }
+        val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
+        val cardWidth = if (isChannelOrEvent) 190.dp else 140.dp
+        val imageHeight = if (isChannelOrEvent) 107.dp else 200.dp
+        val scope = rememberCoroutineScope()
+
+        var longPressTriggered by remember { mutableStateOf(false) }
+        var longPressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        var cardLongPressDialogShown by remember { mutableStateOf(false) }
+
+        val interactionSource = remember { MutableInteractionSource() }
+
+        LaunchedEffect(interactionSource) {
+            interactionSource.interactions.collect { interaction: Interaction ->
+                when (interaction) {
+                    is PressInteraction.Press -> {
+                        Log.d(TAG, "CW_PRESS: Press detected, dialogVisible=${deleteContinueWatchingItem != null}")
+                        if (deleteContinueWatchingItem != null) {
+                            Log.d(TAG, "CW_PRESS: Dialog already visible, ignoring press")
+                            return@collect
+                        }
+                        longPressTriggered = false
+                        longPressJob = scope.launch {
+                            delay(800L)
+                            Log.d(TAG, "CW_PRESS: Timer expired, calling onDeleteRequest for ${item.title}")
+                            longPressTriggered = true
+                            cardLongPressDialogShown = true
+                            onDeleteRequest(item)
+                        }
+                    }
+                    is PressInteraction.Release -> {
+                        Log.d(TAG, "CW_RELEASE: Release detected, dialogVisible=${deleteContinueWatchingItem != null}, longPressTriggered=$longPressTriggered, dialogShown=$cardLongPressDialogShown")
+                        longPressJob?.cancel()
+                        longPressJob = null
+                        if (deleteContinueWatchingItem == null && !longPressTriggered) {
+                            Log.d(TAG, "CW_RELEASE: Executing click for ${item.title}")
+                            handleCardClick(item, listOf(item))
+                        } else {
+                            Log.d(TAG, "CW_RELEASE: Skipping click (dialog visible or longPress was triggered)")
+                        }
+                        longPressTriggered = false
+                    }
+                    is PressInteraction.Cancel -> {
+                        Log.d(TAG, "CW_CANCEL: Cancel detected")
+                        longPressJob?.cancel()
+                        longPressJob = null
+                        longPressTriggered = false
+                    }
+                    else -> {}
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .width(cardWidth)
+                .background(if (isFocused) IptvFocusBg else IptvCard, RoundedCornerShape(10.dp))
+                .border(
+                    if (isFocused) 2.dp else 1.dp,
+                    if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
+                    RoundedCornerShape(10.dp)
+                )
+                .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocused(item) }
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                ) {
+                    // Click handled in LaunchedEffect above
+                },
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(imageHeight)
+                    .background(IptvSurfaceVariant, RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
+                    .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (item.imageUrl.isNotBlank()) {
+                    RemoteImage(
+                        url = item.imageUrl,
+                        width = 300,
+                        height = 400,
+                        scaleType = if (item.kind == ContentKind.CHANNEL) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP
+                    )
+                } else {
+                    PlaceholderIcon(kind = item.kind)
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(78.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                val displayTitle = item.normalizedTitle?.takeUnless { it.equals("null", ignoreCase = true) }?.takeIf { it.isNotBlank() } ?: item.title.takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
+                Text(displayTitle, color = IptvTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(item.subtitle.ifBlank { kindLabel(item.kind) }, color = IptvTextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+
+    // ── Delete Confirmation Overlay ─────────────────────────────────────────────
+
+    @Composable
+    private fun DeleteConfirmationOverlay(
+        item: CatalogItem,
+        isSeries: Boolean,
+        onDismiss: () -> Unit,
+        onConfirm: () -> Unit,
+    ) {
+        val dialogMessage = if (isSeries) {
+            "¿Quieres eliminar toda la serie \"${item.seriesName ?: item.title}\" de tu historial de reproducción?"
+        } else {
+            "¿Quieres eliminar \"${item.title}\" de tu historial de reproducción?"
+        }
+
+        val focusRequester = remember { FocusRequester() }
+        var selectedButton by remember { mutableStateOf(0) }
+
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+        }
+
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+            ),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .focusRequester(focusRequester)
+                    .focusable()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.DirectionLeft -> {
+                                Log.d(TAG, "DIALOG_KEY: LEFT pressed, selectedButton=$selectedButton")
+                                selectedButton = 1
+                                true
+                            }
+                            Key.DirectionRight -> {
+                                Log.d(TAG, "DIALOG_KEY: RIGHT pressed, selectedButton=$selectedButton")
+                                selectedButton = 2
+                                true
+                            }
+                            Key.DirectionCenter, Key.Enter -> {
+                                Log.d(TAG, "DIALOG_KEY: CENTER/ENTER pressed, selectedButton=$selectedButton")
+                                when (selectedButton) {
+                                    1 -> {
+                                        Log.d(TAG, "DIALOG_KEY: Executing cancel")
+                                        onDismiss()
+                                    }
+                                    2 -> {
+                                        Log.d(TAG, "DIALOG_KEY: Executing delete")
+                                        onConfirm()
+                                    }
+                                    else -> {
+                                        Log.d(TAG, "DIALOG_KEY: No button selected, doing nothing")
+                                    }
+                                }
+                                true
+                            }
+                            Key.Back, Key.Escape -> {
+                                Log.d(TAG, "DIALOG_KEY: BACK/ESC pressed, closing")
+                                onDismiss()
+                                true
+                            }
+                            else -> false
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(400.dp)
+                        .background(Color(0xFF1A1A2E), RoundedCornerShape(16.dp))
+                        .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(16.dp))
+                        .padding(24.dp),
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Text(
+                            "Eliminar de Continuar viendo",
+                            color = IptvTextPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            dialogMessage,
+                            color = IptvTextMuted,
+                            fontSize = 14.sp,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selectedButton == 1) IptvFocusBg else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .border(if (selectedButton == 1) 2.dp else 0.dp, if (selectedButton == 1) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .clickable { onDismiss() },
+                            ) {
+                                Text("Cancelar", color = if (selectedButton == 1) IptvTextPrimary else IptvTextMuted, fontSize = 14.sp)
+                            }
+
+                            Spacer(modifier = Modifier.width(16.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selectedButton == 2) IptvLive.copy(alpha = 0.8f) else IptvLive, RoundedCornerShape(8.dp))
+                                    .border(if (selectedButton == 2) 2.dp else 0.dp, if (selectedButton == 2) IptvTextPrimary else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .clickable { onConfirm() },
+                            ) {
+                                Text("Eliminar", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
         }

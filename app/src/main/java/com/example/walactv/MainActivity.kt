@@ -84,7 +84,7 @@ class MainActivity : FragmentActivity() {
             val playerFragment = supportFragmentManager.findFragmentByTag("player_fragment") as? PlayerFragment
             if (playerFragment != null && playerFragment.isVisible) {
                 if (event.action == KeyEvent.ACTION_DOWN) {
-                    if (playerFragment.dispatchKeyToPlayer(event.keyCode)) {
+                    if (playerFragment.dispatchKeyToPlayer(event)) {
                         return true
                     }
                 } else if (event.action == KeyEvent.ACTION_UP) {
