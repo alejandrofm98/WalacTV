@@ -123,9 +123,28 @@ fun List<CatalogItem>.uniqueSeriesEpisodes(preferredLanguage: String? = null): L
         }
         .values
         .map { episodes ->
-            episodes.firstOrNull { normalizeLanguageCode(it.idioma) == normalizedPreferredLanguage }
-                ?: episodes.firstOrNull { normalizeLanguageCode(it.languageLabel) == normalizedPreferredLanguage }
-                ?: episodes.first()
+            val languageMatched = episodes.firstOrNull { 
+                normalizeLanguageCode(it.idioma) == normalizedPreferredLanguage ||
+                normalizeLanguageCode(it.languageLabel) == normalizedPreferredLanguage 
+            }
+            val candidates = languageMatched?.let { listOf(it) } ?: episodes
+            if (candidates.size == 1) {
+                candidates.first()
+            } else {
+                val best = candidates.maxByOrNull { qualityScore(it) } ?: candidates.first()
+                val qualityOptions = candidates.flatMap { variant ->
+                    val quality = extractQualityLabel(variant.title) ?: "Ver"
+                    variant.streamOptions.map { it.copy(label = quality) }
+                }.distinctBy { it.url }
+                    .sortedByDescending { QUALITY_ORDER[it.label] ?: 0 }
+                best.copy(
+                    streamOptions = qualityOptions,
+                    badgeText = candidates.mapNotNull { extractQualityLabel(it.title) }
+                        .distinct()
+                        .sortedByDescending { QUALITY_ORDER[it] ?: 0 }
+                        .joinToString(" | "),
+                )
+            }
         }
         .sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }, { it.title }))
 }
@@ -154,6 +173,13 @@ private val QUALITY_ORDER = mapOf(
 private fun extractQualityLabel(title: String): String? {
     val match = QUALITY_REGEX.find(title) ?: return null
     return (match.groupValues[1].ifBlank { match.groupValues[2] }).uppercase().ifBlank { null }
+}
+
+private fun cleanQualityLabels(title: String): String {
+    var cleaned = QUALITY_REGEX.replace(title, " ")
+    cleaned = cleaned.replace(Regex("\\s*\\[\\s*\\]\\s*"), " ")
+    cleaned = cleaned.replace(Regex("\\s*\\(\\s*\\)\\s*"), " ")
+    return cleaned.replace(Regex("\\s+"), " ").trim()
 }
 
 private fun qualityScore(item: CatalogItem): Int {
@@ -191,6 +217,10 @@ fun List<CatalogItem>.uniqueMovies(): List<CatalogItem> {
 data class BrowseSection(
     val title: String,
     val items: List<CatalogItem>,
+    val contentType: String? = null,
+    val groupName: String? = null,
+    val currentPage: Int = 1,
+    val hasNextPage: Boolean = true,
 )
 
 data class HomeCatalog(
@@ -395,14 +425,15 @@ fun parseSeriesMetadata(title: String, kind: ContentKind, language: String? = nu
     val cleanedTitle = removeLanguagePrefix(title, language)
     val match = SERIES_REGEX.find(cleanedTitle)
     return if (match != null) {
+        val rawSeriesName = cleanedTitle.substring(0, match.range.first).trim().removeSuffix("-").trim()
         SeriesMetadata(
-            seriesName = cleanedTitle.substring(0, match.range.first).trim().removeSuffix("-").trim(),
+            seriesName = cleanQualityLabels(rawSeriesName),
             seasonNumber = match.groupValues.getOrNull(1)?.toIntOrNull(),
             episodeNumber = match.groupValues.getOrNull(2)?.toIntOrNull(),
         )
     } else {
         SeriesMetadata(
-            seriesName = cleanedTitle,
+            seriesName = cleanQualityLabels(cleanedTitle),
             seasonNumber = null,
             episodeNumber = null,
         )

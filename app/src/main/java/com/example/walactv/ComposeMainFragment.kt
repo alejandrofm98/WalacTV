@@ -1437,7 +1437,38 @@ class ComposeMainFragment : Fragment() {
         ) {
             item { ScreenHeader(title = "Inicio", subtitle = "") }
             items(homeSections) { section ->
-                ContentSection(section = section) { selectedHero = it }
+                ContentSection(
+                    section = section,
+                    onFocused = { selectedHero = it },
+                    onLoadMore = if (section.contentType != null && section.groupName != null && section.hasNextPage) { sectionToLoad, onDone ->
+                        scope.launch {
+                            try {
+                                val nextPage = sectionToLoad.currentPage + 1
+                                val (newItems, hasNext) = repository.loadContentPage(
+                                    sectionToLoad.contentType!!,
+                                    sectionToLoad.groupName!!,
+                                    nextPage,
+                                    12
+                                )
+                                if (newItems.isNotEmpty()) {
+                                    val updated = sectionToLoad.copy(
+                                        items = sectionToLoad.items + newItems,
+                                        currentPage = nextPage,
+                                        hasNextPage = hasNext,
+                                    )
+                                    val index = homeSections.indexOfFirst { it.title == sectionToLoad.title }
+                                    if (index >= 0) {
+                                        homeSections = homeSections.toMutableList().also { it[index] = updated }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "loadContentPage failed", e)
+                            } finally {
+                                onDone()
+                            }
+                        }
+                    } else null,
+                )
             }
         }
 
@@ -1471,8 +1502,13 @@ class ComposeMainFragment : Fragment() {
     }
 
     @Composable
-    private fun ContentSection(section: BrowseSection, onFocused: (CatalogItem) -> Unit) {
+    private fun ContentSection(
+        section: BrowseSection,
+        onFocused: (CatalogItem) -> Unit,
+        onLoadMore: ((BrowseSection, () -> Unit) -> Unit)? = null,
+    ) {
         val lazyListState = rememberLazyListState()
+        var isLoadingMore by remember { mutableStateOf(false) }
 
         LaunchedEffect(section.items) {
             if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
@@ -1481,13 +1517,26 @@ class ComposeMainFragment : Fragment() {
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LaunchedEffect(lazyListState, section.hasNextPage, onLoadMore, section.currentPage) {
+            if (onLoadMore == null || !section.hasNextPage || isLoadingMore) return@LaunchedEffect
+            snapshotFlow { lazyListState.layoutInfo }
+                .map { info ->
+                    val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                    val totalItems = info.totalItemsCount
+                    lastVisible to totalItems
+                }
+                .distinctUntilChanged()
+                .collect { (lastVisible, totalItems) ->
+                    if (totalItems > 0 && lastVisible >= totalItems - 5) {
+                        isLoadingMore = true
+                        onLoadMore(section) { isLoadingMore = false }
+                    }
+                }
+        }
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(section.title, color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                if (section.title != "Continuar viendo") {
-                    Spacer(Modifier.width(10.dp))
-                    Text(sectionKindLabel(section.items), color = IptvTextMuted, fontSize = 14.sp)
-                }
             }
             LazyRow(state = lazyListState, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(section.items) { item ->
@@ -1626,7 +1675,10 @@ class ComposeMainFragment : Fragment() {
                     .height(if (item.subtitle.isNotBlank()) 78.dp else 56.dp)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                val displayTitle = item.normalizedTitle?.takeUnless { it.equals("null", ignoreCase = true) }?.takeIf { it.isNotBlank() } ?: item.title.takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
+                val displayTitle = when {
+                    item.kind == ContentKind.SERIES && !item.seriesName.isNullOrBlank() -> item.seriesName
+                    else -> item.normalizedTitle?.takeUnless { it.equals("null", ignoreCase = true) }?.takeIf { it.isNotBlank() } ?: item.title.takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
+                }
                 Text(displayTitle, color = IptvTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (item.subtitle.isNotBlank()) {
                     Text(item.subtitle, color = IptvTextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -2676,7 +2728,10 @@ class ComposeMainFragment : Fragment() {
                 modifier = Modifier.fillMaxWidth().then(if (isChannelOrEvent) Modifier.height(78.dp) else Modifier.height(64.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = if (isVod) Arrangement.Center else Arrangement.Top,
             ) {
-                val displayTitle = item.normalizedTitle?.takeUnless { it.equals("null", ignoreCase = true) }?.takeIf { it.isNotBlank() } ?: item.title.takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
+            val displayTitle = when {
+                    item.kind == ContentKind.SERIES && !item.seriesName.isNullOrBlank() -> item.seriesName
+                    else -> item.normalizedTitle?.takeUnless { it.equals("null", ignoreCase = true) }?.takeIf { it.isNotBlank() } ?: item.title.takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
+                }
                 Text(displayTitle, color = IptvTextPrimary, fontSize = if (isChannelOrEvent) 15.sp else 14.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (!isVod) {
                     Spacer(Modifier.weight(1f))
@@ -2972,18 +3027,7 @@ class ComposeMainFragment : Fragment() {
     }
 
     private fun buildDisplaySections(baseSections: List<BrowseSection>, allItems: List<CatalogItem>): List<BrowseSection> {
-        val eventSections = baseSections.filter { it.items.firstOrNull()?.kind == ContentKind.EVENT }
-        val channels = allItems.filter { it.kind == ContentKind.CHANNEL }
-        val movies = allItems.filter { it.kind == ContentKind.MOVIE }
-        val series = allItems.filter { it.kind == ContentKind.SERIES }
-        return buildList {
-            eventSections.firstOrNull()?.let(::add)
-            buildFavoriteSection(homeCatalog?.favoriteItems, channels)?.let(::add)
-            buildRecentSection(channels)?.let(::add)
-            addAll(buildTypeSections("Canales", channels, 24))
-            addAll(buildTypeSections("Peliculas", movies, 16))
-            addAll(buildTypeSections("Series", series, 16))
-        }
+        return baseSections
     }
 
     private fun buildFavoriteSection(remoteFavoriteItems: List<CatalogItem>?, channels: List<CatalogItem>): BrowseSection? {

@@ -606,7 +606,7 @@ class M3uCatalogStore(private val context: Context) {
         private const val TAG = "M3uCatalogStore"
         private val CHANNEL_PREFIX_REGEX = Regex("^[A-Z]{2,4}\\|\\s*")
         private val CHANNEL_QUALITY_REGEX = Regex("\\b(UHD|FHD|HD|SD|4K|HEVC|H265|50FPS|60FPS|VIP)\\b", RegexOption.IGNORE_CASE)
-        private val VOD_QUALITY_REGEX = Regex("\\b(UHD|FHD|HD|SD|4K|HEVC|H265)\\b", RegexOption.IGNORE_CASE)
+        private val VOD_QUALITY_REGEX = Regex("\\b(UHD|FHD|HD|SD|4K|HEVC|H265|LQ|HQ)\\b", RegexOption.IGNORE_CASE)
         private val MULTIPLE_SPACES_REGEX = Regex("\\s+")
         private const val PREFS_NAME = "m3u_catalog_store"
         private const val KEY_LAST_UPDATED = "last_updated"

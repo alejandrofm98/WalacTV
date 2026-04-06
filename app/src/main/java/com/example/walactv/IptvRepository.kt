@@ -338,6 +338,29 @@ class IptvRepository(context: Context) {
             resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
         }
 
+    // ── Content pagination for home sections ───────────────────────────────────
+
+    suspend fun loadContentPage(contentType: String, group: String, page: Int, pageSize: Int = 12): Pair<List<CatalogItem>, Boolean> =
+        withContext(Dispatchers.IO) {
+            val startTime = System.currentTimeMillis()
+            val token = getAccessToken()
+            val country = PreferencesManager.getPreferredLanguageOrDefault()
+            val pass = credentialStore.password()
+            val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
+            val url = "${BuildConfig.IPTV_BASE_URL}/api/content?content_type=$contentType&group=${URLEncoder.encode(group, UTF8)}&country=${URLEncoder.encode(country, UTF8)}&page=$page&page_size=$pageSize$passParam"
+            Log.d(TAG, "loadContentPage: loading $contentType group=$group page=$page")
+            val payload = getJsonObject(url, token)
+            val expectedKind = when (contentType) {
+                "movies" -> ContentKind.MOVIE
+                "series" -> ContentKind.SERIES
+                else -> null
+            }
+            val parsed = parseRemoteCatalogPage(payload, expectedKind)
+            val items = resolveStreamTemplates(parsed.items)
+            Log.d(TAG, "loadContentPage: loaded ${items.size} items in ${System.currentTimeMillis() - startTime}ms, hasNext=${parsed.hasNext}")
+            Pair(items, parsed.hasNext)
+        }
+
     // ── Eventos ───────────────────────────────────────────────────────────────
 
     suspend fun resolveEventItem(eventItem: CatalogItem): CatalogItem =
@@ -378,10 +401,6 @@ class IptvRepository(context: Context) {
 
         return buildList {
             add(BrowseSection("Eventos de hoy", items))
-            items.groupBy { it.group.ifBlank { "Agenda" } }
-                .entries
-                .sortedByDescending { it.value.size }
-                .forEach { (key, value) -> add(BrowseSection("Eventos · $key", value)) }
         }
     }
 

@@ -476,18 +476,34 @@ class PlayerFragment(
     }
 
     private fun seekRelative(deltaMs: Long) {
-        val exoPlayer = player ?: return
-        if (isReleasing) return
+        val exoPlayer = player ?: run {
+            Log.w(TAG, "seekRelative: player is null, aborting")
+            return
+        }
+        if (isReleasing) {
+            Log.w(TAG, "seekRelative: isReleasing=true, aborting")
+            return
+        }
         val duration = exoPlayer.duration
-        if (duration == C.TIME_UNSET || duration <= 0) return
+        val position = exoPlayer.currentPosition
+        val state = exoPlayer.playbackState
+        Log.d(TAG, "seekRelative: delta=$deltaMs position=$position duration=$duration state=$state isReleasing=$isReleasing")
+        if (duration == C.TIME_UNSET || duration <= 0) {
+            Log.w(TAG, "seekRelative: duration invalid ($duration), aborting")
+            return
+        }
         if (exoPlayer.playbackState != Player.STATE_READY &&
-            exoPlayer.playbackState != Player.STATE_BUFFERING) return
-        val target = (exoPlayer.currentPosition + deltaMs).coerceIn(0, duration)
+            exoPlayer.playbackState != Player.STATE_BUFFERING) {
+            Log.w(TAG, "seekRelative: bad playback state ($state), aborting")
+            return
+        }
+        val target = (position + deltaMs).coerceIn(0, duration)
+        Log.d(TAG, "seekRelative: seeking to $target")
         exoPlayer.seekTo(target)
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  Audio / Subtitle selectors (unchanged)
+    //  Audio / Subtitle selectors
     // ──────────────────────────────────────────────────────────────────────
 
     private fun showAudioSelector() {
@@ -708,19 +724,12 @@ class PlayerFragment(
         updateOptionIndicator()
     }
 
-    /**
-     * Refresh the indicator text and the options list (if visible)
-     * after [liveOptionIndex] has been updated.
-     */
     private fun updateOptionIndicator() {
         val total = streamOptionLabels.size
         if (total <= 1) return
-        // e.g. "2 / 3"
         optionIndicatorView?.text = "${liveOptionIndex + 1} / $total"
         optionIndicatorView?.visibility = View.VISIBLE
 
-        // If the options list is currently shown, refresh it so the
-        // highlighted entry moves to the new index.
         if (optionsListLayout?.visibility == View.VISIBLE) {
             showOptionsList()
         }
@@ -759,7 +768,6 @@ class PlayerFragment(
         updateOverlay(overlayNumber, overlayTitle, overlayMeta)
         btnChannelLabel?.text = overlayNumber
 
-        // Load channel logo with Glide
         if (overlayLogoUrl.isNotBlank()) {
             channelLogoView?.let { logoView ->
                 Glide.with(this)
@@ -925,51 +933,275 @@ class PlayerFragment(
     private fun handleKeyPress(event: KeyEvent): Boolean =
         if (isVodMode) handleVodKeyPress(event) else handleLiveKeyPress(event)
 
+    // ──────────────────────────────────────────────────────────────────────
+    //  FIX 1: Solo procesar ACTION_DOWN para evitar doble disparo
+    //  FIX 2: CENTER ejecuta performClick() en el botón con foco
+    //  FIX 3: Seek progresivo acumulativo (10s → 30s → 60s)
+    // ──────────────────────────────────────────────────────────────────────
+
     /** D-pad handling for VOD: seek, play/pause, back. */
     private fun handleVodKeyPress(event: KeyEvent): Boolean {
+        // Solo procesar ACTION_DOWN para evitar doble disparo
+        if (event.action != KeyEvent.ACTION_DOWN) return false
+
         val keyCode = event.keyCode
+
+        // Detectar qué vista tiene el foco ahora mismo y loguearlo
+        val focusedView        = playerView.findFocus()
+        val focusedCustomButton = getFocusedVodButton()
+        val focusOnPlayPause   = isFocusOnPlayPauseButton()
+        val focusOnProgressBar = isFocusOnProgressBar()
+
+        Log.d(TAG, "VOD_KEY: keyCode=$keyCode focusedView=${focusedView?.let { describeView(it) }} " +
+                "customBtn=${focusedCustomButton?.let { describeView(it) }} " +
+                "playPause=$focusOnPlayPause progressBar=$focusOnProgressBar")
+
         return when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_LEFT -> {
-                seekRelative(-VOD_SEEK_INCREMENT_MS); playerView.showController(); true
+
+            KeyEvent.KEYCODE_DPAD_LEFT -> when {
+                // Foco en botón custom → sistema mueve el foco entre botones normalmente
+                focusedCustomButton != null -> {
+                    Log.d(TAG, "VOD_LEFT: focus on custom button → letting system handle focus")
+                    false
+                }
+
+                // Foco en la barra de progreso → LEFT seek hacia atrás
+                focusOnProgressBar -> {
+                    Log.d(TAG, "VOD_LEFT: focus on progress bar → seeking backward")
+                    seekRelative(getSeekIncrement(-1))
+                    playerView.showController()
+                    true
+                }
+
+                // Foco en play/pause o sin foco especial → seek hacia atrás
+                else -> {
+                    Log.d(TAG, "VOD_LEFT: seeking backward (focusOnPlayPause=$focusOnPlayPause)")
+                    seekRelative(getSeekIncrement(-1))
+                    playerView.showController()
+                    true
+                }
             }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                seekRelative(VOD_SEEK_INCREMENT_MS); playerView.showController(); true
+
+            KeyEvent.KEYCODE_DPAD_RIGHT -> when {
+                // Foco en botón custom → sistema mueve el foco normalmente
+                focusedCustomButton != null -> {
+                    Log.d(TAG, "VOD_RIGHT: focus on custom button → letting system handle focus")
+                    false
+                }
+
+                // Foco en play/pause → RIGHT mueve foco a los botones custom (audio, subs…)
+                // en vez de ir a la barra de progreso
+                focusOnPlayPause -> {
+                    Log.d(TAG, "VOD_RIGHT: focus on play/pause → moving to first custom button")
+                    moveFocusToFirstCustomButton()
+                    true
+                }
+
+                // Foco en la barra de progreso → RIGHT hace seek adelante
+                focusOnProgressBar -> {
+                    Log.d(TAG, "VOD_RIGHT: focus on progress bar → seeking forward")
+                    seekRelative(getSeekIncrement(1))
+                    playerView.showController()
+                    true
+                }
+
+                // Sin foco especial → seek hacia adelante
+                else -> {
+                    Log.d(TAG, "VOD_RIGHT: no special focus → seeking forward")
+                    seekRelative(getSeekIncrement(1))
+                    playerView.showController()
+                    true
+                }
             }
+
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER -> {
-                player?.let { if (it.isPlaying) it.pause() else it.play() }
-                playerView.showController(); true
+                Log.d(TAG, "VOD_CENTER: focusedCustomButton=${focusedCustomButton?.let { describeView(it) }} focusOnPlayPause=$focusOnPlayPause")
+                when {
+                    focusedCustomButton != null -> {
+                        // Botón custom con foco → ejecutarlo
+                        Log.d(TAG, "VOD_CENTER: performing click on ${describeView(focusedCustomButton)}")
+                        focusedCustomButton.performClick()
+                        true
+                    }
+                    focusOnPlayPause -> {
+                        // El botón exo_play_pause tiene foco → Media3 lo maneja solo, devolver false
+                        // para que performClick llegue al botón correctamente
+                        Log.d(TAG, "VOD_CENTER: focus on play/pause → letting Media3 handle it")
+                        false
+                    }
+                    else -> {
+                        // Sin foco en ningún botón → pausar/reanudar
+                        Log.d(TAG, "VOD_CENTER: no button focus → toggling play/pause")
+                        player?.let { if (it.isPlaying) it.pause() else it.play() }
+                        playerView.showController()
+                        true
+                    }
+                }
             }
-            KeyEvent.KEYCODE_DPAD_UP,
+
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                Log.d(TAG, "VOD_UP: showing controller")
+                playerView.showController()
+                false
+            }
+
             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                playerView.showController(); false
+                Log.d(TAG, "VOD_DOWN: showing controller")
+                playerView.showController()
+                false
             }
+
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                player?.let { if (it.isPlaying) it.pause() else it.play() }; true
+                player?.let { if (it.isPlaying) it.pause() else it.play() }
+                true
             }
             KeyEvent.KEYCODE_MEDIA_PLAY  -> { player?.play(); true }
             KeyEvent.KEYCODE_MEDIA_PAUSE -> { player?.pause(); true }
             KeyEvent.KEYCODE_MEDIA_REWIND,
             KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> {
-                seekRelative(-VOD_SEEK_INCREMENT_MS); playerView.showController(); true
+                seekRelative(getSeekIncrement(-1))
+                playerView.showController()
+                true
             }
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
             KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> {
-                seekRelative(VOD_SEEK_INCREMENT_MS); playerView.showController(); true
+                seekRelative(getSeekIncrement(1))
+                playerView.showController()
+                true
             }
             KeyEvent.KEYCODE_BACK -> { releasePlayer(); true }
-            else -> { playerView.showController(); false }
+            else -> {
+                playerView.showController()
+                false
+            }
         }
     }
 
     /**
+     * Devuelve nombre descriptivo de una vista para logs.
+     * Muestra el nombre del recurso si existe, o el ID numérico.
+     */
+    private fun describeView(view: View): String {
+        return try {
+            val resName = view.resources.getResourceEntryName(view.id)
+            "$resName(${view.javaClass.simpleName})"
+        } catch (e: Exception) {
+            "id=${view.id}(${view.javaClass.simpleName})"
+        }
+    }
+
+    /**
+     * Devuelve el botón VOD custom que tiene foco (audio, subs, calidad, siguiente, anterior).
+     * Ignora las vistas internas de ExoPlayer/Media3.
+     */
+    private fun getFocusedVodButton(): View? {
+        val customButtonIds = listOf(
+            R.id.vod_btn_audio,
+            R.id.vod_btn_subtitles,
+            R.id.vod_btn_quality,
+            R.id.vod_btn_next,
+            R.id.vod_btn_prev,
+        )
+        return customButtonIds
+            .mapNotNull { id -> playerView.findViewById<View>(id) }
+            .firstOrNull { it.hasFocus() }
+    }
+
+    /**
+     * True si el foco está en el botón play/pause de Media3.
+     * El layout usa @id/exo_play_pause (botón combinado), no exo_play + exo_pause separados.
+     */
+    private fun isFocusOnPlayPauseButton(): Boolean {
+        // exo_play_pause es el ID combinado que usa el layout (vod_controller.xml)
+        val playPauseView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
+        // También comprobar los IDs separados por si Media3 los usa internamente
+        val playView      = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play)
+        val pauseView     = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_pause)
+        val result = playPauseView?.hasFocus() == true ||
+                playView?.hasFocus() == true ||
+                pauseView?.hasFocus() == true
+        Log.d(TAG, "isFocusOnPlayPauseButton: playPause=${playPauseView?.hasFocus()} " +
+                "play=${playView?.hasFocus()} pause=${pauseView?.hasFocus()} → $result")
+        return result
+    }
+
+    /** True si el foco está en la barra de progreso de Media3. */
+    private fun isFocusOnProgressBar(): Boolean {
+        val progressView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
+        val result = progressView?.hasFocus() == true
+        Log.d(TAG, "isFocusOnProgressBar: ${progressView?.hasFocus()} → $result")
+        return result
+    }
+
+    /** Mueve el foco al botón play/pause de Media3. */
+    private fun moveToPlayPauseButton() {
+        val playPauseView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
+            ?: playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play)
+            ?: playerView.findViewById<View>(androidx.media3.ui.R.id.exo_pause)
+        Log.d(TAG, "moveToPlayPauseButton: target=${playPauseView?.let { describeView(it) }}")
+        playPauseView?.requestFocus()
+        playerView.showController()
+    }
+
+    /**
+     * Mueve el foco al primer botón custom visible y habilitado:
+     * prev → next → audio → quality → subtitles
+     * (orden de izquierda a derecha según el layout)
+     */
+    private fun moveFocusToFirstCustomButton() {
+        val customButtonIds = listOf(
+            R.id.vod_btn_prev,
+            R.id.vod_btn_next,
+            R.id.vod_btn_audio,
+            R.id.vod_btn_quality,
+            R.id.vod_btn_subtitles,
+        )
+        val target = customButtonIds
+            .mapNotNull { id -> playerView.findViewById<View>(id) }
+            .firstOrNull { it.visibility == View.VISIBLE && it.isEnabled }
+        Log.d(TAG, "moveFocusToFirstCustomButton: target=${target?.let { describeView(it) }}")
+        target?.requestFocus()
+        playerView.showController()
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  Seek progresivo estilo Netflix/Stremio
+    //  - Cada pulsación individual: 10 segundos
+    //  - Si pulsas rápido (< 800ms entre pulsaciones): el incremento crece
+    //    → 3 pulsaciones rápidas → 30s, 6+ pulsaciones rápidas → 60s
+    //  - Si hay pausa entre pulsaciones (> 800ms) el contador se reinicia
+    //  - Al cambiar de dirección se reinicia siempre
+    // ──────────────────────────────────────────────────────────────────────
+
+    private var seekPressCount: Int = 0
+    private var seekPressDirection: Int = 0
+    private var lastSeekPressTime: Long = 0L
+    private val SEEK_RAPID_THRESHOLD_MS = 500L  // si pasan más de 500ms entre pulsaciones, reiniciar
+
+    private fun getSeekIncrement(direction: Int): Long {
+        val now = System.currentTimeMillis()
+
+        // Cambio de dirección o pausa → reiniciar contador
+        if (seekPressDirection != direction || (now - lastSeekPressTime) > SEEK_RAPID_THRESHOLD_MS) {
+            seekPressCount = 0
+            seekPressDirection = direction
+        }
+
+        seekPressCount++
+        lastSeekPressTime = now
+
+        // Multiplicar por direction: LEFT (-1) devuelve negativo, RIGHT (+1) devuelve positivo
+        val base = when {
+            seekPressCount <= 30  -> 10_000L  // pulsaciones 1-5:  10s por salto
+            seekPressCount <= 40 -> 30_000L  // pulsaciones 6-12: 30s por salto
+            else                 -> 45_000L  // 13+:              60s por salto
+        }
+        return base * direction
+    }
+
+    /**
      * D-pad handling for live TV and events.
-     *
-     * CHANNELS  → LEFT/RIGHT changes channel (onNavigateChannel ±1)
-     *             UP/DOWN    changes stream option (onNavigateOption ±1)
-     *
-     * EVENTS    → UP/DOWN    changes stream option (onNavigateOption ±1)
-     *             LEFT/RIGHT are ignored (no channel lineup for events)
      */
     private fun handleLiveKeyPress(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
@@ -983,7 +1215,6 @@ class PlayerFragment(
 
         return when (keyCode) {
 
-            // ── UP : previous stream option (both channels and events) ─────
             KeyEvent.KEYCODE_DPAD_UP -> {
                 if (isMenuFocused()) return true
                 if (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE) {
@@ -1003,7 +1234,6 @@ class PlayerFragment(
                 true
             }
 
-            // ── DOWN : next stream option (both channels and events) ───────
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (isMenuFocused()) return true
                 if (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE) {
@@ -1023,7 +1253,6 @@ class PlayerFragment(
                 true
             }
 
-            // ── RIGHT : next item in lineup (channels and events) ──────────
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 if (isMenuFocused()) return false
                 showOverlayTemporarily()
@@ -1031,7 +1260,6 @@ class PlayerFragment(
                 true
             }
 
-            // ── LEFT : previous item in lineup (channels and events) ───────
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if (isMenuFocused()) return false
                 showOverlayTemporarily()
@@ -1173,7 +1401,6 @@ class PlayerFragment(
     private fun releasePlayer() {
         Log.d(TAG, "releasePlayer: isReleasing=$isReleasing, closedByHost=$closedByHost")
 
-        // Save watch progress before releasing (VOD only)
         if (isVodMode && contentId.isNotBlank()) {
             saveWatchProgress()
         }
@@ -1246,7 +1473,6 @@ class PlayerFragment(
                             restoreWatchProgress()
                         }
                     } else {
-                        // Auto-show overlay when playback starts (TiviMate-style)
                         showOverlayTemporarily()
                     }
                 }

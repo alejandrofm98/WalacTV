@@ -29,13 +29,29 @@ fun parseRemoteHomeCatalog(payload: JSONObject): HomeCatalog {
         expectedKind = ContentKind.CHANNEL,
     )
     val sections = buildList {
-        addSectionIfNotEmpty("Eventos", payload.optJSONArray("events"), expectedKind = ContentKind.EVENT)
-        addSectionIfNotEmpty("Canales", payload.optJSONArray("featured_channels"), expectedKind = ContentKind.CHANNEL)
-        addSectionIfNotEmpty("Peliculas", payload.optJSONArray("featured_movies"), expectedKind = ContentKind.MOVIE)
-        addSeriesSectionIfNotEmpty("Series", payload.optJSONArray("featured_series"), expectedKind = ContentKind.SERIES)
+        addGroupedSections(payload.optJSONArray("movie_sections"), ContentKind.MOVIE)
+        addGroupedSections(payload.optJSONArray("series_sections"), ContentKind.SERIES)
     }
     val searchableItems = (favoriteItems.orEmpty() + sections.flatMap(BrowseSection::items)).distinctBy(CatalogItem::stableId)
     return HomeCatalog(sections = sections, searchableItems = searchableItems, favoriteItems = favoriteItems)
+}
+
+private fun MutableList<BrowseSection>.addGroupedSections(sectionsArray: JSONArray?, expectedKind: ContentKind) {
+    if (sectionsArray == null) return
+    val contentType = when (expectedKind) {
+        ContentKind.MOVIE -> "movies"
+        ContentKind.SERIES -> "series"
+        else -> null
+    }
+    for (i in 0 until sectionsArray.length()) {
+        val sectionObj = sectionsArray.optJSONObject(i) ?: continue
+        val title = sectionObj.optString("title").takeIf { it.isNotBlank() } ?: continue
+        val items = sectionObj.optJSONArray("items").toCatalogItems(expectedKind)
+        if (items.isNotEmpty()) {
+            val groupName = title.substringBefore(" ·").takeIf { it.isNotBlank() }
+            add(BrowseSection(title, items, contentType = contentType, groupName = groupName, hasNextPage = items.size >= 12))
+        }
+    }
 }
 
 fun parseRemoteCatalogPage(payload: JSONObject, expectedKind: ContentKind? = null): RemoteCatalogPage {
@@ -244,7 +260,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         walacLanguage = optCleanString("country"),
         walacNameNormalized = nombreNormalizado,
         walacGroupNormalized = grupoNormalizado,
-        walacSeriesNameNormalized = optCleanString("series_name"),
+        walacSeriesNameNormalized = optCleanString("serie_name"),
     )
     val description = optCleanString("description").ifBlank { optCleanString("subtitle") }
 

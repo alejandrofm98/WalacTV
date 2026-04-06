@@ -12,6 +12,7 @@ class MainActivity : FragmentActivity() {
 
     private var consumeBackKeyUp: Boolean = false
     private var backConsumedByDispatch: Boolean = false
+    private var playerHandledKeyDown: Boolean = false
 
     private val onPlayerClosed: (() -> Unit)? = {
         Log.d(TAG, "onPlayerClosed callback fired")
@@ -84,10 +85,15 @@ class MainActivity : FragmentActivity() {
             val playerFragment = supportFragmentManager.findFragmentByTag("player_fragment") as? PlayerFragment
             if (playerFragment != null && playerFragment.isVisible) {
                 if (event.action == KeyEvent.ACTION_DOWN) {
-                    if (playerFragment.dispatchKeyToPlayer(event)) {
+                    playerHandledKeyDown = playerFragment.dispatchKeyToPlayer(event)
+                    if (playerHandledKeyDown) {
                         return true
                     }
                 } else if (event.action == KeyEvent.ACTION_UP) {
+                    if (playerHandledKeyDown) {
+                        playerHandledKeyDown = false
+                        return true
+                    }
                     when (event.keyCode) {
                         KeyEvent.KEYCODE_DPAD_UP,
                         KeyEvent.KEYCODE_DPAD_DOWN,

@@ -288,7 +288,7 @@ fun EpisodeCard(item: CatalogItem, onClick: () -> Unit) {
             
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
+                    .align(Alignment.TopEnd)
                     .padding(8.dp)
                     .background(
                         Color.Black.copy(alpha = 0.7f),
@@ -303,6 +303,25 @@ fun EpisodeCard(item: CatalogItem, onClick: () -> Unit) {
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+            if (item.badgeText.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp)
+                        .background(
+                            Color.Black.copy(alpha = 0.7f),
+                            RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = item.badgeText,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         }
         
