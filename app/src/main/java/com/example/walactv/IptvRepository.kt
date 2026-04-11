@@ -340,15 +340,18 @@ class IptvRepository(context: Context) {
 
     // ── Content pagination for home sections ───────────────────────────────────
 
-    suspend fun loadContentPage(contentType: String, group: String, page: Int, pageSize: Int = 12): Pair<List<CatalogItem>, Boolean> =
+    suspend fun loadContentPage(contentType: String, group: String, page: Int, pageSize: Int = 12, year: Int? = null): Pair<List<CatalogItem>, Boolean> =
         withContext(Dispatchers.IO) {
             val startTime = System.currentTimeMillis()
             val token = getAccessToken()
             val country = PreferencesManager.getPreferredLanguageOrDefault()
             val pass = credentialStore.password()
             val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
-            val url = "${BuildConfig.IPTV_BASE_URL}/api/content?content_type=$contentType&group=${URLEncoder.encode(group, UTF8)}&country=${URLEncoder.encode(country, UTF8)}&page=$page&page_size=$pageSize$passParam"
-            Log.d(TAG, "loadContentPage: loading $contentType group=$group page=$page")
+            val effectiveGroup = if (year != null) null else group
+            val groupParam = effectiveGroup?.let { "&group=${URLEncoder.encode(it, UTF8)}" } ?: ""
+            val yearParam = if (year != null) "&year=$year" else ""
+            val url = "${BuildConfig.IPTV_BASE_URL}/api/content?content_type=$contentType$groupParam&country=${URLEncoder.encode(country, UTF8)}&page=$page&page_size=$pageSize$yearParam$passParam"
+            Log.d(TAG, "loadContentPage: loading $contentType group=$effectiveGroup year=$year page=$page")
             val payload = getJsonObject(url, token)
             val expectedKind = when (contentType) {
                 "movies" -> ContentKind.MOVIE

@@ -57,6 +57,9 @@ android {
         buildConfigField("String", "IPTV_BASE_URL", "\"$iptvBaseUrl\"")
         buildConfigField("String", "APP_UPDATE_URL", "\"$appUpdateUrl\"")
 
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
     }
 
     signingConfigs {
@@ -122,10 +125,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
 
     // Media3 ExoPlayer (todas con la misma versión)
-    implementation("androidx.media3:media3-exoplayer:1.9.3")
-    implementation("androidx.media3:media3-exoplayer-dash:1.9.3")
-    implementation("androidx.media3:media3-exoplayer-hls:1.9.3")
-    implementation("androidx.media3:media3-ui:1.9.3")
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.3.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.3.1")
+    implementation("androidx.media3:media3-ui:1.3.1")
 
     // Glide para cargar imágenes de logos
     implementation("com.github.bumptech.glide:glide:4.16.0")

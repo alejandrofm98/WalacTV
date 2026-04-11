@@ -81,6 +81,30 @@ class WatchProgressRepository(context: Context) {
         }
     }
 
+    suspend fun markAsWatched(contentId: String): Boolean {
+        return try {
+            val token = getToken()
+            val body = JSONObject()
+            postJson("${BuildConfig.IPTV_BASE_URL}/api/watch-progress/$contentId/mark-watched", body, token)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error marking as watched: $contentId", e)
+            false
+        }
+    }
+
+    suspend fun markAsUnwatched(contentId: String): Boolean {
+        return try {
+            val token = getToken()
+            val body = JSONObject()
+            postJson("${BuildConfig.IPTV_BASE_URL}/api/watch-progress/$contentId/mark-unwatched", body, token)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error marking as unwatched: $contentId", e)
+            false
+        }
+    }
+
     // ── Token management ────────────────────────────────────────────────────
 
     private suspend fun getToken(): String {
@@ -153,6 +177,26 @@ class WatchProgressRepository(context: Context) {
             }
         }
 
+    private suspend fun postJson(url: String, body: JSONObject, token: String): JSONObject =
+        withContext(Dispatchers.IO) {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            try {
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.connectTimeout = 15_000
+                conn.readTimeout = 15_000
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.setRequestProperty("Accept", "application/json")
+                conn.setRequestProperty("Authorization", "Bearer $token")
+                conn.outputStream.use { it.write(body.toString().toByteArray()) }
+                val responseBody = readBody(conn)
+                if (conn.responseCode !in 200..299) throw IllegalStateException("HTTP ${conn.responseCode}: $responseBody")
+                JSONObject(responseBody)
+            } finally {
+                conn.disconnect()
+            }
+        }
+
     private suspend fun postForm(url: String, body: String): JSONObject =
         withContext(Dispatchers.IO) {
             val conn = URL(url).openConnection() as HttpURLConnection
@@ -207,6 +251,7 @@ class WatchProgressRepository(context: Context) {
             seasonNumber = obj.optInt("season_number", 0).takeIf { it > 0 },
             episodeNumber = obj.optInt("episode_number", 0).takeIf { it > 0 },
             lastWatchedAt = obj.optString("last_watched_at", ""),
+            isWatched = obj.optBoolean("is_watched", false),
         )
     }
 

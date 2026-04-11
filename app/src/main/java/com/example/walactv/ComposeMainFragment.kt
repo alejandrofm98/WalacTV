@@ -29,6 +29,8 @@ import android.widget.ImageView
 import android.widget.ImageView.ScaleType
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -1460,7 +1462,8 @@ class ComposeMainFragment : Fragment() {
                                     sectionToLoad.contentType!!,
                                     sectionToLoad.groupName!!,
                                     nextPage,
-                                    12
+                                    12,
+                                    sectionToLoad.year
                                 )
                                 if (newItems.isNotEmpty()) {
                                     val updated = sectionToLoad.copy(
@@ -1547,8 +1550,18 @@ class ComposeMainFragment : Fragment() {
         }
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(section.title, color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                section.contentType?.let { type ->
+                    if (type == "movies" || type == "series") {
+                        Text(
+                            text = if (type == "movies") "PELICULAS" else "SERIES",
+                            color = if (type == "movies") Color(0xFFE91E63) else Color(0xFF2196F3),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
             LazyRow(state = lazyListState, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(section.items) { item ->
@@ -1556,6 +1569,7 @@ class ComposeMainFragment : Fragment() {
                         ContinueWatchingCard(
                             item = item,
                             progressPercent = continueWatchingEntries[item.stableId]?.progressPercent ?: 0,
+                            isWatched = continueWatchingEntries[item.stableId]?.isWatched == true,
                             onFocused = { onFocused(item) },
                             onDeleteRequest = {
                                 Log.d(TAG, "CW_DELETE: onDeleteRequest called for ${it.title}")
@@ -1563,7 +1577,11 @@ class ComposeMainFragment : Fragment() {
                             }
                         )
                     } else {
-                        MediaCard(item = item, onFocused = { onFocused(item) }) { handleCardClick(item, section.items) }
+                        val itemWithWatched = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
+                            val wp = continueWatchingEntries[item.stableId]
+                            item.copy(isWatched = wp?.isWatched == true)
+                        } else item
+                        MediaCard(item = itemWithWatched, onFocused = { onFocused(item) }) { handleCardClick(item, section.items) }
                     }
                 }
             }
@@ -1574,6 +1592,7 @@ class ComposeMainFragment : Fragment() {
     private fun ContinueWatchingCard(
         item: CatalogItem,
         progressPercent: Int = 0,
+        isWatched: Boolean = false,
         onFocused: (CatalogItem) -> Unit,
         onDeleteRequest: (CatalogItem) -> Unit,
     ) {
@@ -1664,6 +1683,30 @@ class ComposeMainFragment : Fragment() {
                     )
                 } else {
                     PlaceholderIcon(kind = item.kind)
+                }
+                if (isWatched) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Visibility,
+                            contentDescription = "Visto",
+                            tint = Color(0xFF4CAF50),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            "VISTO",
+                            color = Color(0xFF4CAF50),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
             if (progressPercent in 1..99) {
@@ -2732,6 +2775,30 @@ class ComposeMainFragment : Fragment() {
                 item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES && item.kind != ContentKind.CHANNEL }?.let { badge ->
                     Box(modifier = Modifier.align(Alignment.TopStart).padding(10.dp).background(if (item.kind == ContentKind.EVENT) IptvLive else IptvSurface, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
                         Text(badge, color = IptvTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+                if (item.isWatched) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Visibility,
+                            contentDescription = "Visto",
+                            tint = Color(0xFF4CAF50),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            "VISTO",
+                            color = Color(0xFF4CAF50),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }

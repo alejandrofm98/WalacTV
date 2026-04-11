@@ -33,7 +33,8 @@ data class CatalogItem(
     val seriesName: String? = null,
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
-    val streamOptions: List<StreamOption>,
+    val streamOptions: List<StreamOption> = emptyList(),
+    val isWatched: Boolean = false,
 )
 
 fun CatalogItem.searchableText(): List<String> {
@@ -220,6 +221,7 @@ data class BrowseSection(
     val items: List<CatalogItem>,
     val contentType: String? = null,
     val groupName: String? = null,
+    val year: Int? = null,
     val currentPage: Int = 1,
     val hasNextPage: Boolean = true,
 )
@@ -455,6 +457,7 @@ data class WatchProgressItem(
     val seasonNumber: Int?,
     val episodeNumber: Int?,
     val lastWatchedAt: String,
+    val isWatched: Boolean = false,
 ) {
     val progressPercent: Int
         get() = if (durationMs > 0) ((positionMs * 100) / durationMs).toInt() else 0

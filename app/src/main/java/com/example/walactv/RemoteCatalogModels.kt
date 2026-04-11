@@ -49,9 +49,15 @@ private fun MutableList<BrowseSection>.addGroupedSections(sectionsArray: JSONArr
         val items = sectionObj.optJSONArray("items").toCatalogItems(expectedKind)
         if (items.isNotEmpty()) {
             val groupName = title.substringBefore(" ·").takeIf { it.isNotBlank() }
-            add(BrowseSection(title, items, contentType = contentType, groupName = groupName, hasNextPage = items.size >= 12))
+            val year = extractYearFromTitle(title)
+            add(BrowseSection(title, items, contentType = contentType, groupName = groupName, year = year, hasNextPage = items.size >= 12))
         }
     }
+}
+
+private fun extractYearFromTitle(title: String): Int? {
+    val yearPattern = Regex("^(20\\d{2})\\s*ESTRENOS", RegexOption.IGNORE_CASE)
+    return yearPattern.find(title)?.groupValues?.get(1)?.toIntOrNull()
 }
 
 fun parseRemoteCatalogPage(payload: JSONObject, expectedKind: ContentKind? = null): RemoteCatalogPage {
