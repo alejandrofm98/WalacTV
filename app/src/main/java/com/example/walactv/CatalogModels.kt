@@ -13,6 +13,7 @@ data class StreamOption(
     val label: String,
     val url: String,
     val providerId: String? = null,
+    val headers: Map<String, String> = emptyMap(),  // Headers requeridos (Origin, Referer, etc.)
 )
 
 data class CatalogItem(

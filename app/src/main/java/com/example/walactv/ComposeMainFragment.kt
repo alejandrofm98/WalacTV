@@ -161,6 +161,15 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import com.example.walactv.anime.AnimeFlvApiClient
+import com.example.walactv.anime.AnimeMedia
+import com.example.walactv.anime.AnimeOnAir
+import com.example.walactv.anime.AnimeDetail
+import com.example.walactv.anime.AnimeEpisodeEntry
+import com.example.walactv.anime.AnimeServer
+import com.example.walactv.anime.VideoExtractorApiClient
+import com.example.walactv.anime.VideoExtractResult
+import com.example.walactv.anime.LatestEpisode
 
 class ComposeMainFragment : Fragment() {
 
@@ -1112,6 +1121,7 @@ class ComposeMainFragment : Fragment() {
                         MainMode.Movies   -> VodGridContent(ContentKind.MOVIE)
                         MainMode.Series   -> VodGridContent(ContentKind.SERIES)
                         MainMode.Settings -> SettingsContent()
+                        MainMode.Anime    -> AnimeBrowseContent()
                     }
                 }
             }
@@ -1176,23 +1186,23 @@ class ComposeMainFragment : Fragment() {
                     } else false
                 },
         ) {
-            Box(modifier = Modifier.height(100.dp)) {
+            Box(modifier = Modifier.height(80.dp)) {
                 androidx.compose.animation.AnimatedVisibility(
                     visible = isRailExpanded,
                     enter = fadeIn(tween(300)),
                     exit = fadeOut(tween(150)),
                 ) {
-                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
-                        Text("WalacTV", color = IptvTextPrimary, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Spacer(Modifier.height(6.dp))
-                        Text("Navegacion", color = IptvTextMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                        Text("WalacTV", color = IptvTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Navegacion", color = IptvTextMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
 
             Column(
-                modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 railItems.forEachIndexed { index, item ->
                     NavigationItem(
@@ -1205,7 +1215,7 @@ class ComposeMainFragment : Fragment() {
                 }
             }
 
-            Box(modifier = Modifier.padding(10.dp)) {
+            Box(modifier = Modifier.padding(6.dp)) {
                 NavigationItem(
                     icon = Icons.Outlined.Settings,
                     label = "Ajustes",
@@ -1376,6 +1386,7 @@ class ComposeMainFragment : Fragment() {
             SideRailDestination.TV -> NavItem(Icons.Outlined.LiveTv, entry.label, MainMode.TV)
             SideRailDestination.MOVIES -> NavItem(Icons.Outlined.Movie, entry.label, MainMode.Movies)
             SideRailDestination.SERIES -> NavItem(Icons.Outlined.Tv, entry.label, MainMode.Series)
+            SideRailDestination.ANIME -> NavItem(Icons.Outlined.PlayArrow, entry.label, MainMode.Anime)
         }
     }
 
@@ -1386,6 +1397,7 @@ class ComposeMainFragment : Fragment() {
         MainMode.Movies   -> searchableItems.firstOrNull { it.kind == ContentKind.MOVIE }
         MainMode.Series   -> searchableItems.firstOrNull { it.kind == ContentKind.SERIES }
         MainMode.Settings -> null
+        MainMode.Anime    -> null
     }
 
     // ── Navigation item ───────────────────────────────────────────────────────
@@ -1407,20 +1419,20 @@ class ComposeMainFragment : Fragment() {
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .height(52.dp)
+                .height(44.dp)
                 .background(bgColor, RoundedCornerShape(8.dp))
                 .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(8.dp))
                 .onFocusChanged { isFocused = it.isFocused }
                 .clickable { onClick() }
-                .padding(horizontal = if (expanded) 14.dp else 0.dp),
+                .padding(horizontal = if (expanded) 12.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
         ) {
-            Icon(icon, contentDescription = label, tint = contentColor, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = label, tint = contentColor, modifier = Modifier.size(18.dp))
             AnimatedVisibility(visible = expanded, enter = fadeIn(tween(300)), exit = fadeOut(tween(150))) {
                 Row {
-                    Spacer(Modifier.width(14.dp))
-                    Text(label, color = contentColor, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(12.dp))
+                    Text(label, color = contentColor, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -3114,6 +3126,7 @@ class ComposeMainFragment : Fragment() {
             isFavorite = channelStateStore.isFavorite(favoriteTarget),
             contentId = item.providerId ?: item.stableId,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
+            customHeaders = stream.headers,
         )
         fm.beginTransaction().replace(R.id.player_container, playerFragment, "player_fragment").commitNow()
         val container = requireActivity().findViewById<FrameLayout>(R.id.player_container)
@@ -3250,7 +3263,7 @@ class ComposeMainFragment : Fragment() {
 
     // ── Inner types ───────────────────────────────────────────────────────────
 
-    private enum class MainMode { Home, TV, Movies, Series, Events, Settings }
+    private enum class MainMode { Home, TV, Movies, Series, Events, Anime, Settings }
 
     private data class NavItem(
         val icon: ImageVector,
@@ -3264,6 +3277,577 @@ class ComposeMainFragment : Fragment() {
         val mode: MainMode,
         val selectedItemStableId: String,
     )
+
+    // ── Anime Browse ─────────────────────────────────────────────────────────
+
+    private enum class AnimeTab { ON_AIR, LATEST, SEARCH }
+
+    @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
+    private fun showAnimeEpisodeServers(
+        slug: String,
+        episodeNumber: Int,
+        isLoading: Boolean,
+        setLoading: (Boolean) -> Unit,
+        scope: CoroutineScope,
+    ) {
+        scope.launch {
+            setLoading(true)
+            AnimeFlvApiClient.getEpisodeServers(slug, episodeNumber)
+                .onSuccess { episodeDetail ->
+                    val availableServers = episodeDetail.servers.filter { it.embed?.isNotBlank() == true || it.download?.isNotBlank() == true }
+                    if (availableServers.isEmpty()) {
+                        Toast.makeText(requireContext(), "No hay servidores disponibles", Toast.LENGTH_SHORT).show()
+                        return@onSuccess
+                    }
+
+                    // Show server selection dialog
+                    val serverNames = availableServers.map { it.name }.toTypedArray()
+
+                    withContext(Dispatchers.Main) {
+                        val dialog = android.app.AlertDialog.Builder(requireContext())
+                            .setTitle("${episodeDetail.title} - Episodio $episodeNumber")
+                            .setItems(serverNames) { _, which ->
+                                val selectedServer = availableServers[which]
+                                launchAnimePlayer(selectedServer, episodeDetail.title, episodeNumber, availableServers)
+                            }
+                            .setNegativeButton("Cancelar", null)
+                            .create()
+                        dialog.show()
+                    }
+                }.onFailure {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(requireContext(), "Error al obtener episodio", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            setLoading(false)
+        }
+    }
+
+    @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
+    private fun launchAnimePlayer(
+        server: AnimeServer,
+        animeTitle: String,
+        episodeNumber: Int,
+        allServers: List<AnimeServer>,
+    ) {
+        val embedUrl = server.embed ?: server.download ?: run {
+            Toast.makeText(requireContext(), "Sin URL disponible", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        scope.launch {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(requireContext(), "Extrayendo video...", Toast.LENGTH_SHORT).show()
+            }
+
+            val token = runCatching { repository.getAccessToken() }.getOrNull()
+            if (token != null) {
+                VideoExtractorApiClient.authToken = token
+            }
+
+            val result = VideoExtractorApiClient.extract(embedUrl)
+
+            withContext(Dispatchers.Main) {
+                result.onSuccess { extractResult ->
+                    Log.d(TAG, "VideoExtractResult: url=${extractResult.url.take(50)}..., provider=${extractResult.provider}, headers=${extractResult.headers}")
+                    val item = CatalogItem(
+                        stableId = "anime:$animeTitle:ep$episodeNumber",
+                        title = animeTitle,
+                        subtitle = "Episodio $episodeNumber [${extractResult.provider}]",
+                        description = "Anime - Episodio $episodeNumber - ${extractResult.type}",
+                        imageUrl = "",
+                        kind = ContentKind.SERIES,
+                        group = "Anime",
+                        badgeText = "Anime",
+                        seriesName = animeTitle,
+                        episodeNumber = episodeNumber,
+                        streamOptions = listOf(StreamOption(extractResult.provider, extractResult.url, headers = extractResult.headers)),
+                    )
+                    playResolvedCatalogItem(item, 0)
+                }.onFailure { error ->
+                    Toast.makeText(
+                        requireContext(),
+                        "Error: ${error.message ?: "No se pudo extraer el video"}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun AnimeBrowseContent() {
+        var currentTab by remember { mutableStateOf(AnimeTab.ON_AIR) }
+        var onAirItems by remember { mutableStateOf<List<AnimeOnAir>>(emptyList()) }
+        var latestItems by remember { mutableStateOf<List<LatestEpisode>>(emptyList()) }
+        var searchQuery by remember { mutableStateOf("") }
+        var searchResults by remember { mutableStateOf<List<AnimeMedia>>(emptyList()) }
+        var isLoading by remember { mutableStateOf(false) }
+        var errorMessage by remember { mutableStateOf<String?>(null) }
+        var detailSlug by remember { mutableStateOf<String?>(null) }
+
+        val animeScope = rememberCoroutineScope()
+
+        LaunchedEffect(Unit) {
+            isLoading = true
+            AnimeFlvApiClient.getAnimesOnAir()
+                .onSuccess { onAirItems = it }
+                .onFailure { Log.e(TAG, "Error loading animes on air", it) }
+            isLoading = false
+        }
+
+        if (detailSlug != null) {
+            AnimeDetailContent(
+                slug = detailSlug!!,
+                onBack = { detailSlug = null },
+                onPlayEpisode = { slug, episodeNumber ->
+                    showAnimeEpisodeServers(slug, episodeNumber, isLoading, { isLoading = it }, animeScope)
+                },
+            )
+            return
+        }
+
+        Column(modifier = Modifier.fillMaxSize().background(IptvBackground)) {
+            // Tab bar
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AnimeTab.entries.forEach { tab ->
+                    val isSelected = currentTab == tab
+                    val label = when (tab) {
+                        AnimeTab.ON_AIR -> "En emision"
+                        AnimeTab.LATEST -> "Ultimos"
+                        AnimeTab.SEARCH -> "Buscar"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) IptvAccent else IptvSurface)
+                            .border(1.dp, if (isSelected) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(8.dp))
+                            .clickable { currentTab = tab }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) IptvTextPrimary else IptvTextMuted,
+                            fontSize = 14.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
+
+            when (currentTab) {
+                AnimeTab.ON_AIR -> AnimeGridContent(onAirItems, isLoading) { anime ->
+                    detailSlug = anime.slug
+                }
+                AnimeTab.LATEST -> AnimeGridLatestContent(latestItems, isLoading) { ep ->
+                    val slug = ep.slug.substringBeforeLast("-")
+                    showAnimeEpisodeServers(slug, ep.number, isLoading, { isLoading = it }, animeScope)
+                }
+                AnimeTab.SEARCH -> AnimeSearchContent(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    onSearch = {
+                        animeScope.launch {
+                            isLoading = true
+                            AnimeFlvApiClient.search(searchQuery)
+                                .onSuccess { searchResults = it.media }
+                                .onFailure { errorMessage = it.message }
+                            isLoading = false
+                        }
+                    },
+                    results = searchResults,
+                    onAnimeClick = { media -> detailSlug = media.slug },
+                )
+            }
+
+            errorMessage?.let { msg ->
+                Text(
+                    text = msg,
+                    color = Color.Red,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun AnimeGridContent(
+        items: List<AnimeOnAir>,
+        isLoading: Boolean,
+        onClick: (AnimeOnAir) -> Unit,
+    ) {
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Cargando...", color = IptvTextMuted, fontSize = 16.sp)
+            }
+            return
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 160.dp),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(items) { anime ->
+                AnimeCard(title = anime.title, type = anime.type) { onClick(anime) }
+            }
+        }
+    }
+
+    @Composable
+    private fun AnimeGridLatestContent(
+        items: List<LatestEpisode>,
+        isLoading: Boolean,
+        onClick: (LatestEpisode) -> Unit,
+    ) {
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Cargando...", color = IptvTextMuted, fontSize = 16.sp)
+            }
+            return
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 160.dp),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(items) { ep ->
+                AnimeCard(title = "${ep.title} - Ep. ${ep.number}", type = "Episodio", coverUrl = ep.cover) { onClick(ep) }
+            }
+        }
+    }
+
+    @Composable
+    private fun AnimeSearchContent(
+        query: String,
+        onQueryChange: (String) -> Unit,
+        onSearch: () -> Unit,
+        results: List<AnimeMedia>,
+        onAnimeClick: (AnimeMedia) -> Unit,
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(IptvSurface)
+                        .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    BasicTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        textStyle = TextStyle(color = IptvTextPrimary, fontSize = 14.sp),
+                        modifier = Modifier.fillMaxWidth().onKeyEvent { keyEvent ->
+                            if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
+                                keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                            ) {
+                                onSearch()
+                                true
+                            } else false
+                        },
+                        singleLine = true,
+                    )
+                    if (query.isEmpty()) {
+                        Text("Buscar anime...", color = IptvTextMuted, fontSize = 14.sp)
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(IptvAccent)
+                        .clickable { onSearch() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.Search, contentDescription = "Buscar", tint = Color.White)
+                }
+            }
+
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 160.dp),
+                contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(results) { media ->
+                    AnimeCard(title = media.title, type = media.type, coverUrl = media.cover) { onAnimeClick(media) }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun AnimeCard(
+        title: String,
+        type: String,
+        coverUrl: String? = null,
+        onClick: () -> Unit,
+    ) {
+        var isFocused by remember { mutableStateOf(false) }
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (isFocused) IptvFocusBg else IptvCard)
+                .border(
+                    width = if (isFocused) 2.dp else 0.dp,
+                    color = if (isFocused) IptvFocusBorder else Color.Transparent,
+                    shape = RoundedCornerShape(12.dp),
+                )
+                .clickable(onClick = onClick)
+                .onFocusChanged { isFocused = it.hasFocus }
+                .padding(12.dp)
+                .focusable(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(3f / 4f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(IptvSurfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!coverUrl.isNullOrBlank()) {
+                    AndroidView(
+                        factory = { ctx -> ImageView(ctx) },
+                        update = { imageView ->
+                            Glide.with(imageView)
+                                .load(coverUrl)
+                                .centerCrop()
+                                .into(imageView)
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Text(
+                        text = title.take(2).uppercase(),
+                        color = IptvTextMuted,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = title,
+                color = IptvTextPrimary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (type.isNotBlank()) {
+                Text(
+                    text = type.uppercase(),
+                    color = IptvTextMuted,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+
+    // ── Anime Detail ─────────────────────────────────────────────────────────
+
+    @Composable
+    private fun AnimeDetailContent(
+        slug: String,
+        onBack: () -> Unit,
+        onPlayEpisode: (slug: String, episodeNumber: Int) -> Unit,
+    ) {
+        var animeDetail by remember { mutableStateOf<AnimeDetail?>(null) }
+        var isLoading by remember { mutableStateOf(true) }
+        var errorMessage by remember { mutableStateOf<String?>(null) }
+        val animeScope = rememberCoroutineScope()
+
+        LaunchedEffect(slug) {
+            isLoading = true
+            AnimeFlvApiClient.getAnimeDetail(slug)
+                .onSuccess { animeDetail = it }
+                .onFailure { errorMessage = it.message }
+            isLoading = false
+        }
+
+        Column(modifier = Modifier.fillMaxSize().background(IptvBackground)) {
+            // Header with back button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(IptvSurface)
+                        .clickable { onBack() }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text("< Volver", color = IptvTextPrimary, fontSize = 14.sp)
+                }
+            }
+
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Cargando...", color = IptvTextMuted, fontSize = 16.sp)
+                }
+                return
+            }
+
+            val detail = animeDetail
+            if (detail == null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = errorMessage ?: "No se encontro el anime",
+                        color = Color.Red,
+                        fontSize = 16.sp,
+                    )
+                }
+                return
+            }
+
+            // Anime info header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                // Cover
+                Box(
+                    modifier = Modifier
+                        .width(140.dp)
+                        .aspectRatio(3f / 4f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(IptvSurfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (detail.cover.isNotBlank()) {
+                        AndroidView(
+                            factory = { ctx -> ImageView(ctx) },
+                            update = { imageView ->
+                                Glide.with(imageView)
+                                    .load(detail.cover)
+                                    .centerCrop()
+                                    .into(imageView)
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+
+                // Info
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = detail.title,
+                        color = IptvTextPrimary,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = detail.type.uppercase(),
+                            color = IptvAccent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text("•", color = IptvTextMuted, fontSize = 12.sp)
+                        Text(
+                            text = detail.status,
+                            color = IptvTextMuted,
+                            fontSize = 12.sp,
+                        )
+                        Text("•", color = IptvTextMuted, fontSize = 12.sp)
+                        Text(
+                            text = "Rating: ${detail.rating}",
+                            color = IptvTextMuted,
+                            fontSize = 12.sp,
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = detail.genres.joinToString(", "),
+                        color = IptvTextSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (detail.synopsis.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = detail.synopsis,
+                            color = IptvTextMuted,
+                            fontSize = 12.sp,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            // Episodes list
+            if (detail.episodes.isNotEmpty()) {
+                Text(
+                    text = "Episodios (${detail.episodes.size})",
+                    color = IptvTextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                )
+
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 100.dp),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(detail.episodes.sortedByDescending { it.number }) { episode ->
+                        var epFocused by remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (epFocused) IptvAccent else IptvSurface)
+                                .border(
+                                    width = if (epFocused) 2.dp else 0.dp,
+                                    color = if (epFocused) IptvFocusBorder else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                                .clickable { onPlayEpisode(slug, episode.number) }
+                                .onFocusChanged { epFocused = it.hasFocus }
+                                .focusable(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "Ep. ${episode.number}",
+                                color = if (epFocused) Color.White else IptvTextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     companion object {
         private const val TAG = "ComposeMainFragment"

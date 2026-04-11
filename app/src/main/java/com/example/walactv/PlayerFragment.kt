@@ -1,6 +1,7 @@
 package com.example.walactv
 
 import android.app.AlertDialog
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -37,6 +38,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import com.bumptech.glide.Glide
+import com.example.walactv.datasource.StreamWishDataSourceFactory
 
 internal fun isFatalPlaybackErrorForDevice(errorMessage: String): Boolean {
     return errorMessage.contains("NO_EXCEEDS_CAPABILITIES") ||
@@ -69,6 +71,7 @@ class PlayerFragment(
     private val isFavorite: Boolean = false,
     private val contentId: String = "",
     private val onPlayerClosed: (() -> Unit)? = null,
+    private val customHeaders: Map<String, String> = emptyMap(),
 ) : Fragment() {
 
     private var currentSeriesEpisode: CatalogItem? = currentEpisode
@@ -264,6 +267,27 @@ class PlayerFragment(
         }
     }
 
+    private fun extractReferer(url: String): String {
+        return try {
+            val uri = Uri.parse(url)
+            val host = uri.host ?: return ""
+
+            // Si es un dominio CDN de StreamWish, usar el referer del dominio principal
+            val streamWishMainDomains = listOf("streamwish.to", "streamwish.com", "filemoon.to", "filemoon.wf")
+            val isStreamWishCdn = host.contains("streamwish") || host.contains("filemoon") ||
+                    host.contains("hglamioz") || host.contains("wishembed") || host.contains("swdyu")
+
+            if (isStreamWishCdn) {
+                // Devolver el referer del dominio principal de StreamWish
+                "https://streamwish.to/"
+            } else {
+                "${uri.scheme}://${uri.host}/"
+            }
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     private fun initializePlayer() {
         if (isPlayerInitialized || player != null) {
             Log.w(TAG, "Player ya inicializado, liberando antes de recrearlo")
@@ -275,21 +299,46 @@ class PlayerFragment(
         isReleasing = false
 
         try {
-            val dataSourceFactory = DefaultHttpDataSource.Factory()
-                .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(30_000)
-                .setReadTimeoutMs(30_000)
-                .setUserAgent("WalacTV/AndroidTV")
-                .setDefaultRequestProperties(
-                    mapOf(
+            val isStreamWish = StreamWishDataSourceFactory.isStreamWishUrl(streamUrl)
+            val hasCustomHeaders = customHeaders.isNotEmpty()
+            Log.d(TAG, "initializePlayer: streamUrl=${streamUrl.take(60)}..., isStreamWish=$isStreamWish, hasCustomHeaders=$hasCustomHeaders, customHeaders=$customHeaders")
+
+            val dataSourceFactory = if (isStreamWish) {
+                val referer = extractReferer(streamUrl)
+                val origin = "https://${Uri.parse(streamUrl).host}"
+                Log.d(TAG, "StreamWish detected: referer=$referer, origin=$origin")
+                StreamWishDataSourceFactory(
+                    userAgent = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.186 Mobile Safari/537.36",
+                    referer = referer,
+                    origin = origin,
+                    connectTimeoutMs = 30_000,
+                    readTimeoutMs = 30_000,
+                    extraHeaders = mapOf(
                         "Accept" to "*/*",
                         "Accept-Encoding" to "gzip, deflate",
                         "Connection" to "keep-alive",
                     ),
                 )
+            } else {
+                // Usar customHeaders si existen (Netu, etc.), si no usar los headers por defecto
+                val headers = buildMap {
+                    put("Accept", "*/*")
+                    put("Accept-Encoding", "gzip, deflate")
+                    put("Connection", "keep-alive")
+                    putAll(customHeaders)
+                }
+                Log.d(TAG, "Using DefaultHttpDataSource with headers: ${headers.keys}")
+                DefaultHttpDataSource.Factory()
+                    .setAllowCrossProtocolRedirects(true)
+                    .setConnectTimeoutMs(30_000)
+                    .setReadTimeoutMs(30_000)
+                    .setUserAgent("WalacTV/AndroidTV")
+                    .setDefaultRequestProperties(headers)
+            }
 
             val mediaSourceFactory = DefaultMediaSourceFactory(requireContext())
                 .setDataSourceFactory(dataSourceFactory)
+
 
             val loadControl = if (isVodMode) {
                 DefaultLoadControl.Builder()

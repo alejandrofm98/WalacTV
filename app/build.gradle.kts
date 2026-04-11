@@ -134,6 +134,10 @@ dependencies {
     // OkHttp para actualizaciones
     implementation(libs.okhttp)
 
+    // Retrofit + Gson para AnimeFLV API
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.gson)
+
     // Room Database
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
