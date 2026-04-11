@@ -95,14 +95,11 @@ class PlayerFragment(
     private val handler = Handler(Looper.getMainLooper())
     private val digitBuffer = StringBuilder()
 
-    // Tracks current favorite state for visual toggle
     private var isFavoriteState: Boolean = isFavorite
 
-    // Watch progress tracking
     private var watchProgressRepo: WatchProgressRepository? = null
     private var lastSavedProgressMs: Long = 0
 
-    // ── Tracks the current option index locally so UP/DOWN updates it ──
     private var liveOptionIndex: Int = currentOptionIndex
 
     private var retryCount: Int = 0
@@ -111,11 +108,9 @@ class PlayerFragment(
     private var closedByHost: Boolean = false
     private lateinit var trackSelector: DefaultTrackSelector
 
-    /** True when the content is a movie or series (VOD mode). */
     private val isVodMode: Boolean
         get() = contentKind == ContentKind.MOVIE || contentKind == ContentKind.SERIES
 
-    /** True when this is an event (multiple stream options, UP/DOWN navigation). */
     private val isEventMode: Boolean
         get() = contentKind == ContentKind.EVENT
 
@@ -140,7 +135,6 @@ class PlayerFragment(
         return view
     }
 
-    /** Configure the player view for VOD (movies/series) with Media3 controller. */
     private fun setupVodMode() {
         playerView.useController = true
         playerView.controllerShowTimeoutMs = VOD_CONTROLLER_TIMEOUT_MS
@@ -168,7 +162,6 @@ class PlayerFragment(
         playerView.post { playerView.showController() }
     }
 
-    /** Format time as H:MM:SS or M:SS (Stremio-style). */
     private fun formatTime(ms: Long): String {
         if (ms <= 0 || ms == C.TIME_UNSET) return "0:00"
         val totalSeconds = ms / 1000
@@ -182,14 +175,12 @@ class PlayerFragment(
         }
     }
 
-    /** Update the custom position/duration TextViews with formatted time. */
     private fun updateVodTimeDisplay() {
         val exoPlayer = player ?: return
         playerView.findViewById<TextView>(R.id.vod_position)?.text = formatTime(exoPlayer.currentPosition)
         playerView.findViewById<TextView>(R.id.vod_duration)?.text = formatTime(exoPlayer.duration)
     }
 
-    /** Configure the player view for live TV / events with the existing custom overlay. */
     private fun setupLiveMode(view: View) {
         playerView.useController = false
         overlayView = view.findViewById(R.id.channel_overlay)
@@ -205,12 +196,10 @@ class PlayerFragment(
         btnChannel = view.findViewById(R.id.btn_channel)
         btnChannelLabel = view.findViewById(R.id.btn_channel_label)
 
-        // IMPORTANT: find indicator inside channel_overlay, not at root level
         val overlayLayout = view.findViewById<LinearLayout>(R.id.channel_overlay)
         optionIndicatorView = overlayLayout.findViewById(R.id.channel_option_indicator)
         optionsListLayout = overlayLayout.findViewById(R.id.channel_options_list)
 
-        // Show stream options button only for events with multiple streams
         if (isEventMode && streamOptionLabels.size > 1) {
             btnChannel?.visibility = View.VISIBLE
         }
@@ -221,7 +210,6 @@ class PlayerFragment(
         updateFavoriteIcon()
     }
 
-    /** Wire live TV action buttons (guide, favorites, channel). */
     private fun bindLiveActionButtons() {
         btnGuide?.setOnClickListener {
             Log.d(TAG, "btnGuide CLICK FIRED, onOpenGuide=${onOpenGuide != null}")
@@ -239,7 +227,6 @@ class PlayerFragment(
         }
     }
 
-    /** Update the favorites star icon based on current state. */
     private fun updateFavoriteIcon() {
         btnFavoritesIcon?.setImageResource(
             if (isFavoriteState) R.drawable.ic_favorite_filled else R.drawable.ic_favorite_border
@@ -255,7 +242,6 @@ class PlayerFragment(
         if (!isPlayerInitialized) {
             initializePlayer()
         }
-        // Restart overlay timer AFTER initializePlayer (which clears all handler callbacks)
         if (!isVodMode) showOverlayTemporarily()
     }
 
@@ -272,13 +258,10 @@ class PlayerFragment(
             val uri = Uri.parse(url)
             val host = uri.host ?: return ""
 
-            // Si es un dominio CDN de StreamWish, usar el referer del dominio principal
-            val streamWishMainDomains = listOf("streamwish.to", "streamwish.com", "filemoon.to", "filemoon.wf")
             val isStreamWishCdn = host.contains("streamwish") || host.contains("filemoon") ||
                     host.contains("hglamioz") || host.contains("wishembed") || host.contains("swdyu")
 
             if (isStreamWishCdn) {
-                // Devolver el referer del dominio principal de StreamWish
                 "https://streamwish.to/"
             } else {
                 "${uri.scheme}://${uri.host}/"
@@ -320,7 +303,6 @@ class PlayerFragment(
                     ),
                 )
             } else {
-                // Usar customHeaders si existen (Netu, etc.), si no usar los headers por defecto
                 val headers = buildMap {
                     put("Accept", "*/*")
                     put("Accept-Encoding", "gzip, deflate")
@@ -338,7 +320,6 @@ class PlayerFragment(
 
             val mediaSourceFactory = DefaultMediaSourceFactory(requireContext())
                 .setDataSourceFactory(dataSourceFactory)
-
 
             val loadControl = if (isVodMode) {
                 DefaultLoadControl.Builder()
@@ -406,11 +387,15 @@ class PlayerFragment(
     }
 
     private fun bindVodControls() {
+        // Pausa al abrir audio, reanuda al cerrar el diálogo
         playerView.findViewById<ImageButton>(R.id.vod_btn_audio)?.setOnClickListener {
+            player?.pause()
             showAudioSelector()
         }
 
+        // Pausa al abrir subtítulos, reanuda al cerrar el diálogo
         playerView.findViewById<ImageButton>(R.id.vod_btn_subtitles)?.setOnClickListener {
+            player?.pause()
             showSubtitleSelector()
         }
 
@@ -441,21 +426,18 @@ class PlayerFragment(
         handler.removeCallbacks(timeUpdateRunnable)
         handler.post(timeUpdateRunnable)
 
-        // Start periodic progress saving
         if (contentId.isNotBlank()) {
             handler.removeCallbacks(progressSaveRunnable)
             handler.postDelayed(progressSaveRunnable, PROGRESS_SAVE_INTERVAL_MS)
         }
     }
 
-    /** Save current watch progress to API (VOD only). */
     private fun saveWatchProgress() {
         val exoPlayer = player ?: return
         if (contentId.isBlank() || !isVodMode) return
         val position = exoPlayer.currentPosition
         val duration = exoPlayer.duration
         if (duration <= 0 || position <= 0) return
-        // Only save if position changed meaningfully (> 5s since last save)
         if (kotlin.math.abs(position - lastSavedProgressMs) < 5_000) return
         lastSavedProgressMs = position
 
@@ -480,7 +462,6 @@ class PlayerFragment(
         }
     }
 
-    /** Restore watch progress from API (VOD only). */
     private fun restoreWatchProgress() {
         if (contentId.isBlank() || !isVodMode) return
         val repo = watchProgressRepo ?: return
@@ -565,6 +546,7 @@ class PlayerFragment(
 
         if (audioGroups.isEmpty()) {
             Toast.makeText(ctx, R.string.vod_no_audio_available, Toast.LENGTH_SHORT).show()
+            player?.play()
             return
         }
 
@@ -603,6 +585,7 @@ class PlayerFragment(
                 applyAudioSelection(exoPlayer, audioGroups, chosen.groupIndex, chosen.trackIndex)
                 dialog.dismiss()
             }
+            .setOnDismissListener { player?.play() }
             .show()
     }
 
@@ -684,6 +667,7 @@ class PlayerFragment(
 
         if (textGroups.isEmpty()) {
             Toast.makeText(ctx, R.string.vod_no_subtitles_available, Toast.LENGTH_SHORT).show()
+            player?.play()
             return
         }
 
@@ -721,6 +705,7 @@ class PlayerFragment(
                 applySubtitleSelection(exoPlayer, textGroups, chosen.groupIndex, chosen.trackIndex)
                 dialog.dismiss()
             }
+            .setOnDismissListener { player?.play() }
             .show()
     }
 
@@ -876,6 +861,24 @@ class PlayerFragment(
         if (::bottomPanelView.isInitialized) bottomPanelView.visibility = View.GONE
     }
 
+    /**
+     * Llamado por MainActivity cuando el usuario pulsa BACK con el player visible.
+     * En VOD: si el controlador está visible lo oculta y devuelve true (consumido).
+     * Si ya está oculto devuelve false para que MainActivity cierre el player.
+     * En live: devuelve false siempre.
+     */
+    fun handleBackPress(): Boolean {
+        if (!isVodMode) return false
+        return if (playerView.isControllerFullyVisible) {
+            Log.d(TAG, "handleBackPress: controller visible → hiding")
+            playerView.hideController()
+            true
+        } else {
+            Log.d(TAG, "handleBackPress: controller hidden → letting MainActivity close player")
+            false
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     //  MediaItem creation
     // ──────────────────────────────────────────────────────────────────────
@@ -982,23 +985,14 @@ class PlayerFragment(
     private fun handleKeyPress(event: KeyEvent): Boolean =
         if (isVodMode) handleVodKeyPress(event) else handleLiveKeyPress(event)
 
-    // ──────────────────────────────────────────────────────────────────────
-    //  FIX 1: Solo procesar ACTION_DOWN para evitar doble disparo
-    //  FIX 2: CENTER ejecuta performClick() en el botón con foco
-    //  FIX 3: Seek progresivo acumulativo (10s → 30s → 60s)
-    // ──────────────────────────────────────────────────────────────────────
-
-    /** D-pad handling for VOD: seek, play/pause, back. */
     private fun handleVodKeyPress(event: KeyEvent): Boolean {
-        // Solo procesar ACTION_DOWN para evitar doble disparo
         if (event.action != KeyEvent.ACTION_DOWN) return false
 
         val keyCode = event.keyCode
 
-        // Detectar qué vista tiene el foco ahora mismo y loguearlo
-        val focusedView        = playerView.findFocus()
+        val focusedView = playerView.findFocus()
         val focusedCustomButton = getFocusedVodButton()
-        val focusOnPlayPause   = isFocusOnPlayPauseButton()
+        val focusOnPlayPause = isFocusOnPlayPauseButton()
         val focusOnProgressBar = isFocusOnProgressBar()
 
         Log.d(TAG, "VOD_KEY: keyCode=$keyCode focusedView=${focusedView?.let { describeView(it) }} " +
@@ -1008,23 +1002,18 @@ class PlayerFragment(
         return when (keyCode) {
 
             KeyEvent.KEYCODE_DPAD_LEFT -> when {
-                // Foco en botón custom → sistema mueve el foco entre botones normalmente
                 focusedCustomButton != null -> {
                     Log.d(TAG, "VOD_LEFT: focus on custom button → letting system handle focus")
                     false
                 }
-
-                // Foco en la barra de progreso → LEFT seek hacia atrás
                 focusOnProgressBar -> {
                     Log.d(TAG, "VOD_LEFT: focus on progress bar → seeking backward")
                     seekRelative(getSeekIncrement(-1))
                     playerView.showController()
                     true
                 }
-
-                // Foco en play/pause o sin foco especial → seek hacia atrás
                 else -> {
-                    Log.d(TAG, "VOD_LEFT: seeking backward (focusOnPlayPause=$focusOnPlayPause)")
+                    Log.d(TAG, "VOD_LEFT: seeking backward")
                     seekRelative(getSeekIncrement(-1))
                     playerView.showController()
                     true
@@ -1032,29 +1021,21 @@ class PlayerFragment(
             }
 
             KeyEvent.KEYCODE_DPAD_RIGHT -> when {
-                // Foco en botón custom → sistema mueve el foco normalmente
                 focusedCustomButton != null -> {
                     Log.d(TAG, "VOD_RIGHT: focus on custom button → letting system handle focus")
                     false
                 }
-
-                // Foco en play/pause → RIGHT mueve foco a los botones custom (audio, subs…)
-                // en vez de ir a la barra de progreso
                 focusOnPlayPause -> {
                     Log.d(TAG, "VOD_RIGHT: focus on play/pause → moving to first custom button")
                     moveFocusToFirstCustomButton()
                     true
                 }
-
-                // Foco en la barra de progreso → RIGHT hace seek adelante
                 focusOnProgressBar -> {
                     Log.d(TAG, "VOD_RIGHT: focus on progress bar → seeking forward")
                     seekRelative(getSeekIncrement(1))
                     playerView.showController()
                     true
                 }
-
-                // Sin foco especial → seek hacia adelante
                 else -> {
                     Log.d(TAG, "VOD_RIGHT: no special focus → seeking forward")
                     seekRelative(getSeekIncrement(1))
@@ -1065,23 +1046,16 @@ class PlayerFragment(
 
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER -> {
-                Log.d(TAG, "VOD_CENTER: focusedCustomButton=${focusedCustomButton?.let { describeView(it) }} focusOnPlayPause=$focusOnPlayPause")
+                val focused = getFocusedVodButton()
+                Log.d(TAG, "VOD_CENTER: focusedCustomButton=${focused?.let { describeView(it) }}")
                 when {
-                    focusedCustomButton != null -> {
-                        // Botón custom con foco → ejecutarlo
-                        Log.d(TAG, "VOD_CENTER: performing click on ${describeView(focusedCustomButton)}")
-                        focusedCustomButton.performClick()
+                    focused != null -> {
+                        Log.d(TAG, "VOD_CENTER: performing click on ${describeView(focused)}")
+                        focused.performClick()
                         true
                     }
-                    focusOnPlayPause -> {
-                        // El botón exo_play_pause tiene foco → Media3 lo maneja solo, devolver false
-                        // para que performClick llegue al botón correctamente
-                        Log.d(TAG, "VOD_CENTER: focus on play/pause → letting Media3 handle it")
-                        false
-                    }
                     else -> {
-                        // Sin foco en ningún botón → pausar/reanudar
-                        Log.d(TAG, "VOD_CENTER: no button focus → toggling play/pause")
+                        Log.d(TAG, "VOD_CENTER: toggling play/pause")
                         player?.let { if (it.isPlaying) it.pause() else it.play() }
                         playerView.showController()
                         true
@@ -1090,22 +1064,39 @@ class PlayerFragment(
             }
 
             KeyEvent.KEYCODE_DPAD_UP -> {
-                Log.d(TAG, "VOD_UP: showing controller")
                 playerView.showController()
-                false
+                when {
+                    isFocusOnPlayPauseButton() || getFocusedVodButton() != null -> {
+                        Log.d(TAG, "VOD_UP: buttons → progress bar")
+                        val progressView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
+                        progressView?.requestFocus()
+                    }
+                    else -> {
+                        Log.d(TAG, "VOD_UP: already on top row")
+                    }
+                }
+                true
             }
 
             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                Log.d(TAG, "VOD_DOWN: showing controller")
                 playerView.showController()
-                false
+                when {
+                    isFocusOnProgressBar() -> {
+                        Log.d(TAG, "VOD_DOWN: progress bar → play/pause")
+                        moveToPlayPauseButton()
+                    }
+                    else -> {
+                        Log.d(TAG, "VOD_DOWN: already on bottom row")
+                    }
+                }
+                true
             }
 
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
                 player?.let { if (it.isPlaying) it.pause() else it.play() }
                 true
             }
-            KeyEvent.KEYCODE_MEDIA_PLAY  -> { player?.play(); true }
+            KeyEvent.KEYCODE_MEDIA_PLAY -> { player?.play(); true }
             KeyEvent.KEYCODE_MEDIA_PAUSE -> { player?.pause(); true }
             KeyEvent.KEYCODE_MEDIA_REWIND,
             KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> {
@@ -1119,7 +1110,10 @@ class PlayerFragment(
                 playerView.showController()
                 true
             }
-            KeyEvent.KEYCODE_BACK -> { releasePlayer(); true }
+
+            // BACK lo gestiona MainActivity via handleBackPress()
+            KeyEvent.KEYCODE_BACK -> false
+
             else -> {
                 playerView.showController()
                 false
@@ -1127,10 +1121,6 @@ class PlayerFragment(
         }
     }
 
-    /**
-     * Devuelve nombre descriptivo de una vista para logs.
-     * Muestra el nombre del recurso si existe, o el ID numérico.
-     */
     private fun describeView(view: View): String {
         return try {
             val resName = view.resources.getResourceEntryName(view.id)
@@ -1140,10 +1130,6 @@ class PlayerFragment(
         }
     }
 
-    /**
-     * Devuelve el botón VOD custom que tiene foco (audio, subs, calidad, siguiente, anterior).
-     * Ignora las vistas internas de ExoPlayer/Media3.
-     */
     private fun getFocusedVodButton(): View? {
         val customButtonIds = listOf(
             R.id.vod_btn_audio,
@@ -1157,16 +1143,10 @@ class PlayerFragment(
             .firstOrNull { it.hasFocus() }
     }
 
-    /**
-     * True si el foco está en el botón play/pause de Media3.
-     * El layout usa @id/exo_play_pause (botón combinado), no exo_play + exo_pause separados.
-     */
     private fun isFocusOnPlayPauseButton(): Boolean {
-        // exo_play_pause es el ID combinado que usa el layout (vod_controller.xml)
         val playPauseView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
-        // También comprobar los IDs separados por si Media3 los usa internamente
-        val playView      = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play)
-        val pauseView     = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_pause)
+        val playView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play)
+        val pauseView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_pause)
         val result = playPauseView?.hasFocus() == true ||
                 playView?.hasFocus() == true ||
                 pauseView?.hasFocus() == true
@@ -1175,7 +1155,6 @@ class PlayerFragment(
         return result
     }
 
-    /** True si el foco está en la barra de progreso de Media3. */
     private fun isFocusOnProgressBar(): Boolean {
         val progressView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
         val result = progressView?.hasFocus() == true
@@ -1183,7 +1162,6 @@ class PlayerFragment(
         return result
     }
 
-    /** Mueve el foco al botón play/pause de Media3. */
     private fun moveToPlayPauseButton() {
         val playPauseView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
             ?: playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play)
@@ -1193,11 +1171,6 @@ class PlayerFragment(
         playerView.showController()
     }
 
-    /**
-     * Mueve el foco al primer botón custom visible y habilitado:
-     * prev → next → audio → quality → subtitles
-     * (orden de izquierda a derecha según el layout)
-     */
     private fun moveFocusToFirstCustomButton() {
         val customButtonIds = listOf(
             R.id.vod_btn_prev,
@@ -1215,23 +1188,17 @@ class PlayerFragment(
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  Seek progresivo estilo Netflix/Stremio
-    //  - Cada pulsación individual: 10 segundos
-    //  - Si pulsas rápido (< 800ms entre pulsaciones): el incremento crece
-    //    → 3 pulsaciones rápidas → 30s, 6+ pulsaciones rápidas → 60s
-    //  - Si hay pausa entre pulsaciones (> 800ms) el contador se reinicia
-    //  - Al cambiar de dirección se reinicia siempre
+    //  Seek progresivo
     // ──────────────────────────────────────────────────────────────────────
 
     private var seekPressCount: Int = 0
     private var seekPressDirection: Int = 0
     private var lastSeekPressTime: Long = 0L
-    private val SEEK_RAPID_THRESHOLD_MS = 500L  // si pasan más de 500ms entre pulsaciones, reiniciar
+    private val SEEK_RAPID_THRESHOLD_MS = 500L
 
     private fun getSeekIncrement(direction: Int): Long {
         val now = System.currentTimeMillis()
 
-        // Cambio de dirección o pausa → reiniciar contador
         if (seekPressDirection != direction || (now - lastSeekPressTime) > SEEK_RAPID_THRESHOLD_MS) {
             seekPressCount = 0
             seekPressDirection = direction
@@ -1240,21 +1207,20 @@ class PlayerFragment(
         seekPressCount++
         lastSeekPressTime = now
 
-        // Multiplicar por direction: LEFT (-1) devuelve negativo, RIGHT (+1) devuelve positivo
         val base = when {
-            seekPressCount <= 30  -> 10_000L  // pulsaciones 1-5:  10s por salto
-            seekPressCount <= 40 -> 30_000L  // pulsaciones 6-12: 30s por salto
-            else                 -> 45_000L  // 13+:              60s por salto
+            seekPressCount <= 30 -> 10_000L
+            seekPressCount <= 40 -> 30_000L
+            else -> 45_000L
         }
         return base * direction
     }
 
-    /**
-     * D-pad handling for live TV and events.
-     */
+    // ──────────────────────────────────────────────────────────────────────
+    //  Live key handling
+    // ──────────────────────────────────────────────────────────────────────
+
     private fun handleLiveKeyPress(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
-        // Digits only apply to channels
         if (contentKind == ContentKind.CHANNEL) {
             mapDigit(keyCode)?.let { digit ->
                 appendDigit(digit)
@@ -1269,7 +1235,7 @@ class PlayerFragment(
                 if (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE) {
                     handler.removeCallbacks(hideOverlayRunnable)
                     val focusResult = btnGuide?.requestFocus() ?: false
-                    Log.d(TAG, "FAV_UP: btnGuide.requestFocus()=$focusResult guideHasFocus=${btnGuide?.hasFocus()} guideShown=${btnGuide?.isShown} guideAttached=${btnGuide?.isAttachedToWindow}")
+                    Log.d(TAG, "FAV_UP: btnGuide.requestFocus()=$focusResult")
                     return true
                 }
                 val newIndex = liveOptionIndex - 1
@@ -1288,7 +1254,7 @@ class PlayerFragment(
                 if (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE) {
                     handler.removeCallbacks(hideOverlayRunnable)
                     val focusResult = btnGuide?.requestFocus() ?: false
-                    Log.d(TAG, "FAV_DOWN: btnGuide.requestFocus()=$focusResult guideHasFocus=${btnGuide?.hasFocus()} guideShown=${btnGuide?.isShown} guideAttached=${btnGuide?.isAttachedToWindow}")
+                    Log.d(TAG, "FAV_DOWN: btnGuide.requestFocus()=$focusResult")
                     return true
                 }
                 val newIndex = liveOptionIndex + 1
@@ -1367,13 +1333,14 @@ class PlayerFragment(
             }
 
             KeyEvent.KEYCODE_BACK -> {
-                Log.d(TAG, "FAV_BACK_FRAG: isMenuFocused=${isMenuFocused()} THIS_SHOULD_NOT_BE_REACHED")
+                Log.d(TAG, "FAV_BACK_FRAG: isMenuFocused=${isMenuFocused()}")
                 if (isMenuFocused()) {
                     playerView.requestFocus()
                     hideOverlay()
                     true
                 } else {
-                    releasePlayer(); true
+                    releasePlayer()
+                    true
                 }
             }
 

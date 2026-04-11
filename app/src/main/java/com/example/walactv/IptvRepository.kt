@@ -390,8 +390,12 @@ class IptvRepository(context: Context) {
         val today = DATE_FORMATTER.format(Date())
         val pass = credentialStore.password()
         val passParam = if (pass.isNotBlank()) "?password=${URLEncoder.encode(pass, UTF8)}" else ""
-        val payload = getJsonObject("${BuildConfig.IPTV_BASE_URL}/api/calendar/$today$passParam", token)
+        val url = "${BuildConfig.IPTV_BASE_URL}/api/calendar/$today$passParam"
+        Log.d(TAG, "fetchEventSections: requesting $url")
+        val payload = getJsonObject(url, token)
+        Log.d(TAG, "fetchEventSections: response keys = ${payload.keys().asSequence().toList()}")
         val eventsArray = payload.optJSONArray("eventos") ?: JSONArray()
+        Log.d(TAG, "fetchEventSections: eventos count = ${eventsArray.length()}")
         if (eventsArray.length() == 0) return emptyList()
 
         val items = (0 until eventsArray.length())

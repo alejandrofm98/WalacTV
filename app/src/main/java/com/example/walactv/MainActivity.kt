@@ -117,7 +117,7 @@ class MainActivity : FragmentActivity() {
         val fragmentManager = supportFragmentManager
         Log.d(TAG, "handleCentralizedBack: START backStackCount=${fragmentManager.backStackEntryCount}")
 
-        // ── 1. Player visible → cerrar overlay o cerrar player ───────────────
+        // ── 1. Player visible → preguntar al fragment primero ────────────────
         val container = findViewById<FrameLayout>(R.id.player_container)
         val playerFragment = fragmentManager.findFragmentByTag("player_fragment") as? PlayerFragment
         if (container != null && container.visibility == View.VISIBLE &&
@@ -125,10 +125,20 @@ class MainActivity : FragmentActivity() {
         ) {
             val menuFocused = playerFragment.isOverlayMenuFocused()
             Log.d(TAG, "handleCentralizedBack: player visible, menuFocused=$menuFocused")
+
+            // Overlay del live TV con menú → cerrar el menú
             if (menuFocused) {
                 playerFragment.hideOverlayMenu()
                 return true
             }
+
+            // VOD: si el controlador está visible → ocultarlo (como Netflix)
+            // Si devuelve false → el controlador ya está oculto, cerrar el player
+            if (playerFragment.handleBackPress()) {
+                return true
+            }
+
+            // Cerrar el player
             playerFragment.closeFromHost()
             val composeFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
             composeFragment?.restorePlaybackReturnState()
@@ -154,12 +164,10 @@ class MainActivity : FragmentActivity() {
         Log.d(TAG, "handleCentralizedBack: currentMode=$currentMode")
 
         return when (currentMode) {
-            // Ya estamos en Home → no consumir, el sistema cerrará la app
             "Home" -> {
                 Log.d(TAG, "handleCentralizedBack: already Home, letting system handle (exit app)")
                 false
             }
-            // En cualquier otra sección → ir a Home
             else -> {
                 Log.d(TAG, "handleCentralizedBack: navigating to Home from $currentMode")
                 composeFragment.navigateToHome()
