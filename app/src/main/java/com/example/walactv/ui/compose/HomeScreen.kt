@@ -43,14 +43,29 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
+// ── Constantes de diseño ───────────────────────────────────────────────────
+
+// Cards VOD (películas / series) — más anchas para mejor legibilidad
+internal val VOD_CARD_WIDTH = 160.dp
+private val VOD_IMAGE_HEIGHT  = 224.dp   // ratio ~2:3
+// Área de texto unificada: siempre la misma altura para VOD (con o sin subtítulo)
+// Línea 1: título (puede ocupar hasta 2 líneas)
+// Línea 2: subtítulo/episodio (siempre reservado, vacío en películas)
+private val VOD_TEXT_AREA_HEIGHT = 72.dp
+
+// Cards canal / evento
+private val CH_CARD_WIDTH   = 200.dp
+private val CH_IMAGE_HEIGHT = 112.dp
+private val CH_TEXT_AREA_HEIGHT = 68.dp
+
 // ── Home screen ────────────────────────────────────────────────────────────
 
 @Composable
 internal fun HomeContent(fragment: ComposeMainFragment) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         item { ScreenHeader(title = "Inicio", subtitle = "") }
         items(fragment.homeSections) { section ->
@@ -129,20 +144,46 @@ internal fun ContentSection(
             }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(section.title, color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // Cabecera de sección
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                section.title,
+                color = IptvTextPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+            )
             section.contentType?.let { type ->
                 if (type == "movies" || type == "series") {
-                    Text(
-                        text = if (type == "movies") "PELICULAS" else "SERIES",
-                        color = if (type == "movies") Color(0xFFE91E63) else Color(0xFF2196F3),
-                        fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                    )
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                if (type == "movies") Color(0xFFE91E63).copy(alpha = 0.15f)
+                                else Color(0xFF2196F3).copy(alpha = 0.15f),
+                                RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = if (type == "movies") "PELÍCULAS" else "SERIES",
+                            color = if (type == "movies") Color(0xFFE91E63) else Color(0xFF2196F3),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp,
+                        )
+                    }
                 }
             }
         }
-        LazyRow(state = lazyListState, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+
+        LazyRow(
+            state = lazyListState,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(end = 32.dp),
+        ) {
             items(section.items) { item ->
                 if (section.title == "Continuar viendo") {
                     ContinueWatchingCard(
@@ -159,19 +200,19 @@ internal fun ContentSection(
                             ?.let { fragment.continueWatchingEntries["movie:$it"]
                                 ?: fragment.continueWatchingEntries["series:$it"] }
                         ?: run {
-                            // Fallback por título normalizado — cubre múltiples calidades
                             val titleKey = when (item.kind) {
-                                ContentKind.SERIES ->
-                                    item.seriesName?.trim()?.lowercase()
-                                ContentKind.MOVIE ->
-                                    (item.normalizedTitle ?: item.title).trim().lowercase()
+                                ContentKind.SERIES -> item.seriesName?.trim()?.lowercase()
+                                ContentKind.MOVIE  -> (item.normalizedTitle ?: item.title).trim().lowercase()
                                 else -> null
                             }
                             titleKey?.let { fragment.continueWatchingEntries["title:$it"] }
                         }
                     val itemWithWatched = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES)
                         item.copy(isWatched = wp?.isWatched == true) else item
-                    MediaCard(item = itemWithWatched, onFocused = { onFocused(item) }) { fragment.handleCardClick(item, section.items) }
+                    MediaCard(
+                        item = itemWithWatched,
+                        onFocused = { onFocused(item) },
+                    ) { fragment.handleCardClick(item, section.items) }
                 }
             }
         }
@@ -184,51 +225,119 @@ internal fun ContentSection(
 internal fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
     val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
-    val cardWidth = if (isChannelOrEvent) 190.dp else 140.dp
-    val imageHeight = if (isChannelOrEvent) 107.dp else 200.dp
+    val cardWidth   = if (isChannelOrEvent) CH_CARD_WIDTH   else VOD_CARD_WIDTH
+    val imageHeight = if (isChannelOrEvent) CH_IMAGE_HEIGHT  else VOD_IMAGE_HEIGHT
+    val textHeight  = if (isChannelOrEvent) CH_TEXT_AREA_HEIGHT else VOD_TEXT_AREA_HEIGHT
 
     Column(
-        modifier = Modifier.width(cardWidth)
-            .background(if (isFocused) IptvFocusBg else IptvCard, RoundedCornerShape(10.dp))
-            .border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(10.dp))
+        modifier = Modifier
+            .width(cardWidth)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isFocused) IptvFocusBg else IptvCard)
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color  = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
+                shape  = RoundedCornerShape(10.dp),
+            )
             .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocused() }
             .clickable { onClick() },
     ) {
+        // ── Imagen ──────────────────────────────────────────────────────────
         Box(
-            modifier = Modifier.fillMaxWidth().height(imageHeight)
-                .background(IptvSurfaceVariant, RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
-                .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(imageHeight)
+                .background(IptvSurfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
             when {
                 item.kind == ContentKind.EVENT -> EventSportPlaceholder(item)
-                item.imageUrl.isNotBlank() -> RemoteImage(url = item.imageUrl, width = 300, height = 400,
-                    scaleType = if (item.kind == ContentKind.CHANNEL) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP)
+                item.imageUrl.isNotBlank() -> RemoteImage(
+                    url = item.imageUrl, width = 300, height = 400,
+                    scaleType = if (item.kind == ContentKind.CHANNEL) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP,
+                )
                 else -> PlaceholderIcon(kind = item.kind)
             }
+
+            // Badge calidad / tipo (top-start)
             item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES && item.kind != ContentKind.CHANNEL }?.let { badge ->
-                Box(modifier = Modifier.align(Alignment.TopStart).padding(10.dp)
-                    .background(if (item.kind == ContentKind.EVENT) IptvLive else IptvSurface, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    Text(badge, color = IptvTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .background(
+                            if (item.kind == ContentKind.EVENT) IptvLive else IptvSurface.copy(alpha = 0.85f),
+                            RoundedCornerShape(5.dp),
+                        )
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                ) {
+                    Text(badge, color = IptvTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
+
+            // Badge VISTO (top-end)
             if (item.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
+
+            // Degradado inferior para dar profundidad en VOD
+            if (!isChannelOrEvent) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)),
+                            ),
+                        ),
+                )
+            }
         }
-        val isVod = item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES
+
+        // ── Texto ───────────────────────────────────────────────────────────
         Column(
-            modifier = Modifier.fillMaxWidth()
-                .then(if (isChannelOrEvent) Modifier.height(78.dp) else Modifier.height(64.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = if (isVod) Arrangement.Center else Arrangement.Top,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(textHeight)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.Center,
         ) {
             val displayTitle = item.resolveDisplayTitle()
-            Text(displayTitle, color = IptvTextPrimary, fontSize = if (isChannelOrEvent) 15.sp else 14.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (!isVod) {
+
+            if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
+                // VOD: solo título, sin subtítulo, centrado
+                Text(
+                    text = displayTitle,
+                    color = IptvTextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 17.sp,
+                )
+            } else {
+                // Canal / Evento: título arriba, subtítulo pegado abajo
+                Text(
+                    text = displayTitle,
+                    color = IptvTextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 18.sp,
+                )
                 Spacer(Modifier.weight(1f))
                 val rawSub = item.subtitle
-                val displaySub = if (item.badgeText.isNotBlank() && rawSub.contains(item.badgeText)) rawSub.replace(item.badgeText, "").replace("•", "").trim() else rawSub
-                Text(displaySub.ifBlank { item.group.ifBlank { kindLabel(item.kind) } }, color = IptvTextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val displaySub = if (item.badgeText.isNotBlank() && rawSub.contains(item.badgeText))
+                    rawSub.replace(item.badgeText, "").replace("•", "").trim()
+                else rawSub
+                Text(
+                    text = displaySub.ifBlank { item.group.ifBlank { kindLabel(item.kind) } },
+                    color = IptvTextMuted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -247,8 +356,8 @@ internal fun ContinueWatchingCard(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
-    val cardWidth = if (isChannelOrEvent) 190.dp else 140.dp
-    val imageHeight = if (isChannelOrEvent) 107.dp else 200.dp
+    val cardWidth   = if (isChannelOrEvent) CH_CARD_WIDTH  else VOD_CARD_WIDTH
+    val imageHeight = if (isChannelOrEvent) CH_IMAGE_HEIGHT else VOD_IMAGE_HEIGHT
     val scope = rememberCoroutineScope()
     var longPressTriggered by remember { mutableStateOf(false) }
     var longPressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -281,35 +390,97 @@ internal fun ContinueWatchingCard(
     }
 
     Column(
-        modifier = Modifier.width(cardWidth)
-            .background(if (isFocused) IptvFocusBg else IptvCard, RoundedCornerShape(10.dp))
-            .border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(10.dp))
+        modifier = Modifier
+            .width(cardWidth)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isFocused) IptvFocusBg else IptvCard)
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color  = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
+                shape  = RoundedCornerShape(10.dp),
+            )
             .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocused(item) }
             .clickable(interactionSource = interactionSource, indication = null) { },
     ) {
+        // ── Imagen ──────────────────────────────────────────────────────────
         Box(
-            modifier = Modifier.fillMaxWidth().height(imageHeight)
-                .background(IptvSurfaceVariant, RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
-                .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(imageHeight)
+                .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
+                .background(IptvSurfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            if (item.imageUrl.isNotBlank()) RemoteImage(url = item.imageUrl, width = 300, height = 400,
-                scaleType = if (item.kind == ContentKind.CHANNEL) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP)
+            if (item.imageUrl.isNotBlank()) RemoteImage(
+                url = item.imageUrl, width = 300, height = 400,
+                scaleType = if (isChannelOrEvent) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP,
+            )
             else PlaceholderIcon(kind = item.kind)
+
+            // Degradado inferior
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)),
+                        ),
+                    ),
+            )
+
             if (isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
         }
+
+        // ── Barra de progreso — entre imagen y texto, al ras ───────────────
         if (progressPercent in 1..99) {
-            Box(modifier = Modifier.fillMaxWidth().height(4.dp).background(IptvSurfaceVariant)) {
-                Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progressPercent / 100f).background(IptvAccent))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .background(Color.White.copy(alpha = 0.15f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(progressPercent / 100f)
+                        .background(IptvAccent),
+                )
             }
         }
+
+        // ── Texto: título centrado, subtítulo pegado abajo ─────────────────
         Column(
-            modifier = Modifier.fillMaxWidth()
-                .height(if (item.subtitle.isNotBlank()) 78.dp else 56.dp)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(VOD_TEXT_AREA_HEIGHT)
+                .padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(item.resolveDisplayTitle(), color = IptvTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (item.subtitle.isNotBlank()) Text(item.subtitle, color = IptvTextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = item.resolveDisplayTitle(),
+                    color = IptvTextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 17.sp,
+                )
+            }
+            // Subtítulo siempre pegado abajo (S01E03 para series, vacío para películas)
+            Text(
+                text = item.subtitle.ifBlank { "" },
+                color = IptvAccent.copy(alpha = 0.85f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -347,9 +518,7 @@ internal fun DeleteConfirmationOverlay(
                         Key.DirectionLeft  -> { selectedButton = 1; true }
                         Key.DirectionRight -> { selectedButton = 2; true }
                         Key.DirectionCenter,
-                        Key.Enter -> {
-                            when (selectedButton) { 1 -> onDismiss(); 2 -> onConfirm() }; true
-                        }
+                        Key.Enter -> { when (selectedButton) { 1 -> onDismiss(); 2 -> onConfirm() }; true }
                         Key.Back,
                         Key.Escape -> { onDismiss(); true }
                         else -> false
@@ -358,24 +527,35 @@ internal fun DeleteConfirmationOverlay(
             contentAlignment = Alignment.Center,
         ) {
             Box(
-                modifier = Modifier.width(400.dp).background(Color(0xFF1A1A2E), RoundedCornerShape(16.dp))
-                    .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(16.dp)).padding(24.dp),
+                modifier = Modifier
+                    .width(420.dp)
+                    .background(Color(0xFF1A1A2E), RoundedCornerShape(16.dp))
+                    .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(16.dp))
+                    .padding(28.dp),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("Eliminar de Continuar viendo", color = IptvTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text(dialogMessage, color = IptvTextMuted, fontSize = 14.sp)
+                    Text(dialogMessage, color = IptvTextMuted, fontSize = 14.sp, lineHeight = 20.sp)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        Box(modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                            .background(if (selectedButton == 1) IptvFocusBg else Color.Transparent, RoundedCornerShape(8.dp))
-                            .border(if (selectedButton == 1) 2.dp else 0.dp, if (selectedButton == 1) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 16.dp, vertical = 8.dp).clickable { onDismiss() }) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selectedButton == 1) IptvFocusBg else Color.Transparent)
+                                .border(if (selectedButton == 1) 2.dp else 0.dp, if (selectedButton == 1) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 18.dp, vertical = 10.dp)
+                                .clickable { onDismiss() },
+                        ) {
                             Text("Cancelar", color = if (selectedButton == 1) IptvTextPrimary else IptvTextMuted, fontSize = 14.sp)
                         }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Box(modifier = Modifier.clip(RoundedCornerShape(8.dp))
-                            .background(if (selectedButton == 2) IptvLive.copy(alpha = 0.8f) else IptvLive, RoundedCornerShape(8.dp))
-                            .border(if (selectedButton == 2) 2.dp else 0.dp, if (selectedButton == 2) IptvTextPrimary else Color.Transparent, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 16.dp, vertical = 8.dp).clickable { onConfirm() }) {
+                        Spacer(Modifier.width(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selectedButton == 2) IptvLive.copy(alpha = 0.8f) else IptvLive)
+                                .border(if (selectedButton == 2) 2.dp else 0.dp, if (selectedButton == 2) IptvTextPrimary else Color.Transparent, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 18.dp, vertical = 10.dp)
+                                .clickable { onConfirm() },
+                        ) {
                             Text("Eliminar", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -390,11 +570,19 @@ internal fun DeleteConfirmationOverlay(
 @Composable
 internal fun WatchedBadge(modifier: Modifier = Modifier) {
     Row(
-        modifier = modifier.background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Icon(imageVector = Icons.Filled.Visibility, contentDescription = "Visto", tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
-        Text("VISTO", color = Color(0xFF4CAF50), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Icon(
+            imageVector = Icons.Filled.Visibility,
+            contentDescription = "Visto",
+            tint = Color(0xFF4CAF50),
+            modifier = Modifier.size(13.dp),
+        )
+        Text("VISTO", color = Color(0xFF4CAF50), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
     }
 }
 
@@ -417,7 +605,10 @@ internal fun EventSportPlaceholder(item: CatalogItem, emojiSize: TextUnit = 48.s
         text.contains("mma") || text.contains("boxeo") -> listOf(Color(0xFF5F0F40), Color(0xFF9A031E))
         else -> listOf(Color(0xFF102A43), Color(0xFFD64550))
     }
-    Box(modifier = Modifier.fillMaxSize().background(Brush.linearGradient(colors)), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier.fillMaxSize().background(Brush.linearGradient(colors)),
+        contentAlignment = Alignment.Center,
+    ) {
         Text(text = emoji, fontSize = emojiSize, textAlign = TextAlign.Center)
     }
 }
