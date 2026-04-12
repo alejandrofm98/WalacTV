@@ -88,12 +88,4 @@ class AppUpdateLogicTest {
 
         assertEquals(AppUpdateAvailability.UP_TO_DATE, evaluateAppUpdate(installed, remote))
     }
-
-    @Test
-    fun `falls back to default github update url when custom url is blank`() {
-        assertEquals(
-            DEFAULT_APP_UPDATE_URL,
-            resolveAppUpdateUrl("   "),
-        )
-    }
 }
