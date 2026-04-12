@@ -17,7 +17,7 @@ val localProperties = Properties().apply {
 
 val iptvBaseUrl = localProperties.getProperty("walactv.iptvBaseUrl", "https://example.invalid")
 val appUpdateUrl = localProperties.getProperty("walactv.updateUrl", "")
-val appVersionName = "1.12"
+val appVersionName = "1.13"
 val appVersionCode = appVersionName.split(".").let { parts ->
     val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
     val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
@@ -57,9 +57,6 @@ android {
         buildConfigField("String", "IPTV_BASE_URL", "\"$iptvBaseUrl\"")
         buildConfigField("String", "APP_UPDATE_URL", "\"$appUpdateUrl\"")
 
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-        }
     }
 
     signingConfigs {
