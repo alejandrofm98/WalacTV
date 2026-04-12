@@ -154,6 +154,21 @@ internal fun ContentSection(
                     )
                 } else {
                     val wp = fragment.continueWatchingEntries[item.stableId]
+                        ?: fragment.continueWatchingEntries[item.providerId.orEmpty()]
+                        ?: item.providerId?.substringAfterLast(":")
+                            ?.let { fragment.continueWatchingEntries["movie:$it"]
+                                ?: fragment.continueWatchingEntries["series:$it"] }
+                        ?: run {
+                            // Fallback por título normalizado — cubre múltiples calidades
+                            val titleKey = when (item.kind) {
+                                ContentKind.SERIES ->
+                                    item.seriesName?.trim()?.lowercase()
+                                ContentKind.MOVIE ->
+                                    (item.normalizedTitle ?: item.title).trim().lowercase()
+                                else -> null
+                            }
+                            titleKey?.let { fragment.continueWatchingEntries["title:$it"] }
+                        }
                     val itemWithWatched = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES)
                         item.copy(isWatched = wp?.isWatched == true) else item
                     MediaCard(item = itemWithWatched, onFocused = { onFocused(item) }) { fragment.handleCardClick(item, section.items) }

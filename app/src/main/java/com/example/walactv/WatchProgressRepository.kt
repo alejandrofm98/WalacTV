@@ -42,6 +42,24 @@ class WatchProgressRepository(context: Context) {
         }
     }
 
+    suspend fun getWatchedItems(): List<WatchProgressItem> {
+        return try {
+            val token = getToken()
+            val response = getJsonArray(
+                "${BuildConfig.IPTV_BASE_URL}/api/watch-progress/watched?limit=200",
+                token
+            )
+            val items = mutableListOf<WatchProgressItem>()
+            for (i in 0 until response.length()) {
+                items.add(parseWatchProgressItem(response.getJSONObject(i)))
+            }
+            items
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching watched items", e)
+            emptyList()
+        }
+    }
+
     suspend fun saveProgress(
         contentId: String,
         contentType: String,

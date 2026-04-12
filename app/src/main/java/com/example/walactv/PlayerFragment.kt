@@ -108,6 +108,9 @@ class PlayerFragment(
     private var closedByHost: Boolean = false
     private lateinit var trackSelector: DefaultTrackSelector
 
+    private var watchedMarked = false
+
+
     private val isVodMode: Boolean
         get() = contentKind == ContentKind.MOVIE || contentKind == ContentKind.SERIES
 
@@ -410,7 +413,10 @@ class PlayerFragment(
         val nextBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_next)
         if (contentKind == ContentKind.SERIES && onNextEpisode != null) {
             nextBtn?.visibility = View.VISIBLE
-            nextBtn?.setOnClickListener { onNextEpisode.invoke() }
+            nextBtn?.setOnClickListener {
+                watchedMarked = false
+                onNextEpisode.invoke()
+            }
         } else {
             nextBtn?.visibility = View.GONE
         }
@@ -418,7 +424,10 @@ class PlayerFragment(
         val prevBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_prev)
         if (contentKind == ContentKind.SERIES && onPreviousEpisode != null) {
             prevBtn?.visibility = View.VISIBLE
-            prevBtn?.setOnClickListener { onPreviousEpisode.invoke() }
+            prevBtn?.setOnClickListener {
+                watchedMarked = false
+                onPreviousEpisode.invoke()
+            }
         } else {
             prevBtn?.visibility = View.GONE
         }
@@ -460,6 +469,57 @@ class PlayerFragment(
                 episodeNumber = currentSeriesEpisode?.episodeNumber,
             )
         }
+
+        checkAndMarkWatched()
+    }
+
+    private fun isLastEpisodeOfSeries(): Boolean {
+        if (allSeriesEpisodes.isEmpty()) return false
+        val lastSeason = allSeriesEpisodes
+            .mapNotNull { it.seasonNumber }
+            .maxOrNull() ?: return false
+        val lastEpisodeInLastSeason = allSeriesEpisodes
+            .filter { it.seasonNumber == lastSeason }
+            .mapNotNull { it.episodeNumber }
+            .maxOrNull() ?: return false
+        val currentSeason = currentSeriesEpisode?.seasonNumber ?: return false
+        val currentEpisode = currentSeriesEpisode?.episodeNumber ?: return false
+        return currentSeason == lastSeason && currentEpisode == lastEpisodeInLastSeason
+    }
+
+    // Nueva función — marca como visto si se ha llegado al 90%
+    private fun checkAndMarkWatched() {
+        if (watchedMarked || contentId.isBlank() || !isVodMode) return
+        val exoPlayer = player ?: return
+        val position = exoPlayer.currentPosition
+        val duration = exoPlayer.duration
+        if (duration <= 0 || position <= 0) return
+        if (position < duration * 90 / 100) return
+
+        watchedMarked = true
+        val repo = watchProgressRepo ?: return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            when (contentKind) {
+                ContentKind.MOVIE -> {
+                    repo.markAsWatched(contentId)
+                    Log.d(TAG, "Movie marked as watched: $contentId")
+                }
+                ContentKind.SERIES -> {
+                    repo.markAsWatched(contentId)
+                    Log.d(TAG, "Episode marked as watched: $contentId")
+                    // Si es el último episodio de la última temporada, marcar toda la serie
+                    if (isLastEpisodeOfSeries()) {
+                        val seriesKey = currentSeriesEpisode?.seriesName
+                        if (!seriesKey.isNullOrBlank()) {
+                            Log.d(TAG, "Last episode of series, marking series as watched: $seriesKey")
+                            // El badge de serie se actualiza al recargar continueWatching en HomeContent
+                        }
+                    }
+                }
+                else -> Unit
+            }
+        }
     }
 
     private fun restoreWatchProgress() {
@@ -469,7 +529,7 @@ class PlayerFragment(
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val progress = repo.getProgress(contentId)
-                if (progress != null && progress.positionMs > 60_000 && !progress.isCompleted) {
+                if (progress != null && progress.shouldRestoreProgress){
                     withContext(Dispatchers.Main) {
                         player?.seekTo(progress.positionMs)
                         Log.d(TAG, "Restored progress to ${progress.positionMs}ms for $contentId")
@@ -622,6 +682,7 @@ class PlayerFragment(
 
         if (equivalentEpisode != null) {
             val stream = equivalentEpisode.streamOptions.firstOrNull() ?: return false
+            watchedMarked = false
             currentSeriesEpisode = equivalentEpisode
 
             player?.let { exoPlayer ->

@@ -137,24 +137,61 @@ internal fun ComposeMainFragment.loadContinueWatching() {
     val searchableSnapshot = searchableItems
     scope.launch {
         try {
-            val items = watchProgressRepo.getContinueWatching()
-            if (items.isNotEmpty()) {
-                val entryMap = mutableMapOf<String, WatchProgressItem>()
-                val catalogItems = items.map { wp ->
-                    val synthetic = buildContinueWatchingItem(wp, searchableSnapshot)
-                    entryMap[synthetic.stableId] = wp
-                    synthetic
-                }
-                if (requestVersion != continueWatchingRequestVersion) return@launch
-                continueWatchingEntries = entryMap
-                continueWatchingSection = BrowseSection("Continuar viendo", catalogItems)
-                rebuildHomeSections()
-            } else {
-                if (requestVersion != continueWatchingRequestVersion) return@launch
-                continueWatchingEntries = emptyMap()
-                continueWatchingSection = null
-                rebuildHomeSections()
+            // Cargamos en paralelo: items en progreso + items vistos
+            val inProgressItems = watchProgressRepo.getContinueWatching()
+            val watchedItems = watchProgressRepo.getWatchedItems()
+
+            // El entryMap incluye ambas listas
+            val allItems = inProgressItems + watchedItems.filter { watched ->
+                inProgressItems.none { it.contentId == watched.contentId }
             }
+
+            val entryMap = mutableMapOf<String, WatchProgressItem>()
+
+            // Indexamos todos (en progreso + vistos) para el lookup del badge
+            (inProgressItems + watchedItems).forEach { wp ->
+                val prefix = if (wp.contentType == "series") "series" else "movie"
+                entryMap[wp.contentId] = wp
+                entryMap["$prefix:${wp.contentId}"] = wp
+                val bareId = wp.contentId.substringAfterLast(":")
+                entryMap["$prefix:$bareId"] = wp
+                val normalizedKey = when (wp.contentType) {
+                    "series" -> wp.seriesName?.trim()?.lowercase()
+                    else -> wp.normalizedTitle.trim().lowercase()
+                        .ifBlank { wp.title.trim().lowercase() }
+                }
+                if (!normalizedKey.isNullOrBlank()) {
+                    entryMap["title:$normalizedKey"] = wp
+                }
+            }
+
+            if (requestVersion != continueWatchingRequestVersion) return@launch
+            continueWatchingEntries = entryMap
+
+            // La sección "Continuar viendo" solo muestra los que están en progreso
+            val dedupedItems = inProgressItems
+                .groupBy { wp ->
+                    if (wp.contentType == "series" && wp.seriesName != null)
+                        "series:${wp.seriesName}"
+                    else
+                        "movie:${wp.contentId}"
+                }
+                .map { (_, entries) -> entries.maxByOrNull { it.lastWatchedAt }!! }
+                .sortedByDescending { it.lastWatchedAt }
+
+            if (dedupedItems.isNotEmpty()) {
+                val catalogItems = dedupedItems.map { wp ->
+                    buildContinueWatchingItem(wp, searchableSnapshot).also { synthetic ->
+                        entryMap[synthetic.stableId] = wp
+                    }
+                }
+                continueWatchingSection = BrowseSection("Continuar viendo", catalogItems)
+            } else {
+                continueWatchingSection = null
+            }
+
+            rebuildHomeSections()
+
         } catch (e: Exception) {
             Log.w(TAG, "Could not load continue watching[$requestVersion]: ${e.message}", e)
         }

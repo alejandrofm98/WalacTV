@@ -464,4 +464,7 @@ data class WatchProgressItem(
 
     val isCompleted: Boolean
         get() = durationMs > 0 && positionMs >= durationMs * 95 / 100
+
+    val shouldRestoreProgress: Boolean
+        get() = !isWatched && positionMs > 60_000 && !isCompleted
 }

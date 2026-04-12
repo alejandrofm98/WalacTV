@@ -16,6 +16,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,9 +28,11 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.Fragment
 import androidx.media3.common.util.UnstableApi
+import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.bumptech.glide.Glide
 import com.example.walactv.ui.theme.*
@@ -69,20 +76,20 @@ class SeriesDetailFragment : Fragment() {
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
     private fun playEpisode(item: CatalogItem, allEpisodesForSeries: List<CatalogItem>, logicalEpisodes: List<CatalogItem>) {
         val preferredLanguage = PreferencesManager.getPreferredLanguageOrDefault()
-        val episodeToPlay = allEpisodesForSeries.find { 
-            it.stableId == item.stableId || 
-            (it.seriesName == item.seriesName && 
-             it.seasonNumber == item.seasonNumber && 
-             it.episodeNumber == item.episodeNumber &&
-             normalizeLanguageCode(it.idioma) == normalizeLanguageCode(preferredLanguage))
+        val episodeToPlay = allEpisodesForSeries.find {
+            it.stableId == item.stableId ||
+                    (it.seriesName == item.seriesName &&
+                            it.seasonNumber == item.seasonNumber &&
+                            it.episodeNumber == item.episodeNumber &&
+                            normalizeLanguageCode(it.idioma) == normalizeLanguageCode(preferredLanguage))
         } ?: item
 
         val stream = episodeToPlay.streamOptions.firstOrNull() ?: return
 
         val currentIndex = logicalEpisodes.indexOfFirst {
             it.seriesName == episodeToPlay.seriesName &&
-                it.seasonNumber == episodeToPlay.seasonNumber &&
-                it.episodeNumber == episodeToPlay.episodeNumber
+                    it.seasonNumber == episodeToPlay.seasonNumber &&
+                    it.episodeNumber == episodeToPlay.episodeNumber
         }
         val nextEpisodeCallback: (() -> Unit)? = if (currentIndex >= 0 && currentIndex < logicalEpisodes.size - 1) {
             { playEpisode(logicalEpisodes[currentIndex + 1], allEpisodesForSeries, logicalEpisodes) }
@@ -129,21 +136,35 @@ fun SeriesDetailScreen(
     repository: IptvRepository,
     onEpisodeClick: (CatalogItem, List<CatalogItem>, List<CatalogItem>) -> Unit,
 ) {
+    val context = LocalContext.current
     val preferredLanguage = remember { PreferencesManager.getPreferredLanguageOrDefault() }
+
     val allEpisodesState = produceState<List<CatalogItem>>(initialValue = emptyList(), seriesName) {
         value = runCatching { repository.loadSeriesEpisodes(seriesName) }.getOrDefault(emptyList())
             .sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
     }
     val allEpisodes = allEpisodesState.value
 
+    // Cargamos el progreso de todos los episodios de esta serie
+    val watchProgressRepo = remember { WatchProgressRepository(context) }
+    val progressMap by produceState<Map<String, WatchProgressItem>>(emptyMap(), seriesName) {
+        val inProgress = runCatching { watchProgressRepo.getContinueWatching() }.getOrDefault(emptyList())
+        val watched = runCatching { watchProgressRepo.getWatchedItems() }.getOrDefault(emptyList())
+        val all = (inProgress + watched).filter {
+            it.seriesName?.equals(seriesName, ignoreCase = true) == true
+        }
+        // Indexamos por contentId para lookup rápido
+        value = all.associateBy { it.contentId }
+    }
+
     val uniqueEpisodes = remember(allEpisodes, preferredLanguage) {
         allEpisodes.uniqueSeriesEpisodes(preferredLanguage)
     }
-    
+
     val seasons = remember(uniqueEpisodes) {
         uniqueEpisodes.mapNotNull { it.seasonNumber }.distinct().sorted()
     }
-    
+
     var selectedSeason by remember { mutableStateOf(seasons.firstOrNull() ?: 1) }
     var showSeasonDialog by remember { mutableStateOf(false) }
     val seasonFocusRequester = remember { FocusRequester() }
@@ -163,29 +184,24 @@ fun SeriesDetailScreen(
             Row(modifier = Modifier.fillMaxWidth().height(140.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 if (posterUrl.isNotBlank()) {
                     AndroidView(
-                        factory = { context ->
-                            ImageView(context).apply {
-                                scaleType = ImageView.ScaleType.CENTER_CROP
-                            }
+                        factory = { ctx ->
+                            ImageView(ctx).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
                         },
                         update = { imageView ->
-                            Glide.with(imageView)
-                                .load(posterUrl)
-                                .override(300, 450)
-                                .into(imageView)
+                            Glide.with(imageView).load(posterUrl).override(300, 450).into(imageView)
                         },
                         modifier = Modifier.width(100.dp).fillMaxHeight().clip(RoundedCornerShape(8.dp))
                     )
                 } else {
                     Box(modifier = Modifier.width(100.dp).fillMaxHeight().background(IptvSurfaceVariant, RoundedCornerShape(8.dp)))
                 }
-                
+
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                     Text(seriesName, color = IptvTextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Bold)
                     Text("${seasons.size} Temporadas • ${uniqueEpisodes.size} Episodios", color = IptvTextMuted, fontSize = 16.sp)
-                    
+
                     Spacer(Modifier.height(8.dp))
-                    
+
                     if (seasons.isNotEmpty()) {
                         FilterTopBarButton(
                             label = "Temporada $selectedSeason",
@@ -205,7 +221,16 @@ fun SeriesDetailScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
                 items(displayEpisodes, key = { it.stableId }) { ep ->
-                    EpisodeCard(ep) { onEpisodeClick(ep, allEpisodes, uniqueEpisodes) }
+                    // Buscamos el progreso por providerId o stableId
+                    val epContentId = ep.providerId ?: ep.stableId
+                    val wp = progressMap[epContentId]
+                        ?: progressMap[epContentId.substringAfterLast(":")]
+
+                    EpisodeCard(
+                        item = ep,
+                        watchProgress = wp,
+                        onClick = { onEpisodeClick(ep, allEpisodes, uniqueEpisodes) }
+                    )
                 }
             }
         }
@@ -222,7 +247,7 @@ fun SeriesDetailScreen(
                 onDismiss = { showSeasonDialog = false }
             )
         }
-        
+
         LaunchedEffect(showSeasonDialog) {
             if (!showSeasonDialog) {
                 runCatching { seasonFocusRequester.requestFocus() }
@@ -232,14 +257,22 @@ fun SeriesDetailScreen(
 }
 
 @Composable
-fun EpisodeCard(item: CatalogItem, onClick: () -> Unit) {
+fun EpisodeCard(
+    item: CatalogItem,
+    watchProgress: WatchProgressItem? = null,
+    onClick: () -> Unit,
+) {
     var isFocused by remember { mutableStateOf(false) }
     var currentUrl by remember { mutableStateOf<String?>(null) }
-    
+
+    val isWatched = watchProgress?.isWatched == true
+    val progressPercent = watchProgress?.progressPercent ?: 0
+    val hasProgress = progressPercent in 1..99 && !isWatched
+
     LaunchedEffect(item.imageUrl) {
         currentUrl = item.imageUrl
     }
-    
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -265,7 +298,7 @@ fun EpisodeCard(item: CatalogItem, onClick: () -> Unit) {
             val imageUrl = currentUrl
             if (!imageUrl.isNullOrBlank()) {
                 var imageView by remember { mutableStateOf<ImageView?>(null) }
-                
+
                 AndroidView(
                     factory = { context ->
                         ImageView(context).apply {
@@ -275,61 +308,120 @@ fun EpisodeCard(item: CatalogItem, onClick: () -> Unit) {
                     },
                     modifier = Modifier.fillMaxSize()
                 )
-                
+
                 LaunchedEffect(imageView, imageUrl) {
                     imageView?.let { iv ->
-                        Glide.with(iv)
-                            .load(imageUrl)
-                            .override(300, 169)
-                            .into(iv)
+                        Glide.with(iv).load(imageUrl).override(300, 169).into(iv)
                     }
                 }
             }
-            
+
+            // Overlay oscuro cuando está visto (efecto Netflix)
+            if (isWatched) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.45f))
+                )
+            }
+
+            // Badge número de episodio (esquina superior izquierda)
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
+                    .align(Alignment.TopStart)
                     .padding(8.dp)
-                    .background(
-                        Color.Black.copy(alpha = 0.7f),
-                        RoundedCornerShape(4.dp)
-                    )
+                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 val epNum = item.episodeNumber?.toString() ?: "?"
-                Text(
-                    text = "EP $epNum",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(text = "EP $epNum", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
-            if (item.badgeText.isNotBlank()) {
+
+            // Badge calidad (esquina inferior izquierda) — solo si no es "SERIE"
+            val qualityBadge = item.badgeText.takeIf {
+                it.isNotBlank() && !it.equals("SERIE", ignoreCase = true) && !it.equals("Serie", ignoreCase = true)
+            }
+            qualityBadge?.let { badge ->
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(8.dp)
-                        .background(
-                            Color.Black.copy(alpha = 0.7f),
-                            RoundedCornerShape(4.dp)
-                        )
+                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Text(
-                        text = item.badgeText,
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
+                    Text(text = badge, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+
+            // Badge VISTO (esquina superior derecha)
+            if (isWatched) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Visibility,
+                            contentDescription = "Visto",
+                            tint = Color(0xFF4CAF50),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text("VISTO", color = Color(0xFF4CAF50), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // Icono Play centrado al hacer foco
+            if (isFocused) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(44.dp)
+                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(22.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = "Reproducir",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }
         }
-        
+
+        // Barra de progreso (estilo Netflix: roja, debajo de la imagen)
+        if (hasProgress) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(Color.White.copy(alpha = 0.2f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(progressPercent / 100f)
+                        .background(IptvAccent)
+                )
+            }
+        }
+
         Spacer(Modifier.height(8.dp))
-        
+
         Text(
             text = item.title,
-            color = if (isFocused) IptvTextPrimary else IptvTextMuted,
+            color = when {
+                isWatched -> IptvTextMuted.copy(alpha = 0.6f)
+                isFocused -> IptvTextPrimary
+                else -> IptvTextMuted
+            },
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 2,
