@@ -55,7 +55,7 @@ data class ChannelWithFavorite(
 )
 
 private fun buildChannelStreamUrl(providerId: String, username: String, password: String): String {
-    return "${BuildConfig.IPTV_BASE_URL}/$username/$password/$providerId"
+    return "${BuildConfig.IPTV_BASE_URL}/live/$username/$password/$providerId"
 }
 
 private fun buildVodStreamUrl(providerId: String, username: String, password: String): String {

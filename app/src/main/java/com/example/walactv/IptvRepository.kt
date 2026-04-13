@@ -392,8 +392,8 @@ class IptvRepository(context: Context) {
     private suspend fun fetchEventSections(token: String): List<BrowseSection> {
         val today = DATE_FORMATTER.format(Date())
         val pass = credentialStore.password()
-        val passParam = if (pass.isNotBlank()) "?password=${URLEncoder.encode(pass, UTF8)}" else ""
-        val url = "${BuildConfig.IPTV_BASE_URL}/api/calendar/$today$passParam"
+        val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
+        val url = "${BuildConfig.IPTV_BASE_URL}/api/calendar/$today?client=android$passParam"
         Log.d(TAG, "fetchEventSections: requesting $url")
         val payload = getJsonObject(url, token)
         Log.d(TAG, "fetchEventSections: response keys = ${payload.keys().asSequence().toList()}")
@@ -473,7 +473,7 @@ class IptvRepository(context: Context) {
     private fun buildChannelUrl(channelId: String): String {
         if (channelId.isBlank()) return ""
         val c = requireCredentials()
-        return "${BuildConfig.IPTV_BASE_URL}/${c.username}/${c.password}/$channelId"
+        return "${BuildConfig.IPTV_BASE_URL}/live/${c.username}/${c.password}/$channelId"
     }
 
     // ── Construcción de URLs ──────────────────────────────────────────────────

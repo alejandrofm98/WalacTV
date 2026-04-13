@@ -355,7 +355,7 @@ class M3uCatalogStore(private val context: Context) {
             seriesName = seriesMetadata.seriesName,
             seasonNumber = seriesMetadata.seasonNumber,
             episodeNumber = seriesMetadata.episodeNumber,
-            streamOptions = listOf(StreamOption(defaultLabel(kind), url.replace("http://", "https://"))),
+            streamOptions = listOf(StreamOption(defaultLabel(kind), fixChannelStreamUrl(url.replace("http://", "https://")))),
         )
     }
 
@@ -575,6 +575,16 @@ class M3uCatalogStore(private val context: Context) {
         return "$baseUrl/get.php?username=$username&password=$password"
     }
 
+    private fun fixChannelStreamUrl(url: String): String {
+        if (url.contains("/live/") || url.contains("/movie/") || url.contains("/series/")) return url
+        val baseUrl = BuildConfig.IPTV_BASE_URL.removeSuffix("/")
+        val base = baseUrl.removePrefix("https://").removePrefix("http://")
+        // Solo corregir URLs que sean de este servidor y les falte /live/
+        val pattern = Regex("^https?://$base/([^/]+)/([^/]+)/(\\d+)$", RegexOption.IGNORE_CASE)
+        val match = pattern.matchEntire(url) ?: return url
+        val (user, pass, id) = match.destructured
+        return "https://$base/live/$user/$pass/$id"
+    }
     private fun formatBytes(bytes: Long): String {
         if (bytes <= 0L) return "0 B"
         val kb = bytes / 1024f
