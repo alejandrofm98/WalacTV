@@ -1,10 +1,15 @@
 package com.example.walactv.ui
 
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.interaction.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -14,9 +19,11 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -58,20 +65,39 @@ private val CH_CARD_WIDTH   = 200.dp
 private val CH_IMAGE_HEIGHT = 112.dp
 private val CH_TEXT_AREA_HEIGHT = 68.dp
 
+// Custom BringIntoViewSpec for Stremio-style focus scrolling (snap to left edge)
+@OptIn(ExperimentalFoundationApi::class)
+private val StremioBringIntoViewSpec = object : BringIntoViewSpec {
+    override val scrollAnimationSpec: AnimationSpec<Float> = snap()
+
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val trailingEdge = offset + size
+        return when {
+            offset < 0f && trailingEdge > containerSize -> 0f
+            else -> offset
+        }
+    }
+}
+
 // ── Home screen ────────────────────────────────────────────────────────────
 
 @Composable
 internal fun HomeContent(fragment: ComposeMainFragment) {
+    val focusRequesters = remember(fragment.homeSections.size) {
+        List(fragment.homeSections.size) { FocusRequester() }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         item { ScreenHeader(title = "Inicio", subtitle = "") }
-        items(fragment.homeSections) { section ->
+        itemsIndexed(fragment.homeSections) { index, section ->
             ContentSection(
                 fragment = fragment,
                 section = section,
+                selfFocusRequester = focusRequesters[index],
                 onFocused = { fragment.selectedHero = it },
                 onLoadMore = if (section.contentType != null && section.groupName != null && section.hasNextPage) { sectionToLoad, onDone ->
                     fragment.scope.launch {
@@ -114,15 +140,22 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
 
 // ── Content section ────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 internal fun ContentSection(
     fragment: ComposeMainFragment,
     section: BrowseSection,
+    selfFocusRequester: FocusRequester,
     onFocused: (CatalogItem) -> Unit,
     onLoadMore: ((BrowseSection, () -> Unit) -> Unit)? = null,
 ) {
     val lazyListState = rememberLazyListState()
+
     var isLoadingMore by remember { mutableStateOf(false) }
+
+    val focusRequesters = remember(section.items.size) {
+        List(section.items.size) { FocusRequester() }
+    }
 
     LaunchedEffect(section.items) {
         if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
@@ -145,7 +178,6 @@ internal fun ContentSection(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        // Cabecera de sección
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -165,7 +197,7 @@ internal fun ContentSection(
                                 else Color(0xFF2196F3).copy(alpha = 0.15f),
                                 RoundedCornerShape(4.dp)
                             )
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
                     ) {
                         Text(
                             text = if (type == "movies") "PELÍCULAS" else "SERIES",
@@ -179,40 +211,53 @@ internal fun ContentSection(
             }
         }
 
-        LazyRow(
-            state = lazyListState,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(end = 32.dp),
-        ) {
-            items(section.items) { item ->
-                if (section.title == "Continuar viendo") {
-                    ContinueWatchingCard(
-                        fragment = fragment, item = item,
-                        progressPercent = fragment.continueWatchingEntries[item.stableId]?.progressPercent ?: 0,
-                        isWatched = fragment.continueWatchingEntries[item.stableId]?.isWatched == true,
-                        onFocused = { onFocused(item) },
-                        onDeleteRequest = { fragment.deleteContinueWatchingItem = it },
-                    )
-                } else {
-                    val wp = fragment.continueWatchingEntries[item.stableId]
-                        ?: fragment.continueWatchingEntries[item.providerId.orEmpty()]
-                        ?: item.providerId?.substringAfterLast(":")
-                            ?.let { fragment.continueWatchingEntries["movie:$it"]
-                                ?: fragment.continueWatchingEntries["series:$it"] }
-                        ?: run {
-                            val titleKey = when (item.kind) {
-                                ContentKind.SERIES -> item.seriesName?.trim()?.lowercase()
-                                ContentKind.MOVIE  -> (item.normalizedTitle ?: item.title).trim().lowercase()
-                                else -> null
+        CompositionLocalProvider(LocalBringIntoViewSpec provides StremioBringIntoViewSpec) {
+            LazyRow(
+                state = lazyListState,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(end = 32.dp),
+                modifier = Modifier.focusProperties {
+                    enter = { focusRequesters.getOrNull(lazyListState.firstVisibleItemIndex) ?: selfFocusRequester }
+                },
+            ) {
+                itemsIndexed(section.items) { index, item ->
+                    val cardModifier = Modifier
+                        .focusRequester(focusRequesters[index])
+
+                    if (section.title == "Continuar viendo") {
+                        ContinueWatchingCard(
+                            fragment = fragment,
+                            item = item,
+                            modifier = cardModifier,
+                            debugTag = "${section.title}[$index]",
+                            progressPercent = fragment.continueWatchingEntries[item.stableId]?.progressPercent ?: 0,
+                            isWatched = fragment.continueWatchingEntries[item.stableId]?.isWatched == true,
+                            onFocused = { onFocused(item) },
+                            onDeleteRequest = { fragment.deleteContinueWatchingItem = it },
+                        )
+                    } else {
+                        val wp = fragment.continueWatchingEntries[item.stableId]
+                            ?: fragment.continueWatchingEntries[item.providerId.orEmpty()]
+                            ?: item.providerId?.substringAfterLast(":")
+                                ?.let { fragment.continueWatchingEntries["movie:$it"]
+                                    ?: fragment.continueWatchingEntries["series:$it"] }
+                            ?: run {
+                                val titleKey = when (item.kind) {
+                                    ContentKind.SERIES -> item.seriesName?.trim()?.lowercase()
+                                    ContentKind.MOVIE  -> (item.normalizedTitle ?: item.title).trim().lowercase()
+                                    else -> null
+                                }
+                                titleKey?.let { fragment.continueWatchingEntries["title:$it"] }
                             }
-                            titleKey?.let { fragment.continueWatchingEntries["title:$it"] }
-                        }
-                    val itemWithWatched = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES)
-                        item.copy(isWatched = wp?.isWatched == true) else item
-                    MediaCard(
-                        item = itemWithWatched,
-                        onFocused = { onFocused(item) },
-                    ) { fragment.handleCardClick(item, section.items) }
+                        val itemWithWatched = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES)
+                            item.copy(isWatched = wp?.isWatched == true) else item
+                        MediaCard(
+                            item = itemWithWatched,
+                            modifier = cardModifier,
+                            debugTag = "${section.title}[$index]",
+                            onFocused = { onFocused(item) },
+                        ) { fragment.handleCardClick(item, section.items) }
+                    }
                 }
             }
         }
@@ -222,7 +267,13 @@ internal fun ContentSection(
 // ── Media card ─────────────────────────────────────────────────────────────
 
 @Composable
-internal fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> Unit) {
+internal fun MediaCard(
+    item: CatalogItem,
+    modifier: Modifier = Modifier,
+    debugTag: String = "",
+    onFocused: () -> Unit,
+    onClick: () -> Unit,
+) {
     var isFocused by remember { mutableStateOf(false) }
     val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
     val cardWidth   = if (isChannelOrEvent) CH_CARD_WIDTH   else VOD_CARD_WIDTH
@@ -230,7 +281,7 @@ internal fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> 
     val textHeight  = if (isChannelOrEvent) CH_TEXT_AREA_HEIGHT else VOD_TEXT_AREA_HEIGHT
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(cardWidth)
             .clip(RoundedCornerShape(10.dp))
             .background(if (isFocused) IptvFocusBg else IptvCard)
@@ -239,10 +290,15 @@ internal fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> 
                 color  = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
                 shape  = RoundedCornerShape(10.dp),
             )
-            .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocused() }
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) {
+                    onFocused()
+                }
+            }
+            .focusable()
             .clickable { onClick() },
     ) {
-        // ── Imagen ──────────────────────────────────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -259,7 +315,6 @@ internal fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> 
                 else -> PlaceholderIcon(kind = item.kind)
             }
 
-            // Badge calidad / tipo (top-start)
             item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES && item.kind != ContentKind.CHANNEL }?.let { badge ->
                 Box(
                     modifier = Modifier
@@ -275,10 +330,8 @@ internal fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> 
                 }
             }
 
-            // Badge VISTO (top-end)
             if (item.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
 
-            // Degradado inferior para dar profundidad en VOD
             if (!isChannelOrEvent) {
                 Box(
                     modifier = Modifier
@@ -294,7 +347,6 @@ internal fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> 
             }
         }
 
-        // ── Texto ───────────────────────────────────────────────────────────
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -305,7 +357,6 @@ internal fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> 
             val displayTitle = item.resolveDisplayTitle()
 
             if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
-                // VOD: solo título, sin subtítulo, centrado
                 Text(
                     text = displayTitle,
                     color = IptvTextPrimary,
@@ -316,7 +367,6 @@ internal fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> 
                     lineHeight = 17.sp,
                 )
             } else {
-                // Canal / Evento: título arriba, subtítulo pegado abajo
                 Text(
                     text = displayTitle,
                     color = IptvTextPrimary,
@@ -349,6 +399,8 @@ internal fun MediaCard(item: CatalogItem, onFocused: () -> Unit, onClick: () -> 
 internal fun ContinueWatchingCard(
     fragment: ComposeMainFragment,
     item: CatalogItem,
+    modifier: Modifier = Modifier,
+    debugTag: String = "",
     progressPercent: Int = 0,
     isWatched: Boolean = false,
     onFocused: (CatalogItem) -> Unit,
@@ -390,7 +442,7 @@ internal fun ContinueWatchingCard(
     }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(cardWidth)
             .clip(RoundedCornerShape(10.dp))
             .background(if (isFocused) IptvFocusBg else IptvCard)
@@ -399,10 +451,15 @@ internal fun ContinueWatchingCard(
                 color  = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
                 shape  = RoundedCornerShape(10.dp),
             )
-            .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocused(item) }
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) {
+                    onFocused(item)
+                }
+            }
+            .focusable()
             .clickable(interactionSource = interactionSource, indication = null) { },
     ) {
-        // ── Imagen ──────────────────────────────────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -417,7 +474,6 @@ internal fun ContinueWatchingCard(
             )
             else PlaceholderIcon(kind = item.kind)
 
-            // Degradado inferior
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -433,7 +489,6 @@ internal fun ContinueWatchingCard(
             if (isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
         }
 
-        // ── Barra de progreso — entre imagen y texto, al ras ───────────────
         if (progressPercent in 1..99) {
             Box(
                 modifier = Modifier
@@ -450,7 +505,6 @@ internal fun ContinueWatchingCard(
             }
         }
 
-        // ── Texto: título centrado, subtítulo pegado abajo ─────────────────
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -472,7 +526,6 @@ internal fun ContinueWatchingCard(
                     lineHeight = 17.sp,
                 )
             }
-            // Subtítulo siempre pegado abajo (S01E03 para series, vacío para películas)
             Text(
                 text = item.subtitle.ifBlank { "" },
                 color = IptvAccent.copy(alpha = 0.85f),
@@ -502,7 +555,10 @@ internal fun DeleteConfirmationOverlay(
     val focusRequester = remember { FocusRequester() }
     var selectedButton by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(focusRequester) {
+        delay(50)
+        try { focusRequester.requestFocus() } catch (_: Exception) {}
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
