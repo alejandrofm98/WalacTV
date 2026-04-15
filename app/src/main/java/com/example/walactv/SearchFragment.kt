@@ -152,7 +152,8 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
                     .commitNow()
             }
 
-            val playerFragment = PlayerFragment(
+            val playerFragment = PlayerFragment()
+            playerFragment.initialize(
                 streamUrl = stream.url,
                 overlayNumber = when {
                     resolvedItem.kind == ContentKind.CHANNEL && resolvedItem.channelNumber != null -> getString(R.string.channel_overlay_number, resolvedItem.channelNumber)

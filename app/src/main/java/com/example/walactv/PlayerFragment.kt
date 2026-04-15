@@ -37,8 +37,13 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.bumptech.glide.Glide
 import com.example.walactv.datasource.StreamWishDataSourceFactory
+import com.example.walactv.ui.PlayerErrorOverlay
 
 internal fun isFatalPlaybackErrorForDevice(errorMessage: String): Boolean {
     return errorMessage.contains("NO_EXCEEDS_CAPABILITIES") ||
@@ -47,32 +52,88 @@ internal fun isFatalPlaybackErrorForDevice(errorMessage: String): Boolean {
 }
 
 @UnstableApi
-class PlayerFragment(
-    private val streamUrl: String,
-    private val overlayNumber: String,
-    private val overlayTitle: String,
-    private val overlayMeta: String,
-    private val contentKind: ContentKind,
-    private val onNavigateChannel: (direction: Int) -> Unit,
-    private val onNavigateOption: (direction: Int) -> Unit,
-    private val onDirectChannelNumber: (Int) -> Boolean,
-    private val onToggleFavorite: () -> Boolean,
-    private val onOpenFavorites: () -> Boolean,
-    private val onOpenRecents: () -> Boolean,
-    private val onOpenGuide: ((String?) -> Unit)? = null,
-    private val onNextEpisode: (() -> Unit)? = null,
-    private val onPreviousEpisode: (() -> Unit)? = null,
-    private val allSeriesEpisodes: List<CatalogItem> = emptyList(),
-    private val currentEpisode: CatalogItem? = null,
-    private val streamOptionLabels: List<String> = emptyList(),
-    private val currentOptionIndex: Int = 0,
-    private val onSelectQuality: ((Int) -> Unit)? = null,
-    private val overlayLogoUrl: String = "",
-    private val isFavorite: Boolean = false,
-    private val contentId: String = "",
-    private val onPlayerClosed: (() -> Unit)? = null,
-    private val customHeaders: Map<String, String> = emptyMap(),
-) : Fragment() {
+class PlayerFragment : Fragment() {
+
+    private var streamUrl: String = ""
+    private var overlayNumber: String = ""
+    private var overlayTitle: String = ""
+    private var overlayMeta: String = ""
+    private var contentKind: ContentKind = ContentKind.MOVIE
+    private var onNavigateChannel: ((Int) -> Unit)? = null
+    private var onNavigateOption: ((Int) -> Unit)? = null
+    private var onDirectChannelNumber: ((Int) -> Boolean)? = null
+    private var onToggleFavorite: (() -> Boolean)? = null
+    private var onOpenFavorites: (() -> Boolean)? = null
+    private var onOpenRecents: (() -> Boolean)? = null
+    private var onOpenGuide: ((String?) -> Unit)? = null
+    private var onNextEpisode: (() -> Unit)? = null
+    private var onPreviousEpisode: (() -> Unit)? = null
+    private var allSeriesEpisodes: List<CatalogItem> = emptyList()
+    private var currentEpisode: CatalogItem? = null
+    private var streamOptionLabels: List<String> = emptyList()
+    private var currentOptionIndex: Int = 0
+    private var onSelectQuality: ((Int) -> Unit)? = null
+    private var overlayLogoUrl: String = ""
+    private var isFavorite: Boolean = false
+    private var contentId: String = ""
+    private var onPlayerClosed: (() -> Unit)? = null
+    private var customHeaders: Map<String, String> = emptyMap()
+
+    init {
+        // Default constructor used by Android Fragment system
+    }
+
+    fun initialize(
+        streamUrl: String,
+        overlayNumber: String,
+        overlayTitle: String,
+        overlayMeta: String,
+        contentKind: ContentKind,
+        onNavigateChannel: (Int) -> Unit,
+        onNavigateOption: (Int) -> Unit,
+        onDirectChannelNumber: (Int) -> Boolean,
+        onToggleFavorite: () -> Boolean,
+        onOpenFavorites: () -> Boolean,
+        onOpenRecents: () -> Boolean,
+        onOpenGuide: ((String?) -> Unit)? = null,
+        onNextEpisode: (() -> Unit)? = null,
+        onPreviousEpisode: (() -> Unit)? = null,
+        allSeriesEpisodes: List<CatalogItem> = emptyList(),
+        currentEpisode: CatalogItem? = null,
+        streamOptionLabels: List<String> = emptyList(),
+        currentOptionIndex: Int = 0,
+        onSelectQuality: ((Int) -> Unit)? = null,
+        overlayLogoUrl: String = "",
+        isFavorite: Boolean = false,
+        contentId: String = "",
+        onPlayerClosed: (() -> Unit)? = null,
+        customHeaders: Map<String, String> = emptyMap(),
+    ) {
+        this.streamUrl = streamUrl
+        this.overlayNumber = overlayNumber
+        this.overlayTitle = overlayTitle
+        this.overlayMeta = overlayMeta
+        this.contentKind = contentKind
+        this.onNavigateChannel = onNavigateChannel
+        this.onNavigateOption = onNavigateOption
+        this.onDirectChannelNumber = onDirectChannelNumber
+        this.onToggleFavorite = onToggleFavorite
+        this.onOpenFavorites = onOpenFavorites
+        this.onOpenRecents = onOpenRecents
+        this.onOpenGuide = onOpenGuide
+        this.onNextEpisode = onNextEpisode
+        this.onPreviousEpisode = onPreviousEpisode
+        this.allSeriesEpisodes = allSeriesEpisodes
+        this.currentEpisode = currentEpisode
+        this.streamOptionLabels = streamOptionLabels
+        this.currentOptionIndex = currentOptionIndex
+        this.onSelectQuality = onSelectQuality
+        this.overlayLogoUrl = overlayLogoUrl
+        this.isFavorite = isFavorite
+        this.contentId = contentId
+        this.onPlayerClosed = onPlayerClosed
+        this.customHeaders = customHeaders
+    }
 
     private var currentSeriesEpisode: CatalogItem? = currentEpisode
 
@@ -109,6 +170,10 @@ class PlayerFragment(
     private lateinit var trackSelector: DefaultTrackSelector
 
     private var watchedMarked = false
+
+    private var errorState: PlaybackError? = null
+    private var isRetrying: Boolean = false
+    private var errorComposeView: ComposeView? = null
 
 
     private val isVodMode: Boolean
@@ -219,7 +284,7 @@ class PlayerFragment(
             onOpenGuide?.invoke(null)
         }
         btnFavorites?.setOnClickListener {
-            val nowFavorite = onToggleFavorite()
+            val nowFavorite = onToggleFavorite?.invoke() ?: false
             isFavoriteState = nowFavorite
             updateFavoriteIcon()
             showOverlayTemporarily()
@@ -238,6 +303,11 @@ class PlayerFragment(
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        setupErrorOverlay(view)
+    }
+
+    private fun setupErrorOverlay(view: View) {
+        errorComposeView = view.findViewById(R.id.error_overlay)
     }
 
     override fun onStart() {
@@ -415,7 +485,7 @@ class PlayerFragment(
             nextBtn?.visibility = View.VISIBLE
             nextBtn?.setOnClickListener {
                 watchedMarked = false
-                onNextEpisode.invoke()
+                onNextEpisode?.invoke()
             }
         } else {
             nextBtn?.visibility = View.GONE
@@ -426,7 +496,7 @@ class PlayerFragment(
             prevBtn?.visibility = View.VISIBLE
             prevBtn?.setOnClickListener {
                 watchedMarked = false
-                onPreviousEpisode.invoke()
+                onPreviousEpisode?.invoke()
             }
         } else {
             prevBtn?.visibility = View.GONE
@@ -981,19 +1051,19 @@ class PlayerFragment(
     private fun handlePlaybackError(error: PlaybackException? = null) {
         if (isReleasing) return
 
+        val categorizedError = categorizePlaybackError(
+            error = error,
+            isVodMode = isVodMode,
+            hasQualityOptions = streamOptionLabels.size > 1,
+            hasNextChannel = !isVodMode,
+        )
+
         val errorMessage = error?.toString() ?: ""
         val isCodecIncompatible = isFatalPlaybackErrorForDevice(errorMessage)
 
         if (isCodecIncompatible) {
             Log.w(TAG, "Error de codec incompatible detectado: $errorMessage")
-            val ctx = context
-            if (ctx != null) {
-                Toast.makeText(
-                    ctx,
-                    "Calidad no soportada por este dispositivo",
-                    Toast.LENGTH_LONG,
-                ).show()
-            }
+            showErrorOverlay(categorizedError)
             if (isVodMode && streamOptionLabels.size > 1 && onSelectQuality != null) {
                 handler.postDelayed({ showQualitySelector() }, 500)
             } else {
@@ -1011,6 +1081,8 @@ class PlayerFragment(
 
         if (retryCount < MAX_RETRIES) {
             retryCount += 1
+            isRetrying = true
+            showErrorOverlay(categorizedError)
             Log.d(TAG, "Reintentando reproduccion ($retryCount/$MAX_RETRIES)")
             handler.postDelayed({
                 if (player != null && !isReleasing) {
@@ -1024,16 +1096,73 @@ class PlayerFragment(
                         }
                     } catch (exception: Exception) {
                         Log.e(TAG, "Error al reintentar reproduccion", exception)
+                        isRetrying = false
                     }
                 }
             }, RETRY_DELAY_MS)
         } else {
+            isRetrying = false
+            showErrorOverlay(categorizedError)
+            Log.d(TAG, "Agotados reintentos, reiniciando player")
             handler.postDelayed({
                 if (!isReleasing) {
+                    retryCount = 0
                     releasePlayer()
                     initializePlayer()
                 }
             }, FORCE_RESTART_DELAY_MS)
+        }
+    }
+
+    private fun showErrorOverlay(error: PlaybackError) {
+        errorState = error
+        val composeView = errorComposeView ?: return
+
+        val autoActionCallback: (() -> Unit)? = when {
+            isEventMode -> {
+                val hasMoreOptions = liveOptionIndex < streamOptionLabels.size - 1
+                if (hasMoreOptions) {
+                    { onNavigateOption?.invoke(1) }
+                } else {
+                    { closeFromHost() }
+                }
+            }
+            else -> {
+                { closeFromHost() }
+            }
+        }
+
+        composeView.setContent {
+            errorState?.let { currentError ->
+                PlayerErrorOverlay(
+                    error = currentError,
+                    isRetrying = isRetrying,
+                    onAutoAction = autoActionCallback,
+                )
+            }
+        }
+    }
+
+    private fun hideErrorOverlay() {
+        errorState = null
+        isRetrying = false
+        val composeView = errorComposeView ?: return
+        composeView.setContent { }
+    }
+
+    private fun handleRetry() {
+        if (player != null && !isReleasing) {
+            try {
+                player?.let { exoPlayer ->
+                    exoPlayer.stop()
+                    exoPlayer.clearMediaItems()
+                    exoPlayer.setMediaItem(createMediaItem(streamUrl))
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                }
+            } catch (exception: Exception) {
+                Log.e(TAG, "Error al reintentar reproduccion", exception)
+            }
         }
     }
 
@@ -1305,7 +1434,7 @@ class PlayerFragment(
                     updateOptionIndicator()
                     showOptionsList()
                     showOverlayTemporarily()
-                    onNavigateOption(-1)
+                    onNavigateOption?.invoke(-1)
                 }
                 true
             }
@@ -1324,7 +1453,7 @@ class PlayerFragment(
                     updateOptionIndicator()
                     showOptionsList()
                     showOverlayTemporarily()
-                    onNavigateOption(1)
+                    onNavigateOption?.invoke(1)
                 }
                 true
             }
@@ -1332,14 +1461,14 @@ class PlayerFragment(
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 if (isMenuFocused()) return false
                 showOverlayTemporarily()
-                onNavigateChannel(1)
+                onNavigateChannel?.invoke(1)
                 true
             }
 
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if (isMenuFocused()) return false
                 showOverlayTemporarily()
-                onNavigateChannel(-1)
+                onNavigateChannel?.invoke(-1)
                 true
             }
 
@@ -1362,7 +1491,7 @@ class PlayerFragment(
 
             KeyEvent.KEYCODE_MENU,
             KeyEvent.KEYCODE_BOOKMARK -> {
-                val nowFavorite = onToggleFavorite()
+                val nowFavorite = onToggleFavorite?.invoke() ?: false
                 isFavoriteState = nowFavorite
                 updateFavoriteIcon()
                 updateOverlay(
@@ -1376,7 +1505,7 @@ class PlayerFragment(
             }
 
             KeyEvent.KEYCODE_GUIDE -> {
-                val opened = onOpenFavorites()
+                val opened = onOpenFavorites?.invoke() ?: false
                 if (!opened) {
                     updateOverlay(overlayNumber, overlayTitle, getString(R.string.live_no_favorites))
                     showOverlayTemporarily()
@@ -1385,7 +1514,7 @@ class PlayerFragment(
             }
 
             KeyEvent.KEYCODE_INFO -> {
-                val opened = onOpenRecents()
+                val opened = onOpenRecents?.invoke() ?: false
                 if (!opened) {
                     updateOverlay(overlayNumber, overlayTitle, getString(R.string.live_no_recents))
                     showOverlayTemporarily()
@@ -1444,7 +1573,7 @@ class PlayerFragment(
         val value = digitBuffer.toString().toIntOrNull()
         digitBuffer.clear()
         if (value == null || value <= 0) return@Runnable
-        val changed = onDirectChannelNumber(value)
+        val changed = onDirectChannelNumber?.invoke(value) ?: false
         if (!changed) {
             updateOverlay(
                 "CH $value",
@@ -1541,6 +1670,8 @@ class PlayerFragment(
                 Player.STATE_READY -> {
                     retryCount = 0
                     isPlayerInitialized = true
+                    isRetrying = false
+                    hideErrorOverlay()
                     updateTrackButtonStates()
                     if (isVodMode) {
                         playerView.requestFocus()

@@ -119,7 +119,8 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     }
 
     withContext(Dispatchers.Main) {
-        val playerFragment = PlayerFragment(
+        val playerFragment = PlayerFragment()
+        playerFragment.initialize(
             streamUrl = stream.url, overlayNumber = episode.kind.name, overlayTitle = episode.title,
             overlayMeta = episode.description.ifBlank { stream.label }, contentKind = episode.kind,
             onNavigateChannel = { false }, onNavigateOption = { false }, onDirectChannelNumber = { false },
@@ -166,7 +167,8 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
     val channelItem = resolveChannelFromEvent(item, stream)
     val favoriteTarget = channelItem ?: item
 
-    val playerFragment = PlayerFragment(
+    val playerFragment = PlayerFragment()
+    playerFragment.initialize(
         streamUrl = stream.url,
         overlayNumber = when {
             item.kind == ContentKind.CHANNEL && item.channelNumber != null -> "CH ${item.channelNumber}"

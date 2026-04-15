@@ -219,4 +219,11 @@
                 android:textSize="11sp" />
         </LinearLayout>
     </LinearLayout>
+
+    <!-- Error overlay container -->
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/error_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
 </FrameLayout>

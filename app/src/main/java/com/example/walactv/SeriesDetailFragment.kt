@@ -102,7 +102,8 @@ class SeriesDetailFragment : Fragment() {
             null
         }
 
-        val playerFragment = PlayerFragment(
+        val playerFragment = PlayerFragment()
+        playerFragment.initialize(
             streamUrl = stream.url,
             overlayNumber = item.kind.name,
             overlayTitle = episodeToPlay.title,
