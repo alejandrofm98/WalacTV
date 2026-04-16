@@ -135,6 +135,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
             allSeriesEpisodes = allEpisodes, currentEpisode = episode,
             overlayLogoUrl = episode.imageUrl, contentId = episode.providerId ?: progress.contentId,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
+            onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
         )
         rememberPlaybackReturnState(cardItem)
         currentItem = cardItem
@@ -200,6 +201,9 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
         isFavorite = channelStateStore.isFavorite(favoriteTarget),
         contentId = item.providerId ?: item.stableId,
         onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
+        onProgressSaved = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
+            { progressItem -> upsertContinueWatchingEntry(progressItem) }
+        } else null,
         customHeaders = stream.headers,
     )
     launchPlayerFragment(playerFragment)

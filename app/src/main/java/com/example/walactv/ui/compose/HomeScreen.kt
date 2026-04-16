@@ -138,6 +138,7 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
                 Log.d("HomeContent", "FALLBACK: pendingFocusItem still not null, focusing first card")
                 runCatching { focusRequesters.firstOrNull()?.requestFocus() }
                 fragment.pendingFocusItem = null
+                fragment.suppressEventAutoScroll = false
             }
         }
     }
@@ -214,6 +215,10 @@ internal fun ContentSection(
     }
 
     LaunchedEffect(section.items) {
+        if (fragment.suppressEventAutoScroll) {
+            delay(600)
+            if (!fragment.suppressEventAutoScroll) return@LaunchedEffect
+        }
         if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
             val index = fragment.findNextEventIndex(section.items)
             if (index > 0) lazyListState.scrollToItem(index)
@@ -238,6 +243,7 @@ internal fun ContentSection(
                         fr.requestFocus()
                         Log.d("HomeContent", "Focus RESTORED: ${section.title}[$idx] on attempt $attempt")
                         fragment.pendingFocusItem = null
+                        fragment.suppressEventAutoScroll = false
                         break
                     } else {
                         Log.w("HomeContent", "FocusRequester[$idx] is null, retry...")

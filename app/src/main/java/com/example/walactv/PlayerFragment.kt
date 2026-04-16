@@ -77,6 +77,7 @@ class PlayerFragment : Fragment() {
     private var isFavorite: Boolean = false
     private var contentId: String = ""
     private var onPlayerClosed: (() -> Unit)? = null
+    private var onProgressSaved: ((WatchProgressItem) -> Unit)? = null
     private var customHeaders: Map<String, String> = emptyMap()
 
     init {
@@ -108,6 +109,7 @@ class PlayerFragment : Fragment() {
         isFavorite: Boolean = false,
         contentId: String = "",
         onPlayerClosed: (() -> Unit)? = null,
+        onProgressSaved: ((WatchProgressItem) -> Unit)? = null,
         customHeaders: Map<String, String> = emptyMap(),
     ) {
         this.streamUrl = streamUrl
@@ -137,6 +139,7 @@ class PlayerFragment : Fragment() {
         this.isFavoriteState = isFavorite
         this.contentId = contentId
         this.onPlayerClosed = onPlayerClosed
+        this.onProgressSaved = onProgressSaved
         this.customHeaders = customHeaders
     }
 
@@ -536,6 +539,28 @@ class PlayerFragment : Fragment() {
         }
 
         val repo = watchProgressRepo ?: return
+        
+        // Construir el item de progreso localmente para actualización inmediata de UI
+        val progressItem = WatchProgressItem(
+            contentId = contentId,
+            contentType = contentType,
+            positionMs = position,
+            durationMs = duration,
+            normalizedTitle = overlayTitle.trim(),
+            title = overlayTitle,
+            imageUrl = overlayLogoUrl,
+            seriesName = currentSeriesEpisode?.seriesName,
+            seasonNumber = currentSeriesEpisode?.seasonNumber,
+            episodeNumber = currentSeriesEpisode?.episodeNumber,
+            lastWatchedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault())
+                .format(java.util.Date()),
+            isWatched = false,
+        )
+        
+        // Actualizar UI inmediatamente (callback asíncrono para no bloquear el player)
+        onProgressSaved?.invoke(progressItem)
+        
+        // Guardar en backend (asíncrono)
         CoroutineScope(Dispatchers.IO).launch {
             repo.saveProgress(
                 contentId = contentId,

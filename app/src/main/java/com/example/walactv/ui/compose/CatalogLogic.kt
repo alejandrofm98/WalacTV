@@ -448,3 +448,59 @@ internal fun ComposeMainFragment.findNextEventIndex(items: List<CatalogItem>): I
     }
     return if (bestUpcoming >= 0) bestUpcoming else bestLive
 }
+
+internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgressItem) {
+    val searchableSnapshot = searchableItems
+    
+    // Agregar/actualizar en continueWatchingEntries
+    val newEntryMap = continueWatchingEntries.toMutableMap()
+    newEntryMap[item.contentId] = item
+    newEntryMap["${item.contentType}:${item.contentId}"] = item
+    val bareId = item.contentId.substringAfterLast(":")
+    newEntryMap["${item.contentType}:$bareId"] = item
+    val normalizedKey = when (item.contentType) {
+        "series" -> item.seriesName?.trim()?.lowercase()
+        else -> item.normalizedTitle.trim().lowercase()
+            .ifBlank { item.title.trim().lowercase() }
+    }
+    if (!normalizedKey.isNullOrBlank()) {
+        newEntryMap["title:$normalizedKey"] = item
+    }
+    continueWatchingEntries = newEntryMap
+    
+    // Crear o actualizar la card en continueWatchingSection
+    val existingCwSection = continueWatchingSection
+    val synthetic = buildContinueWatchingItem(item, searchableSnapshot)
+    newEntryMap[synthetic.stableId] = item
+    
+    val currentCwItems = continueWatchingSection?.items?.toMutableList() ?: mutableListOf()
+    val existingIdx = currentCwItems.indexOfFirst { 
+        it.stableId == synthetic.stableId || 
+        (item.contentType == "series" && it.seriesName == item.seriesName) ||
+        (item.contentType == "movie" && it.providerId == item.contentId)
+    }
+    
+    if (existingIdx >= 0) {
+        currentCwItems[existingIdx] = synthetic
+    } else {
+        currentCwItems.add(synthetic)
+    }
+    
+    // Reordenar por lastWatchedAt
+    val reorderedItems = currentCwItems
+        .mapNotNull { cwItem ->
+            val wp = continueWatchingEntries[cwItem.stableId] ?: return@mapNotNull null
+            wp to wp.lastWatchedAt
+        }
+        .sortedByDescending { it.second }
+        .map { it.first }
+    
+    // Rebuild section with sorted items
+    val catalogItems = reorderedItems.map { wp ->
+        buildContinueWatchingItem(wp, searchableSnapshot).also { synthetic ->
+            newEntryMap[synthetic.stableId] = wp
+        }
+    }
+    continueWatchingSection = BrowseSection("Continuar viendo", catalogItems)
+    rebuildHomeSections()
+}
