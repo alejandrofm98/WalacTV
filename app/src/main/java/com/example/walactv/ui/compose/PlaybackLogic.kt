@@ -141,7 +141,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
 // ── Core playback ──────────────────────────────────────────────────────────
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex: Int) {
+internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false) {
     if (item.kind == ContentKind.EVENT) {
         scope.launch {
             val resolved = repository.resolveEventItem(item)
@@ -149,15 +149,15 @@ internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex:
                 Toast.makeText(requireContext(), R.string.no_streams_available, Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            playResolvedCatalogItem(resolved, optionIndex.coerceIn(resolved.streamOptions.indices))
+            playResolvedCatalogItem(resolved, optionIndex.coerceIn(resolved.streamOptions.indices), showOptionsOnStart)
         }
         return
     }
-    playResolvedCatalogItem(item, optionIndex)
+    playResolvedCatalogItem(item, optionIndex, showOptionsOnStart)
 }
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, optionIndex: Int) {
+internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false) {
     val stream = item.streamOptions.getOrNull(optionIndex) ?: return
     rememberPlaybackReturnState(item)
     currentItem = item
@@ -187,6 +187,7 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
         onOpenGuide = { showChannelPicker = true },
         streamOptionLabels = item.streamOptions.map { it.label },
         currentOptionIndex = optionIndex,
+        showOptionsOnStart = showOptionsOnStart,
         onSelectQuality = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
             { newIndex -> playCatalogItem(item, newIndex) }
         } else null,
@@ -225,7 +226,7 @@ internal fun ComposeMainFragment.navigateOption(direction: Int) {
     val item = currentItem ?: return
     val newIndex = currentStreamIndex + direction
     if (newIndex !in item.streamOptions.indices) return
-    playCatalogItem(item, newIndex)
+    playCatalogItem(item, newIndex, showOptionsOnStart = true)
 }
 
 internal fun ComposeMainFragment.navigateToChannelNumber(number: Int): Boolean {

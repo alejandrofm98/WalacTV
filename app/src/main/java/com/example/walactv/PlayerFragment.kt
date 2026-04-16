@@ -102,6 +102,7 @@ class PlayerFragment : Fragment() {
         currentEpisode: CatalogItem? = null,
         streamOptionLabels: List<String> = emptyList(),
         currentOptionIndex: Int = 0,
+        showOptionsOnStart: Boolean = false,
         onSelectQuality: ((Int) -> Unit)? = null,
         overlayLogoUrl: String = "",
         isFavorite: Boolean = false,
@@ -128,7 +129,8 @@ class PlayerFragment : Fragment() {
         this.streamOptionLabels = streamOptionLabels
         this.currentOptionIndex = currentOptionIndex
         this.liveOptionIndex = currentOptionIndex
-        Log.d(TAG, "INITIALIZE: currentOptionIndex=$currentOptionIndex, streamOptionLabels.size=${streamOptionLabels.size}")
+        this.shouldShowOptionsOnStart = showOptionsOnStart
+        Log.d(TAG, "INITIALIZE: currentOptionIndex=$currentOptionIndex, showOptionsOnStart=$showOptionsOnStart, streamOptionLabels.size=${streamOptionLabels.size}")
         this.onSelectQuality = onSelectQuality
         this.overlayLogoUrl = overlayLogoUrl
         this.isFavorite = isFavorite
@@ -165,6 +167,7 @@ class PlayerFragment : Fragment() {
     private var lastSavedProgressMs: Long = 0
 
     private var liveOptionIndex: Int = 0
+    private var shouldShowOptionsOnStart: Boolean = false
 
     private var retryCount: Int = 0
     private var isPlayerInitialized: Boolean = false
@@ -273,6 +276,9 @@ class PlayerFragment : Fragment() {
 
         if (isEventMode && streamOptionLabels.size > 1) {
             btnChannel?.visibility = View.VISIBLE
+            if (shouldShowOptionsOnStart) {
+                showOptionsList()
+            }
         }
 
         bindLiveActionButtons()
@@ -1715,7 +1721,7 @@ class PlayerFragment : Fragment() {
         private const val MAX_RETRIES = 8
         private const val RETRY_DELAY_MS = 2_000L
         private const val FORCE_RESTART_DELAY_MS = 3_000L
-        private const val OVERLAY_DURATION_MS = 3_000L
+        private const val OVERLAY_DURATION_MS = 6_000L
         private const val DIRECT_ZAP_DELAY_MS = 1_500L
         private const val VOD_SEEK_INCREMENT_MS = 10_000L
         private const val VOD_CONTROLLER_TIMEOUT_MS = 5_000
