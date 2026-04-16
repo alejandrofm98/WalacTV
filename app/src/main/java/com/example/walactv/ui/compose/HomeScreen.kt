@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -192,6 +194,7 @@ internal fun ContentSection(
 ) {
     val lazyListState = rememberLazyListState()
     var isLoadingMore by remember { mutableStateOf(false) }
+    var rowWidth by remember { mutableStateOf(0) }
     val focusRequesters = remember(section.items.size) {
         List(section.items.size) { FocusRequester() }
     }
@@ -258,11 +261,14 @@ internal fun ContentSection(
         }
 
         CompositionLocalProvider(LocalBringIntoViewSpec provides StremioBringIntoViewSpec) {
+            val density = LocalDensity.current
+            val rowPaddingEnd = with(density) { rowWidth.toDp() }.coerceAtLeast(32.dp)
             LazyRow(
                 state = lazyListState,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(end = 32.dp),
+                contentPadding = PaddingValues(end = rowPaddingEnd),
                 modifier = Modifier
+                    .onSizeChanged { rowWidth = it.width }
                     .onFocusChanged { state ->
                         Log.d("FOCUS", "LazyRow '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
                     },
