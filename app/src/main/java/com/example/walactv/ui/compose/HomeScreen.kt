@@ -130,6 +130,20 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         runCatching { focusRequesters.firstOrNull()?.requestFocus() }
     }
 
+    // Fallback: si pendingFocusItem no se resolvió en 400ms, focus primera card visible
+    LaunchedEffect(fragment.pendingFocusTrigger, fragment.homeSections) {
+        if (fragment.pendingFocusItem != null) {
+            delay(400)
+            if (fragment.pendingFocusItem != null) {
+                Log.d("HomeContent", "FALLBACK: pendingFocusItem still not null, focusing first card")
+                runCatching { focusRequesters.firstOrNull()?.requestFocus() }
+                fragment.pendingFocusItem = null
+            }
+        }
+    }
+
+    
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
@@ -203,6 +217,38 @@ internal fun ContentSection(
         if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
             val index = fragment.findNextEventIndex(section.items)
             if (index > 0) lazyListState.scrollToItem(index)
+        }
+    }
+
+    LaunchedEffect(fragment.pendingFocusItem, fragment.pendingFocusTrigger) {
+        val target = fragment.pendingFocusItem ?: return@LaunchedEffect
+        val targetId = target.stableId
+        Log.d("HomeContent", "=== LaunchedEffect FOCUS RESTORE: section=${section.title} targetId=$targetId ===")
+        
+        // Retry logic: intentar hasta 3 veces
+        for (attempt in 1..3) {
+            val idx = section.items.indexOfFirst { it.stableId == targetId }
+            Log.d("HomeContent", "Focus restore attempt $attempt: idx=$idx for targetId=$targetId in section '${section.title}'")
+            if (idx >= 0) {
+                try {
+                    lazyListState.scrollToItem(idx)
+                    delay(80L * attempt) // incrementally longer: 80, 160, 240ms
+                    val fr = focusRequesters.getOrNull(idx)
+                    if (fr != null) {
+                        fr.requestFocus()
+                        Log.d("HomeContent", "Focus RESTORED: ${section.title}[$idx] on attempt $attempt")
+                        fragment.pendingFocusItem = null
+                        break
+                    } else {
+                        Log.w("HomeContent", "FocusRequester[$idx] is null, retry...")
+                    }
+                } catch (e: Exception) {
+                    Log.w("HomeContent", "Focus restore FAILED attempt $attempt: ${e.message}")
+                }
+            } else {
+                Log.d("HomeContent", "Item $targetId NOT FOUND in section '${section.title}'")
+                break
+            }
         }
     }
 
@@ -468,9 +514,6 @@ internal fun ContinueWatchingCard(
                 }
                 is PressInteraction.Release -> {
                     longPressJob?.cancel(); longPressJob = null
-                    if (fragment.deleteContinueWatchingItem == null && !longPressTriggered) {
-                        fragment.handleCardClick(item, listOf(item))
-                    }
                     longPressTriggered = false
                 }
                 is PressInteraction.Cancel -> {
@@ -497,7 +540,11 @@ internal fun ContinueWatchingCard(
                 }
             }
             .focusable()
-            .clickable(interactionSource = interactionSource, indication = null) { },
+            .clickable(interactionSource = interactionSource, indication = null) {
+                if (!longPressTriggered && fragment.deleteContinueWatchingItem == null) {
+                    fragment.handleCardClick(item, listOf(item))
+                }
+            },
     ) {
         Box(
             modifier = Modifier

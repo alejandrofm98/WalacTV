@@ -47,20 +47,25 @@ internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List
 internal fun ComposeMainFragment.openContinueWatchingItem(cardItem: CatalogItem, progress: WatchProgressItem) {
     scope.launch {
         when (progress.contentType) {
-            "movie"  -> openContinueWatchingMovie(progress)
+            "movie"  -> openContinueWatchingMovie(cardItem, progress)
             "series" -> openContinueWatchingSeries(cardItem, progress)
             else     -> Log.w(TAG, "Unsupported continue watching type: ${progress.contentType}")
         }
     }
 }
 
-private suspend fun ComposeMainFragment.openContinueWatchingMovie(progress: WatchProgressItem) {
+private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: CatalogItem, progress: WatchProgressItem) {
     val item = repository.fetchContentItem(ContentKind.MOVIE, progress.contentId)
     if (item == null) {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la pelicula", Toast.LENGTH_SHORT).show() }
         return
     }
-    withContext(Dispatchers.Main) { activePlaybackLineup = emptyList(); playResolvedCatalogItem(item, 0) }
+    withContext(Dispatchers.Main) {
+        activePlaybackLineup = emptyList()
+        playResolvedCatalogItem(item, 0)
+        // Sobrescribir con cardItem CW para que vuelva a la card correcta
+        rememberPlaybackReturnState(cardItem)
+    }
 }
 
 private suspend fun ComposeMainFragment.openContinueWatchingSeries(

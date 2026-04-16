@@ -62,6 +62,8 @@ class ComposeMainFragment : Fragment() {
     internal var movieFilterCountry by mutableStateOf<String?>(null)
     internal var seriesFilterCountry by mutableStateOf<String?>(null)
     internal var selectedHero by mutableStateOf<CatalogItem?>(null)
+    internal var pendingFocusItem by mutableStateOf<CatalogItem?>(null)
+    internal var pendingFocusTrigger by mutableStateOf(0)
     internal var currentMode by mutableStateOf(MainMode.Home)
     internal var isRailExpanded by mutableStateOf(false)
     internal var isSignedIn by mutableStateOf(false)
@@ -190,7 +192,7 @@ class ComposeMainFragment : Fragment() {
     fun restorePlaybackReturnState() {
         val state = playbackReturnState ?: return
         playbackReturnState = null
-        Log.d(TAG, "Restoring playback return state: mode=${state.mode}")
+        Log.d(TAG, "Restoring playback return state: mode=${state.mode}, selectedItemStableId=${state.selectedItemStableId}")
         currentMode = state.mode
         when (state.mode) {
             MainMode.TV     -> ensureFiltersLoaded(ContentKind.CHANNEL)
@@ -198,15 +200,17 @@ class ComposeMainFragment : Fragment() {
             MainMode.Series -> ensureFiltersLoaded(ContentKind.SERIES)
             else            -> Unit
         }
+        // Buscar en searchableItems Y en homeSections (para CW items)
         selectedHero = searchableItems.firstOrNull { it.stableId == state.selectedItemStableId }
+            ?: homeSections.asSequence().flatMap { it.items.asSequence() }.firstOrNull { it.stableId == state.selectedItemStableId }
             ?: defaultItemForMode(currentMode)
+        Log.d(TAG, "SelectedHero restored: ${selectedHero?.stableId} title=${selectedHero?.title}")
+        pendingFocusItem = selectedHero
+        pendingFocusTrigger++
     }
 
     fun restoreFocusAfterPlayer() {
-        view?.let {
-            runCatching { it.requestFocus() }
-            Log.d(TAG, "Requested focus on fragment view after player close")
-        }
+        Log.d(TAG, "restoreFocusAfterPlayer called - pendingFocusTrigger=$pendingFocusTrigger pendingFocusItem=${pendingFocusItem?.stableId}")
     }
 
     // ── Inner types ────────────────────────────────────────────────────────
