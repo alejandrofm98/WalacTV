@@ -417,11 +417,11 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
         val groups: List<String> = if (country != null) {
             if (kind == ContentKind.MOVIE) {
                 fragment.contentCacheManager.getMoviesByCountry(country)
+                    .mapNotNull { it.grupoNormalizado.takeIf { g -> g.isNotBlank() } }
             } else {
-                @Suppress("UNCHECKED_CAST")
-                (fragment.contentCacheManager.getSeriesByCountry(country) as List<MovieEntity>)
-            }.distinctBy { it.grupoNormalizado }.filter { it.grupoNormalizado.isNotBlank() }
-                .map { it.grupoNormalizado }
+                fragment.contentCacheManager.getSeriesByCountry(country)
+                    .mapNotNull { it.grupoNormalizado.takeIf { g -> g.isNotBlank() } }
+            }.distinct()
         } else {
             currentFilters.groups.distinctBy { it.value }
                 .filter { it.value != "Favorites" && it.value != "Favoritos" }.map { it.value }
