@@ -127,9 +127,12 @@ class PlayerFragment : Fragment() {
         this.currentEpisode = currentEpisode
         this.streamOptionLabels = streamOptionLabels
         this.currentOptionIndex = currentOptionIndex
+        this.liveOptionIndex = currentOptionIndex
+        Log.d(TAG, "INITIALIZE: currentOptionIndex=$currentOptionIndex, streamOptionLabels.size=${streamOptionLabels.size}")
         this.onSelectQuality = onSelectQuality
         this.overlayLogoUrl = overlayLogoUrl
         this.isFavorite = isFavorite
+        this.isFavoriteState = isFavorite
         this.contentId = contentId
         this.onPlayerClosed = onPlayerClosed
         this.customHeaders = customHeaders
@@ -156,12 +159,12 @@ class PlayerFragment : Fragment() {
     private val handler = Handler(Looper.getMainLooper())
     private val digitBuffer = StringBuilder()
 
-    private var isFavoriteState: Boolean = isFavorite
+    private var isFavoriteState: Boolean = false
 
     private var watchProgressRepo: WatchProgressRepository? = null
     private var lastSavedProgressMs: Long = 0
 
-    private var liveOptionIndex: Int = currentOptionIndex
+    private var liveOptionIndex: Int = 0
 
     private var retryCount: Int = 0
     private var isPlayerInitialized: Boolean = false
