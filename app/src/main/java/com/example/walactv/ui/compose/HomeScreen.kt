@@ -1,8 +1,9 @@
 package com.example.walactv.ui
 
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
+import android.util.Log
+import android.widget.ImageView.ScaleType
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,25 +11,52 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
-import androidx.compose.foundation.interaction.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.interaction.Interaction
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,12 +67,19 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
-import android.widget.ImageView.ScaleType
 import com.example.walactv.BrowseSection
 import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
-import com.example.walactv.ui.theme.*
+import com.example.walactv.ui.theme.IptvAccent
+import com.example.walactv.ui.theme.IptvCard
+import com.example.walactv.ui.theme.IptvFocusBg
+import com.example.walactv.ui.theme.IptvFocusBorder
+import com.example.walactv.ui.theme.IptvLive
+import com.example.walactv.ui.theme.IptvSurface
+import com.example.walactv.ui.theme.IptvSurfaceVariant
+import com.example.walactv.ui.theme.IptvTextMuted
+import com.example.walactv.ui.theme.IptvTextPrimary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -85,6 +120,12 @@ private val StremioBringIntoViewSpec = object : BringIntoViewSpec {
 internal fun HomeContent(fragment: ComposeMainFragment) {
     val focusRequesters = remember(fragment.homeSections.size) {
         List(fragment.homeSections.size) { FocusRequester() }
+    }
+
+    LaunchedEffect(fragment.homeSections) {
+        if (fragment.homeSections.isEmpty()) return@LaunchedEffect
+        delay(200)
+        runCatching { focusRequesters.firstOrNull()?.requestFocus() }
     }
 
     LazyColumn(
@@ -150,9 +191,7 @@ internal fun ContentSection(
     onLoadMore: ((BrowseSection, () -> Unit) -> Unit)? = null,
 ) {
     val lazyListState = rememberLazyListState()
-
     var isLoadingMore by remember { mutableStateOf(false) }
-
     val focusRequesters = remember(section.items.size) {
         List(section.items.size) { FocusRequester() }
     }
@@ -177,7 +216,14 @@ internal fun ContentSection(
             }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(
+        modifier = Modifier
+            .focusRequester(selfFocusRequester)
+            .onFocusChanged { state ->
+                Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
+            },
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -216,9 +262,10 @@ internal fun ContentSection(
                 state = lazyListState,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(end = 32.dp),
-                modifier = Modifier.focusProperties {
-                    enter = { focusRequesters.getOrNull(lazyListState.firstVisibleItemIndex) ?: selfFocusRequester }
-                },
+                modifier = Modifier
+                    .onFocusChanged { state ->
+                        Log.d("FOCUS", "LazyRow '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
+                    },
             ) {
                 itemsIndexed(section.items) { index, item ->
                     val cardModifier = Modifier
