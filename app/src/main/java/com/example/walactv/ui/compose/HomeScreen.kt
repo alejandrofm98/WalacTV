@@ -384,20 +384,6 @@ internal fun MediaCard(
             }
 
             if (item.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
-
-            if (!isChannelOrEvent) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)),
-                            ),
-                        ),
-                )
-            }
         }
 
         Column(
