@@ -152,6 +152,14 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
     ) {
         item { ScreenHeader(title = "Inicio", subtitle = "") }
         itemsIndexed(fragment.homeSections) { index, section ->
+            // === LOGGING TEMPORAL: INICIO ===
+            val willLoadMore = section.contentType != null && section.groupName != null && section.hasNextPage
+            Log.d("HomeScreen", "ContentSection[$index]: title='${section.title}' " +
+                "contentType=${section.contentType} groupName=${section.groupName} " +
+                "hasNextPage=${section.hasNextPage} items=${section.items.size} " +
+                "willLoadMore=$willLoadMore")
+            // === LOGGING TEMPORAL: FIN ===
+            
             ContentSection(
                 fragment = fragment,
                 section = section,
@@ -259,12 +267,24 @@ internal fun ContentSection(
     }
 
     LaunchedEffect(lazyListState, section.hasNextPage, onLoadMore) {
+        // === LOGGING TEMPORAL: INICIO ===
+        Log.d("LazyLoad", "LaunchedEffect triggered for section '${section.title}': hasNextPage=${section.hasNextPage} onLoadMore=${onLoadMore != null}")
+        // === LOGGING TEMPORAL: FIN ===
+        
         if (onLoadMore == null || !section.hasNextPage || isLoadingMore) return@LaunchedEffect
         snapshotFlow { lazyListState.layoutInfo }
             .map { info -> (info.visibleItemsInfo.lastOrNull()?.index ?: -1) to info.totalItemsCount }
             .distinctUntilChanged()
             .collect { (lastVisible, totalItems) ->
+                // === LOGGING TEMPORAL: INICIO ===
+                Log.d("LazyLoad", "Section '${section.title}': lastVisible=$lastVisible totalItems=$totalItems threshold=${totalItems - 5}")
+                // === LOGGING TEMPORAL: FIN ===
+                
                 if (totalItems > 0 && lastVisible >= totalItems - 5) {
+                    // === LOGGING TEMPORAL: INICIO ===
+                    Log.d("LazyLoad", "TRIGGERING LOAD MORE for section '${section.title}'")
+                    // === LOGGING TEMPORAL: FIN ===
+                    
                     isLoadingMore = true
                     onLoadMore(section) { isLoadingMore = false }
                 }

@@ -382,10 +382,30 @@ class IptvRepository(context: Context) {
         val encoded = URLEncoder.encode(country, Charsets.UTF_8.name())
         val pass = credentialStore.password()
         val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
+        
+        // === LOGGING TEMPORAL: INICIO ===
+        Log.d(TAG, "HOME_API: Requesting /api/home?country=$country")
+        // === LOGGING TEMPORAL: FIN ===
+        
         val payload = getJsonObject(
             url = "${BuildConfig.IPTV_BASE_URL}/api/home?country=$encoded$passParam",
             token = token,
         )
+        
+        // === LOGGING TEMPORAL: INICIO ===
+        Log.d(TAG, "HOME_API: Response keys = ${payload.keys().asSequence().toList()}")
+        Log.d(TAG, "HOME_API: movie_sections count = ${payload.optJSONArray("movie_sections")?.length() ?: 0}")
+        Log.d(TAG, "HOME_API: series_sections count = ${payload.optJSONArray("series_sections")?.length() ?: 0}")
+        payload.optJSONArray("movie_sections")?.optJSONObject(0)?.let { firstSection ->
+            Log.d(TAG, "HOME_API: First movie_section title = ${firstSection.optString("title")}")
+            Log.d(TAG, "HOME_API: First movie_section items count = ${firstSection.optJSONArray("items")?.length() ?: 0}")
+        }
+        payload.optJSONArray("series_sections")?.optJSONObject(0)?.let { firstSection ->
+            Log.d(TAG, "HOME_API: First series_section title = ${firstSection.optString("title")}")
+            Log.d(TAG, "HOME_API: First series_section items count = ${firstSection.optJSONArray("items")?.length() ?: 0}")
+        }
+        // === LOGGING TEMPORAL: FIN ===
+        
         return resolveStreamTemplates(parseRemoteHomeCatalog(payload))
     }
 

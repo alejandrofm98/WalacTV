@@ -1,5 +1,6 @@
 package com.example.walactv
 
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -22,6 +23,12 @@ fun resolveStreamTemplate(template: String, username: String, password: String):
 }
 
 fun parseRemoteHomeCatalog(payload: JSONObject): HomeCatalog {
+    // === LOGGING TEMPORAL: INICIO ===
+    Log.d("HomeParse", "parseRemoteHomeCatalog: Starting parse")
+    Log.d("HomeParse", "parseRemoteHomeCatalog: movie_sections array length = ${payload.optJSONArray("movie_sections")?.length() ?: 0}")
+    Log.d("HomeParse", "parseRemoteHomeCatalog: series_sections array length = ${payload.optJSONArray("series_sections")?.length() ?: 0}")
+    // === LOGGING TEMPORAL: FIN ===
+    
     val favoriteItems = payload.optCatalogItems(
         "favorites",
         "favorite_channels",
@@ -32,6 +39,15 @@ fun parseRemoteHomeCatalog(payload: JSONObject): HomeCatalog {
         addGroupedSections(payload.optJSONArray("movie_sections"), ContentKind.MOVIE)
         addGroupedSections(payload.optJSONArray("series_sections"), ContentKind.SERIES)
     }
+    
+    // === LOGGING TEMPORAL: INICIO ===
+    Log.d("HomeParse", "parseRemoteHomeCatalog: Parsed ${sections.size} total sections")
+    sections.forEachIndexed { index, section ->
+        Log.d("HomeParse", "parseRemoteHomeCatalog: Section[$index] title='${section.title}' items=${section.items.size} " +
+            "contentType=${section.contentType} groupName=${section.groupName} year=${section.year} hasNextPage=${section.hasNextPage}")
+    }
+    // === LOGGING TEMPORAL: FIN ===
+    
     val searchableItems = (favoriteItems.orEmpty() + sections.flatMap(BrowseSection::items)).distinctBy(CatalogItem::stableId)
     return HomeCatalog(sections = sections, searchableItems = searchableItems, favoriteItems = favoriteItems)
 }
@@ -43,13 +59,30 @@ private fun MutableList<BrowseSection>.addGroupedSections(sectionsArray: JSONArr
         ContentKind.SERIES -> "series"
         else -> null
     }
+    
+    // === LOGGING TEMPORAL: INICIO ===
+    Log.d("AddGrouped", "addGroupedSections: Processing ${sectionsArray.length()} sections for $expectedKind")
+    // === LOGGING TEMPORAL: FIN ===
+    
     for (i in 0 until sectionsArray.length()) {
         val sectionObj = sectionsArray.optJSONObject(i) ?: continue
         val title = sectionObj.optString("title").takeIf { it.isNotBlank() } ?: continue
         val items = sectionObj.optJSONArray("items").toCatalogItems(expectedKind)
+        
+        // === LOGGING TEMPORAL: INICIO ===
+        Log.d("AddGrouped", "addGroupedSections: Processing section[$i] title='$title' rawItems=${sectionObj.optJSONArray("items")?.length() ?: 0} parsedItems=${items.size}")
+        // === LOGGING TEMPORAL: FIN ===
+        
         if (items.isNotEmpty()) {
             val groupName = title.substringBefore(" ·").takeIf { it.isNotBlank() }
             val year = extractYearFromTitle(title)
+            
+            // === LOGGING TEMPORAL: INICIO ===
+            val hasNextPageValue = items.size >= 12
+            Log.d("AddGrouped", "addGroupedSections: Section '$title' -> groupName='$groupName' year=$year " +
+                "items.size=${items.size} hasNextPageCalculation (items.size >= 12)=$hasNextPageValue")
+            // === LOGGING TEMPORAL: FIN ===
+            
             add(BrowseSection(title, items, contentType = contentType, groupName = groupName, year = year, hasNextPage = items.size >= 12))
         }
     }
