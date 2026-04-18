@@ -1,6 +1,7 @@
 package com.example.walactv
 
 import android.app.AlertDialog
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -36,6 +37,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.runtime.getValue
@@ -434,6 +436,23 @@ class PlayerFragment : Fragment() {
                 .build()
                 .also { exoPlayer ->
                     playerView.player = exoPlayer
+
+                    // Configurar estilo de subtítulos - texto blanco con fondo transparente
+                    playerView.subtitleView?.apply {
+                        setStyle(
+                            CaptionStyleCompat(
+                                Color.WHITE,                      // texto blanco
+                                Color.TRANSPARENT,                // fondo transparente
+                                Color.TRANSPARENT,                // ventana transparente
+                                CaptionStyleCompat.EDGE_TYPE_OUTLINE, // borde negro para legibilidad
+                                Color.BLACK,                      // color del borde
+                                null                              // fuente por defecto
+                            )
+                        )
+                        // Deshabilitar estilos embebidos del stream para usar nuestro estilo
+                        setApplyEmbeddedStyles(false)
+                    }
+
                     exoPlayer.addListener(PlayerListener())
                     exoPlayer.setMediaItem(createMediaItem(streamUrl))
                     exoPlayer.prepare()
