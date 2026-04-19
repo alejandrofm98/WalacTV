@@ -142,36 +142,31 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
     }
 
     var lastLoadKey by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedCountry, selectedGroup, searchQuery) {
         if (isEventGuide) return@LaunchedEffect
         val key = "$selectedCountry|$selectedGroup|$searchQuery"
-        if (key == lastLoadKey || isLoading) return@LaunchedEffect
-        lastLoadKey = key; isLoading = true
+        if (key == lastLoadKey) return@LaunchedEffect
         loader.clear(); currentPage = 0; isLoadingPage = false
         if (searchQuery.isNotBlank()) {
-            loader.loadSearch(searchQuery); displayItems = loader.getDisplayItems(); totalCount =
-                loader.getTotalCount()
+            val country = selectedCountry.takeUnless { it == ALL_OPTION }
+            val group = selectedGroup.takeUnless { it == ALL_OPTION }
+            loader.loadSearch(searchQuery, country, group)
         } else {
             val country = selectedCountry.takeUnless { it == ALL_OPTION }
             val group = selectedGroup.takeUnless { it == ALL_OPTION }
-            loader.refreshTotalCount(country, group); totalCount = loader.getTotalCount()
-            loader.loadPage(0, country, group); displayItems = loader.getDisplayItems()
+            loader.refreshTotalCount(country, group)
+            loader.loadPage(0, country, group)
         }
-        isLoading = false
+        lastLoadKey = key
+        displayItems = loader.getDisplayItems()
+        totalCount = loader.getTotalCount()
     }
 
     LaunchedEffect(displayItemsForGrid) {
         if (isEventGuide && displayItemsForGrid.isNotEmpty()) {
             val index = fragment.findNextEventIndex(displayItemsForGrid)
             if (index > 0) lazyGridState.scrollToItem(index)
-        }
-    }
-
-    LaunchedEffect(selectedCountry) {
-        if (!isEventGuide) {
-            searchQuery = ""; selectedGroup = ALL_OPTION
         }
     }
 
@@ -439,41 +434,25 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
     LaunchedEffect(selectedCountry) { selectedGroup = ALL_OPTION }
 
     var lastLoadKey by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
-    var searchDebounceJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
-    LaunchedEffect(searchQuery) {
-        searchDebounceJob?.cancel()
-        searchDebounceJob = launch {
-            kotlinx.coroutines.delay(500)
-            val key = "$selectedCountry|$selectedGroup|$searchQuery"
-            if (key == lastLoadKey) return@launch
-            lastLoadKey = key; isLoading = true
-            loader.clear(); currentPage = 0; isLoadingPage = false
-            if (searchQuery.isNotBlank()) {
-                loader.loadSearch(searchQuery); displayItems =
-                    loader.getDisplayItems(); totalCount = loader.getTotalCount()
-            } else {
-                val country = selectedCountry.takeUnless { it == ALL_OPTION }
-                val group = selectedGroup.takeUnless { it == ALL_OPTION }
-                loader.refreshTotalCount(country, group); totalCount = loader.getTotalCount()
-                loader.loadPage(0, country, group); displayItems = loader.getDisplayItems()
-            }
-            isLoading = false
-        }
-    }
-
-    LaunchedEffect(selectedCountry, selectedGroup) {
-        if (searchQuery.isNotBlank()) return@LaunchedEffect
-        val key = "$selectedCountry|$selectedGroup|"
-        if (key == lastLoadKey || isLoading) return@LaunchedEffect
-        lastLoadKey = key; isLoading = true
+    LaunchedEffect(selectedCountry, selectedGroup, searchQuery) {
+        val key = "$selectedCountry|$selectedGroup|$searchQuery"
+        if (key == lastLoadKey) return@LaunchedEffect
         loader.clear(); currentPage = 0; isLoadingPage = false
+        if (searchQuery.isNotBlank()) {
+            kotlinx.coroutines.delay(300)
+        }
+        lastLoadKey = key
         val country = selectedCountry.takeUnless { it == ALL_OPTION }
         val group = selectedGroup.takeUnless { it == ALL_OPTION }
-        loader.refreshTotalCount(country, group); totalCount = loader.getTotalCount()
-        loader.loadPage(0, country, group); displayItems = loader.getDisplayItems()
-        isLoading = false
+        if (searchQuery.isNotBlank()) {
+            loader.loadSearch(searchQuery, country, group)
+        } else {
+            loader.refreshTotalCount(country, group)
+            loader.loadPage(0, country, group)
+        }
+        totalCount = loader.getTotalCount()
+        displayItems = loader.getDisplayItems()
     }
 
     LaunchedEffect(lazyGridState, searchQuery) {

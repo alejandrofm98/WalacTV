@@ -22,6 +22,15 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE nombreNormalizado LIKE '%' || :query || '%' ORDER BY numero ASC LIMIT 100")
     suspend fun search(query: String): List<ChannelEntity>
 
+    @Query("SELECT * FROM channels WHERE nombreNormalizado LIKE '%' || :query || '%' AND country = :country ORDER BY numero ASC LIMIT 100")
+    suspend fun searchByCountry(query: String, country: String): List<ChannelEntity>
+
+    @Query("SELECT * FROM channels WHERE nombreNormalizado LIKE '%' || :query || '%' AND grupoNormalizado = :group ORDER BY numero ASC LIMIT 100")
+    suspend fun searchByGroup(query: String, group: String): List<ChannelEntity>
+
+    @Query("SELECT * FROM channels WHERE nombreNormalizado LIKE '%' || :query || '%' AND country = :country AND grupoNormalizado = :group ORDER BY numero ASC LIMIT 100")
+    suspend fun searchByCountryAndGroup(query: String, country: String, group: String): List<ChannelEntity>
+
     @Query("SELECT * FROM channels WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<String>): List<ChannelEntity>
 
@@ -70,6 +79,15 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE nombreNormalizado LIKE '%' || :query || '%' ORDER BY nombreNormalizado ASC LIMIT 100")
     suspend fun search(query: String): List<MovieEntity>
 
+    @Query("SELECT * FROM movies WHERE nombreNormalizado LIKE '%' || :query || '%' AND country = :country ORDER BY nombreNormalizado ASC LIMIT 100")
+    suspend fun searchByCountry(query: String, country: String): List<MovieEntity>
+
+    @Query("SELECT * FROM movies WHERE nombreNormalizado LIKE '%' || :query || '%' AND grupoNormalizado = :group ORDER BY nombreNormalizado ASC LIMIT 100")
+    suspend fun searchByGroup(query: String, group: String): List<MovieEntity>
+
+    @Query("SELECT * FROM movies WHERE nombreNormalizado LIKE '%' || :query || '%' AND country = :country AND grupoNormalizado = :group ORDER BY nombreNormalizado ASC LIMIT 100")
+    suspend fun searchByCountryAndGroup(query: String, country: String, group: String): List<MovieEntity>
+
     @Query("SELECT COUNT(*) FROM movies")
     suspend fun getCount(): Int
 
@@ -114,6 +132,15 @@ interface SeriesDao {
 
     @Query("SELECT id, providerId, logo, country, temporada, episodio, serieName, nombreNormalizado, grupoNormalizado FROM series WHERE serieName LIKE '%' || :query || '%' LIMIT 500")
     suspend fun search(query: String): List<SeriesEntity>
+
+    @Query("SELECT id, providerId, logo, country, temporada, episodio, serieName, nombreNormalizado, grupoNormalizado FROM series WHERE serieName LIKE '%' || :query || '%' AND country = :country LIMIT 500")
+    suspend fun searchByCountry(query: String, country: String): List<SeriesEntity>
+
+    @Query("SELECT id, providerId, logo, country, temporada, episodio, serieName, nombreNormalizado, grupoNormalizado FROM series WHERE serieName LIKE '%' || :query || '%' AND grupoNormalizado = :group LIMIT 500")
+    suspend fun searchByGroup(query: String, group: String): List<SeriesEntity>
+
+    @Query("SELECT id, providerId, logo, country, temporada, episodio, serieName, nombreNormalizado, grupoNormalizado FROM series WHERE serieName LIKE '%' || :query || '%' AND country = :country AND grupoNormalizado = :group LIMIT 500")
+    suspend fun searchByCountryAndGroup(query: String, country: String, group: String): List<SeriesEntity>
 
     @Query("SELECT COUNT(DISTINCT serieName) FROM series")
     suspend fun getCount(): Int

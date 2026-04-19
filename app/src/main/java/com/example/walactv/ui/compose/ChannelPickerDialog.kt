@@ -97,7 +97,11 @@ internal fun ChannelPickerDialog(
     LaunchedEffect(currentCountry, currentGroup, searchQuery, showFavorites) {
         loader.clear(); currentPage = 0; isLoadingPage = false
         when {
-            searchQuery.isNotBlank() -> { loader.loadSearch(searchQuery); displayChannels = loader.getDisplayItems(); totalCount = displayChannels.size }
+            searchQuery.isNotBlank() -> {
+                val country = currentCountry.takeUnless { it == ALL_OPTION }
+                val group = currentGroup.takeUnless { it == ALL_OPTION }
+                loader.loadSearch(searchQuery, country, group); displayChannels = loader.getDisplayItems(); totalCount = displayChannels.size
+            }
             showFavorites -> {
                 val favs = runCatching { fragment.repository.loadFavoriteChannels() }.getOrDefault(emptyList())
                 displayChannels = favs.sortedBy { it.channelNumber ?: Int.MAX_VALUE }; totalCount = displayChannels.size

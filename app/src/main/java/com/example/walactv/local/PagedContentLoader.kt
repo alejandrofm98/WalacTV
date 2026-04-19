@@ -86,8 +86,8 @@ class PagedContentLoader(
         }
     }
 
-    suspend fun loadSearch(query: String) {
-        Log.d(TAG, "loadSearch: starting search for '$query' with kind=$kind")
+    suspend fun loadSearch(query: String, country: String? = null, group: String? = null) {
+        Log.d(TAG, "loadSearch: starting search for '$query' with kind=$kind, country=$country, group=$group")
         cache.clear()
         loadedPages.clear()
         isSearchMode = true
@@ -95,20 +95,20 @@ class PagedContentLoader(
         try {
             val user = repository.currentUsername()
             val pass = repository.currentPassword()
-            Log.d(TAG, "loadSearch: calling search for kind=$kind, query='$query'")
+            Log.d(TAG, "loadSearch: calling search for kind=$kind, query='$query', country=$country, group=$group")
             val items = when (kind) {
                 ContentKind.CHANNEL -> {
-                    val entities = withContext(Dispatchers.IO) { contentCacheManager.searchChannels(query) }
+                    val entities = withContext(Dispatchers.IO) { contentCacheManager.searchChannels(query, country, group) }
                     Log.d(TAG, "loadSearch: channels search returned ${entities.size} entities")
                     entities.map { it.toCatalogItem(user, pass) }
                 }
                 ContentKind.MOVIE -> {
-                    val entities = withContext(Dispatchers.IO) { contentCacheManager.searchMovies(query) }
+                    val entities = withContext(Dispatchers.IO) { contentCacheManager.searchMovies(query, country, group) }
                     Log.d(TAG, "loadSearch: movies search returned ${entities.size} entities")
                     entities.map { it.toCatalogItem(user, pass) }.uniqueMovies()
                 }
                 ContentKind.SERIES -> {
-                    val entities = withContext(Dispatchers.IO) { contentCacheManager.searchSeries(query) }
+                    val entities = withContext(Dispatchers.IO) { contentCacheManager.searchSeries(query, country, group) }
                     Log.d(TAG, "loadSearch: series search returned ${entities.size} entities")
                     entities.map { it.toCatalogItem(user, pass) }
                 }
@@ -116,7 +116,7 @@ class PagedContentLoader(
             }
 
             cache.addAll(items)
-            Log.d(TAG, "loadSearch($kind, query='$query'): found ${cache.size} results")
+            Log.d(TAG, "loadSearch($kind, query='$query', country=$country, group=$group): found ${cache.size} results")
         } finally {
             isLoading = false
         }

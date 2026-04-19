@@ -476,6 +476,17 @@ class ContentCacheManager(private val context: Context) {
         result
     }
 
+    suspend fun searchChannels(query: String, country: String?, group: String?): List<ChannelEntity> = withContext(Dispatchers.IO) {
+        val result = when {
+            country != null && group != null -> database.channelDao().searchByCountryAndGroup(query, country, group)
+            country != null -> database.channelDao().searchByCountry(query, country)
+            group != null -> database.channelDao().searchByGroup(query, group)
+            else -> database.channelDao().search(query)
+        }
+        Log.d(TAG, "searchChannels($query, country=$country, group=$group): returning ${result.size} entities")
+        result
+    }
+
     suspend fun getChannelsByIds(ids: List<String>): List<ChannelEntity> = withContext(Dispatchers.IO) {
         val result = if (ids.isEmpty()) emptyList<ChannelEntity>()
         else database.channelDao().getByIds(ids)
@@ -519,6 +530,17 @@ class ContentCacheManager(private val context: Context) {
         result
     }
 
+    suspend fun searchMovies(query: String, country: String?, group: String?): List<MovieEntity> = withContext(Dispatchers.IO) {
+        val result = when {
+            country != null && group != null -> database.movieDao().searchByCountryAndGroup(query, country, group)
+            country != null -> database.movieDao().searchByCountry(query, country)
+            group != null -> database.movieDao().searchByGroup(query, group)
+            else -> database.movieDao().search(query)
+        }
+        Log.d(TAG, "searchMovies($query, country=$country, group=$group): returning ${result.size} entities")
+        result
+    }
+
     suspend fun getMoviesCount(): Int = withContext(Dispatchers.IO) {
         val count = database.movieDao().getCount()
         Log.d(TAG, "getMoviesCount: $count")
@@ -558,6 +580,26 @@ class ContentCacheManager(private val context: Context) {
             .sortedBy { it.serieName }
             .take(100)
         Log.d(TAG, "searchSeries('$query'): $total episodes -> ${uniqueSeries.size} unique -> ${filtered.size} matches")
+        if (filtered.isNotEmpty()) {
+            Log.d(TAG, "searchSeries: first result serieName='${filtered.first().serieName}'")
+        }
+        filtered
+    }
+
+    suspend fun searchSeries(query: String, country: String?, group: String?): List<SeriesEntity> = withContext(Dispatchers.IO) {
+        val total = database.seriesDao().getCount()
+        Log.d(TAG, "searchSeries: DB has $total total episodes, searching for '$query', country=$country, group=$group")
+        val allSeries = when {
+            country != null && group != null -> database.seriesDao().getByCountryAndGroupPaged(country, group, 50000, 0)
+            country != null -> database.seriesDao().getByCountryPaged(country, 50000, 0)
+            group != null -> database.seriesDao().getByGroupPaged(group, 50000, 0)
+            else -> database.seriesDao().getAllPaged(50000, 0)
+        }
+        val uniqueSeries = allSeries.distinctBy { it.serieName }
+        val filtered = uniqueSeries.filter { it.serieName.contains(query, ignoreCase = true) }
+            .sortedBy { it.serieName }
+            .take(100)
+        Log.d(TAG, "searchSeries('$query', country=$country, group=$group): ${uniqueSeries.size} unique -> ${filtered.size} matches")
         if (filtered.isNotEmpty()) {
             Log.d(TAG, "searchSeries: first result serieName='${filtered.first().serieName}'")
         }
