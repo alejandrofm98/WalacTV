@@ -217,7 +217,7 @@ class ComposeMainFragment : Fragment() {
 
     // ── Inner types ────────────────────────────────────────────────────────
 
-    internal enum class MainMode { Home, TV, Movies, Series, Events, Anime, Settings }
+    internal enum class MainMode { Home, TV, Movies, Series, Events, Settings }
 
     internal data class NavItem(
         val icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -232,7 +232,7 @@ class ComposeMainFragment : Fragment() {
         val selectedItemStableId: String,
     )
 
-    internal enum class AnimeTab { ON_AIR, LATEST, SEARCH }
+    
 
     companion object {
         internal const val TAG = "ComposeMainFragment"

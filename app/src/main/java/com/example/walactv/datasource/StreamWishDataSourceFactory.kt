@@ -5,13 +5,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 
-/**
- * Factory que devuelve un StreamWishDataSource (stripea headers PNG falsos)
- * cuando la URL parece ser de StreamWish/FileMoon, y un HttpDataSource normal
- * para el resto.
- *
- * Sustituye a DefaultHttpDataSource.Factory() en initializePlayer().
- */
 @UnstableApi
 class StreamWishDataSourceFactory(
     private val userAgent: String = "WalacTV/AndroidTV",
@@ -24,8 +17,7 @@ class StreamWishDataSourceFactory(
 
     companion object {
         private const val TAG = "StreamWishDSFactory"
-        
-        // Dominios conocidos de StreamWish y sus CDNs
+
         private val STREAMWISH_DOMAINS = listOf(
             "streamwish", "filemoon", "hglamioz", "wishembed",
             "swdyu", "sfastwish", "flaswish", "strwish",
@@ -60,8 +52,6 @@ class StreamWishDataSourceFactory(
 
     override fun createDataSource(): DataSource {
         val http = buildHttpDataSource()
-        // Siempre envolvemos en StreamWishDataSource.
-        // Si el segmento no tiene header PNG falso, lo detecta y pasa sin modificar.
         return StreamWishDataSource(http)
     }
 }

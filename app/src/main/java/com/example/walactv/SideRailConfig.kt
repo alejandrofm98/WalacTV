@@ -23,6 +23,5 @@ internal fun buildDefaultSideRailEntries(): List<SideRailEntry> {
         SideRailEntry(label = "TV en directo", destination = SideRailDestination.TV),
         SideRailEntry(label = "Peliculas", destination = SideRailDestination.MOVIES),
         SideRailEntry(label = "Series", destination = SideRailDestination.SERIES),
-        SideRailEntry(label = "Anime", destination = SideRailDestination.ANIME),
     )
 }

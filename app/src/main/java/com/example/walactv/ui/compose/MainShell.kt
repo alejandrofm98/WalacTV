@@ -75,7 +75,6 @@ internal fun MainShell(fragment: ComposeMainFragment) {
                     MainMode.Movies   -> VodGridContent(fragment, ContentKind.MOVIE)
                     MainMode.Series   -> VodGridContent(fragment, ContentKind.SERIES)
                     MainMode.Settings -> SettingsContent(fragment)
-                    MainMode.Anime    -> AnimeBrowseContent(fragment)
                 }
             }
         }
@@ -175,7 +174,7 @@ internal fun ComposeMainFragment.toNavItem(entry: SideRailEntry): ComposeMainFra
         SideRailDestination.TV     -> ComposeMainFragment.NavItem(Icons.Outlined.LiveTv, entry.label, MainMode.TV)
         SideRailDestination.MOVIES -> ComposeMainFragment.NavItem(Icons.Outlined.Movie, entry.label, MainMode.Movies)
         SideRailDestination.SERIES -> ComposeMainFragment.NavItem(Icons.Outlined.Tv, entry.label, MainMode.Series)
-        SideRailDestination.ANIME  -> ComposeMainFragment.NavItem(Icons.Outlined.PlayArrow, entry.label, MainMode.Anime)
+        else -> ComposeMainFragment.NavItem(Icons.Outlined.Home, entry.label, MainMode.Home)
     }
 }
 

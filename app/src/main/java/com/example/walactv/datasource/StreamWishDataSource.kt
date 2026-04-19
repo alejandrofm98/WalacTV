@@ -8,15 +8,6 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 
-/**
- * DataSource que stripea el header PNG falso que StreamWish/FileMoon
- * ponen delante de sus segmentos MPEG-TS.
- *
- * Estructura del segmento tal como llega del CDN:
- *   [89 50 4E 47 0D 0A 1A 0A]  ← Header PNG falso
- *   [FF FF FF ... FF]           ← Padding variable de 0xFF
- *   [47 ...]                    ← Primer sync byte MPEG-TS real (0x47)
- */
 @UnstableApi
 class StreamWishDataSource(
     private val upstream: HttpDataSource,
@@ -53,7 +44,6 @@ class StreamWishDataSource(
         }
         stripFakeHeader()
 
-        // Si quedan bytes en el prefetchBuffer, devolverlos primero
         if (prefetchStart < prefetchEnd) {
             val available = prefetchEnd - prefetchStart
             val toCopy = minOf(available, length)
@@ -84,7 +74,6 @@ class StreamWishDataSource(
         if (totalRead == 0) return
 
         if (!hasFakePngHeader(prefetchBuffer, totalRead)) {
-            // No es PNG falso → pasar tal cual desde el inicio
             prefetchStart = 0
             return
         }

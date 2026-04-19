@@ -134,7 +134,7 @@ dependencies {
     // OkHttp para actualizaciones
     implementation(libs.okhttp)
 
-    // Retrofit + Gson para AnimeFLV API
+    // Retrofit + Gson para API
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
 

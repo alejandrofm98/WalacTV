@@ -394,7 +394,6 @@ internal fun ComposeMainFragment.defaultItemForMode(
     ComposeMainFragment.MainMode.Movies   -> searchableItems.firstOrNull { it.kind == ContentKind.MOVIE }
     ComposeMainFragment.MainMode.Series   -> searchableItems.firstOrNull { it.kind == ContentKind.SERIES }
     ComposeMainFragment.MainMode.Settings -> null
-    ComposeMainFragment.MainMode.Anime    -> null
 }
 
 internal fun ComposeMainFragment.refreshCatalog() {
