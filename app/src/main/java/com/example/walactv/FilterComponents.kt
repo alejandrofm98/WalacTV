@@ -420,13 +420,6 @@ fun FilterDialog(
                             }
                         }
                     }
-
-                    Text(
-                        "\u25B2\u25BC para navegar \u2022 OK para seleccionar",
-                        color = IptvTextMuted.copy(alpha = 0.6f),
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
                 }
             }
         }
