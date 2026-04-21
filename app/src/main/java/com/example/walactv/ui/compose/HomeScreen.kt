@@ -152,34 +152,32 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
     ) {
         item { ScreenHeader(title = "Inicio", subtitle = "") }
         itemsIndexed(fragment.homeSections) { index, section ->
-            // === LOGGING TEMPORAL: INICIO ===
-            val willLoadMore = section.contentType != null && section.groupName != null && section.hasNextPage
-            Log.d("HomeScreen", "ContentSection[$index]: title='${section.title}' " +
-                "contentType=${section.contentType} groupName=${section.groupName} " +
-                "hasNextPage=${section.hasNextPage} items=${section.items.size} " +
-                "willLoadMore=$willLoadMore")
-            // === LOGGING TEMPORAL: FIN ===
-            
             ContentSection(
                 fragment = fragment,
                 section = section,
                 selfFocusRequester = focusRequesters[index],
                 onFocused = { fragment.selectedHero = it },
-                onLoadMore = if (section.contentType != null && section.groupName != null && section.hasNextPage) { sectionToLoad, onDone ->
-                    fragment.scope.launch {
-                        try {
-                            val nextPage = sectionToLoad.currentPage + 1
-                            val (newItems, hasNext) = fragment.repository.loadContentPage(
-                                sectionToLoad.contentType!!, sectionToLoad.groupName!!, nextPage, 12, sectionToLoad.year
-                            )
-                            if (newItems.isNotEmpty()) {
-                                val updated = sectionToLoad.copy(
-                                    items = sectionToLoad.items + newItems, currentPage = nextPage, hasNextPage = hasNext
+                onLoadMore = if (section.contentType != null && section.groupName != null && section.hasNextPage) {
+                    { sectionToLoad: BrowseSection, onDone: () -> Unit ->
+                        fragment.scope.launch {
+                            try {
+                                val pageSize = 24
+                                val nextPage = sectionToLoad.currentPage + 1
+                                val (newItems, hasNext) = fragment.repository.loadContentPage(
+                                    sectionToLoad.contentType!!, sectionToLoad.groupName!!, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
                                 )
-                                val index = fragment.homeSections.indexOfFirst { it.title == sectionToLoad.title }
-                                if (index >= 0) fragment.homeSections = fragment.homeSections.toMutableList().also { it[index] = updated }
-                            }
-                        } finally { onDone() }
+                                val actuallyHasNext = if (newItems.isEmpty()) false else hasNext
+                                val updated = sectionToLoad.copy(
+                                    items = (sectionToLoad.items + newItems).distinctBy(CatalogItem::stableId),
+                                    currentPage = nextPage,
+                                    hasNextPage = actuallyHasNext
+                                )
+                                val idx = fragment.homeSections.indexOfFirst {
+                                    it.title == sectionToLoad.title && it.contentType == sectionToLoad.contentType
+                                }
+                                if (idx >= 0) fragment.homeSections = fragment.homeSections.toMutableList().also { it[idx] = updated }
+                            } finally { onDone() }
+                        }
                     }
                 } else null,
             )
@@ -266,27 +264,17 @@ internal fun ContentSection(
         }
     }
 
-    LaunchedEffect(lazyListState, section.hasNextPage, onLoadMore) {
-        // === LOGGING TEMPORAL: INICIO ===
-        Log.d("LazyLoad", "LaunchedEffect triggered for section '${section.title}': hasNextPage=${section.hasNextPage} onLoadMore=${onLoadMore != null}")
-        // === LOGGING TEMPORAL: FIN ===
-        
-        if (onLoadMore == null || !section.hasNextPage || isLoadingMore) return@LaunchedEffect
+    val stableOnLoadMore = remember(onLoadMore) { onLoadMore }
+
+    LaunchedEffect(lazyListState, section.hasNextPage, section.currentPage) {
+        if (stableOnLoadMore == null || !section.hasNextPage || isLoadingMore) return@LaunchedEffect
         snapshotFlow { lazyListState.layoutInfo }
             .map { info -> (info.visibleItemsInfo.lastOrNull()?.index ?: -1) to info.totalItemsCount }
             .distinctUntilChanged()
             .collect { (lastVisible, totalItems) ->
-                // === LOGGING TEMPORAL: INICIO ===
-                Log.d("LazyLoad", "Section '${section.title}': lastVisible=$lastVisible totalItems=$totalItems threshold=${totalItems - 5}")
-                // === LOGGING TEMPORAL: FIN ===
-                
-                if (totalItems > 0 && lastVisible >= totalItems - 5) {
-                    // === LOGGING TEMPORAL: INICIO ===
-                    Log.d("LazyLoad", "TRIGGERING LOAD MORE for section '${section.title}'")
-                    // === LOGGING TEMPORAL: FIN ===
-                    
+                if (totalItems > 0 && lastVisible >= totalItems - 5 && !isLoadingMore) {
                     isLoadingMore = true
-                    onLoadMore(section) { isLoadingMore = false }
+                    stableOnLoadMore?.let { it(section) { isLoadingMore = false } }
                 }
             }
     }

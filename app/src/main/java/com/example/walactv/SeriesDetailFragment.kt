@@ -4,6 +4,7 @@ package com.example.walactv
 
 import android.graphics.drawable.Drawable
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -21,6 +22,10 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +54,7 @@ class SeriesDetailFragment : Fragment() {
     private lateinit var repository: IptvRepository
 
     companion object {
+        private const val TAG = "SeriesDetailFragment"
         private const val ARG_SERIES_NAME = "series_name"
         fun newInstance(seriesName: String) = SeriesDetailFragment().apply {
             arguments = Bundle().apply { putString(ARG_SERIES_NAME, seriesName) }
@@ -58,10 +64,12 @@ class SeriesDetailFragment : Fragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = IptvRepository(requireContext())
+        Log.d(TAG, "SeriesDetailFragment created for series")
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val seriesName = arguments?.getString(ARG_SERIES_NAME) ?: ""
+        Log.d(TAG, "SeriesDetailFragment: seriesName='$seriesName'")
         return ComposeView(requireContext()).apply {
             setContent {
                 WalacTVTheme {
@@ -137,12 +145,26 @@ fun SeriesDetailScreen(
     repository: IptvRepository,
     onEpisodeClick: (CatalogItem, List<CatalogItem>, List<CatalogItem>) -> Unit,
 ) {
+    var isLoading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+
     val context = LocalContext.current
     val preferredLanguage = remember { PreferencesManager.getPreferredLanguageOrDefault() }
 
     val allEpisodesState = produceState<List<CatalogItem>>(initialValue = emptyList(), seriesName) {
-        value = runCatching { repository.loadSeriesEpisodes(seriesName) }.getOrDefault(emptyList())
-            .sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+        try {
+            loadError = null
+            val episodes = repository.loadSeriesEpisodes(seriesName)
+            if (episodes.isEmpty()) {
+                loadError = "No se encontraron episodios para '$seriesName'"
+            }
+            value = episodes.sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+        } catch (e: Exception) {
+            loadError = "Error: ${e.message}"
+            value = emptyList()
+        } finally {
+            isLoading = false
+        }
     }
     val allEpisodes = allEpisodesState.value
 
@@ -179,6 +201,50 @@ fun SeriesDetailScreen(
     }
 
     val posterUrl = allEpisodes.firstOrNull()?.imageUrl ?: ""
+
+    if (isLoading) {
+        val infiniteTransition = rememberInfiniteTransition(label = "loadingSpinner")
+        val rotation by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(tween(1000)),
+            label = "rotation"
+        )
+        Box(
+            modifier = Modifier.fillMaxSize().background(IptvBackground).padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Filled.PlayArrow,
+                contentDescription = null,
+                tint = IptvLive,
+                modifier = Modifier.size(48.dp).scale(rotation / 360f * 0.2f + 1f)
+            )
+        }
+        return
+    }
+
+    if (loadError != null || allEpisodes.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(IptvBackground).padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = loadError ?: "No se encontraron episodios",
+                    color = IptvLive,
+                    fontSize = 18.sp
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "Serie: $seriesName",
+                    color = IptvTextMuted,
+                    fontSize = 14.sp
+                )
+            }
+        }
+        return
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(IptvBackground).padding(32.dp)) {
         Column(modifier = Modifier.fillMaxSize()) {

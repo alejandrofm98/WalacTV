@@ -318,7 +318,11 @@ class IptvRepository(context: Context) {
 
     suspend fun loadSeriesEpisodes(seriesName: String): List<CatalogItem> =
         withContext(Dispatchers.IO) {
-            if (seriesName.isBlank()) return@withContext emptyList()
+            if (seriesName.isBlank()) {
+                Log.w(TAG, "loadSeriesEpisodes: seriesName is blank, returning empty")
+                return@withContext emptyList()
+            }
+            Log.d(TAG, "loadSeriesEpisodes: loading episodes for '$seriesName'")
             val token = getAccessToken()
             val encoded = encodePathSegment(seriesName)
             val pass = credentialStore.password()
@@ -326,32 +330,42 @@ class IptvRepository(context: Context) {
             val items = mutableListOf<CatalogItem>()
             var page = 1
             do {
-                val payload = getJsonObject(
-                    url = "${BuildConfig.IPTV_BASE_URL}/api/series/$encoded/episodes?page=$page&page_size=100$passParam",
-                    token = token,
-                )
+                val url = "${BuildConfig.IPTV_BASE_URL}/api/series/$encoded/episodes?page=$page&page_size=100$passParam"
+                Log.d(TAG, "loadSeriesEpisodes: fetching page $page, url=$url")
+                val payload = getJsonObject(url = url, token = token)
                 val parsed = parseRemoteCatalogPage(payload, expectedKind = ContentKind.SERIES)
+                Log.d(TAG, "loadSeriesEpisodes: page $page returned ${parsed.items.size} items, hasNext=${parsed.hasNext}")
                 items += parsed.items
                 page++
                 if (!parsed.hasNext) break
             } while (true)
-            resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
+            val resolved = resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
+            Log.d(TAG, "loadSeriesEpisodes: total ${resolved.size} episodes after deduplication")
+            resolved
         }
 
     // ── Content pagination for home sections ───────────────────────────────────
 
-    suspend fun loadContentPage(contentType: String, group: String, page: Int, pageSize: Int = 12, year: Int? = null): Pair<List<CatalogItem>, Boolean> =
+    suspend fun loadContentPage(
+        contentType: String,
+        group: String,
+        page: Int,
+        pageSize: Int = 12,
+        year: Int? = null,
+        sectionTitle: String? = null  // Título de sección del home para paginación consistente
+    ): Pair<List<CatalogItem>, Boolean> =
         withContext(Dispatchers.IO) {
             val startTime = System.currentTimeMillis()
             val token = getAccessToken()
             val country = PreferencesManager.getPreferredLanguageOrDefault()
             val pass = credentialStore.password()
             val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
-            val effectiveGroup = if (year != null) null else group
+            val effectiveGroup = if (year != null || sectionTitle != null) null else group
             val groupParam = effectiveGroup?.let { "&group=${URLEncoder.encode(it, UTF8)}" } ?: ""
             val yearParam = if (year != null) "&year=$year" else ""
-            val url = "${BuildConfig.IPTV_BASE_URL}/api/content?content_type=$contentType$groupParam&country=${URLEncoder.encode(country, UTF8)}&page=$page&page_size=$pageSize$yearParam$passParam"
-            Log.d(TAG, "loadContentPage: loading $contentType group=$effectiveGroup year=$year page=$page")
+            val sectionParam = sectionTitle?.let { "&section_title=${URLEncoder.encode(it, UTF8)}" } ?: ""
+            val url = "${BuildConfig.IPTV_BASE_URL}/api/content?content_type=$contentType$groupParam&country=${URLEncoder.encode(country, UTF8)}&page=$page&page_size=$pageSize$yearParam$passParam$sectionParam"
+            Log.d(TAG, "loadContentPage: loading $contentType group=$effectiveGroup year=$year sectionTitle=$sectionTitle page=$page")
             val payload = getJsonObject(url, token)
             val expectedKind = when (contentType) {
                 "movies" -> ContentKind.MOVIE
@@ -382,30 +396,12 @@ class IptvRepository(context: Context) {
         val encoded = URLEncoder.encode(country, Charsets.UTF_8.name())
         val pass = credentialStore.password()
         val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
-        
-        // === LOGGING TEMPORAL: INICIO ===
-        Log.d(TAG, "HOME_API: Requesting /api/home?country=$country")
-        // === LOGGING TEMPORAL: FIN ===
-        
+
         val payload = getJsonObject(
             url = "${BuildConfig.IPTV_BASE_URL}/api/home?country=$encoded$passParam",
             token = token,
         )
-        
-        // === LOGGING TEMPORAL: INICIO ===
-        Log.d(TAG, "HOME_API: Response keys = ${payload.keys().asSequence().toList()}")
-        Log.d(TAG, "HOME_API: movie_sections count = ${payload.optJSONArray("movie_sections")?.length() ?: 0}")
-        Log.d(TAG, "HOME_API: series_sections count = ${payload.optJSONArray("series_sections")?.length() ?: 0}")
-        payload.optJSONArray("movie_sections")?.optJSONObject(0)?.let { firstSection ->
-            Log.d(TAG, "HOME_API: First movie_section title = ${firstSection.optString("title")}")
-            Log.d(TAG, "HOME_API: First movie_section items count = ${firstSection.optJSONArray("items")?.length() ?: 0}")
-        }
-        payload.optJSONArray("series_sections")?.optJSONObject(0)?.let { firstSection ->
-            Log.d(TAG, "HOME_API: First series_section title = ${firstSection.optString("title")}")
-            Log.d(TAG, "HOME_API: First series_section items count = ${firstSection.optJSONArray("items")?.length() ?: 0}")
-        }
-        // === LOGGING TEMPORAL: FIN ===
-        
+
         return resolveStreamTemplates(parseRemoteHomeCatalog(payload))
     }
 

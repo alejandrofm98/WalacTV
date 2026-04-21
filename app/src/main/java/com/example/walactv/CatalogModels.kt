@@ -222,6 +222,7 @@ data class BrowseSection(
     val contentType: String? = null,
     val groupName: String? = null,
     val year: Int? = null,
+    val sectionTitle: String? = null,  // Título para paginación consistente con /api/home
     val currentPage: Int = 1,
     val hasNextPage: Boolean = true,
 )

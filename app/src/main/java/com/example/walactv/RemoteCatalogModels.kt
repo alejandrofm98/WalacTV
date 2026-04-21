@@ -23,12 +23,6 @@ fun resolveStreamTemplate(template: String, username: String, password: String):
 }
 
 fun parseRemoteHomeCatalog(payload: JSONObject): HomeCatalog {
-    // === LOGGING TEMPORAL: INICIO ===
-    Log.d("HomeParse", "parseRemoteHomeCatalog: Starting parse")
-    Log.d("HomeParse", "parseRemoteHomeCatalog: movie_sections array length = ${payload.optJSONArray("movie_sections")?.length() ?: 0}")
-    Log.d("HomeParse", "parseRemoteHomeCatalog: series_sections array length = ${payload.optJSONArray("series_sections")?.length() ?: 0}")
-    // === LOGGING TEMPORAL: FIN ===
-    
     val favoriteItems = payload.optCatalogItems(
         "favorites",
         "favorite_channels",
@@ -39,51 +33,31 @@ fun parseRemoteHomeCatalog(payload: JSONObject): HomeCatalog {
         addGroupedSections(payload.optJSONArray("movie_sections"), ContentKind.MOVIE)
         addGroupedSections(payload.optJSONArray("series_sections"), ContentKind.SERIES)
     }
-    
-    // === LOGGING TEMPORAL: INICIO ===
-    Log.d("HomeParse", "parseRemoteHomeCatalog: Parsed ${sections.size} total sections")
-    sections.forEachIndexed { index, section ->
-        Log.d("HomeParse", "parseRemoteHomeCatalog: Section[$index] title='${section.title}' items=${section.items.size} " +
-            "contentType=${section.contentType} groupName=${section.groupName} year=${section.year} hasNextPage=${section.hasNextPage}")
-    }
-    // === LOGGING TEMPORAL: FIN ===
-    
+
     val searchableItems = (favoriteItems.orEmpty() + sections.flatMap(BrowseSection::items)).distinctBy(CatalogItem::stableId)
     return HomeCatalog(sections = sections, searchableItems = searchableItems, favoriteItems = favoriteItems)
 }
 
 private fun MutableList<BrowseSection>.addGroupedSections(sectionsArray: JSONArray?, expectedKind: ContentKind) {
     if (sectionsArray == null) return
+    
     val contentType = when (expectedKind) {
         ContentKind.MOVIE -> "movies"
         ContentKind.SERIES -> "series"
         else -> null
     }
     
-    // === LOGGING TEMPORAL: INICIO ===
-    Log.d("AddGrouped", "addGroupedSections: Processing ${sectionsArray.length()} sections for $expectedKind")
-    // === LOGGING TEMPORAL: FIN ===
-    
     for (i in 0 until sectionsArray.length()) {
         val sectionObj = sectionsArray.optJSONObject(i) ?: continue
         val title = sectionObj.optString("title").takeIf { it.isNotBlank() } ?: continue
         val items = sectionObj.optJSONArray("items").toCatalogItems(expectedKind)
         
-        // === LOGGING TEMPORAL: INICIO ===
-        Log.d("AddGrouped", "addGroupedSections: Processing section[$i] title='$title' rawItems=${sectionObj.optJSONArray("items")?.length() ?: 0} parsedItems=${items.size}")
-        // === LOGGING TEMPORAL: FIN ===
-        
         if (items.isNotEmpty()) {
             val groupName = title.substringBefore(" ·").takeIf { it.isNotBlank() }
             val year = extractYearFromTitle(title)
-            
-            // === LOGGING TEMPORAL: INICIO ===
-            val hasNextPageValue = items.size >= 12
-            Log.d("AddGrouped", "addGroupedSections: Section '$title' -> groupName='$groupName' year=$year " +
-                "items.size=${items.size} hasNextPageCalculation (items.size >= 12)=$hasNextPageValue")
-            // === LOGGING TEMPORAL: FIN ===
-            
-            add(BrowseSection(title, items, contentType = contentType, groupName = groupName, year = year, hasNextPage = items.size >= 12))
+            val sectionTitle = title.takeIf { isHomeSectionTitle(it) }
+            val hasMore = if (sectionObj.has("has_more")) sectionObj.optBoolean("has_more") else items.size >= 24
+            add(BrowseSection(title, items, contentType = contentType, groupName = groupName, year = year, sectionTitle = sectionTitle, hasNextPage = hasMore))
         }
     }
 }
@@ -91,6 +65,15 @@ private fun MutableList<BrowseSection>.addGroupedSections(sectionsArray: JSONArr
 private fun extractYearFromTitle(title: String): Int? {
     val yearPattern = Regex("^(20\\d{2})\\s*ESTRENOS", RegexOption.IGNORE_CASE)
     return yearPattern.find(title)?.groupValues?.get(1)?.toIntOrNull()
+}
+
+private fun isHomeSectionTitle(title: String): Boolean {
+    // Detecta si es una sección del home (año, PRIME, NETFLIX, HBO, DISNEY+, etc.)
+    val homeSectionPatterns = listOf(
+        Regex("^20\\d{2}\\s*ESTRENOS", RegexOption.IGNORE_CASE),
+        Regex("^(PRIME|NETFLIX|HBO MAX|DISNEY\\+|HBO)$", RegexOption.IGNORE_CASE)
+    )
+    return homeSectionPatterns.any { it.matches(title) }
 }
 
 fun parseRemoteCatalogPage(payload: JSONObject, expectedKind: ContentKind? = null): RemoteCatalogPage {
@@ -252,7 +235,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         "channel", "channels", "live" -> ContentKind.CHANNEL
         "event" -> ContentKind.EVENT
         "movie", "movies", "vod" -> ContentKind.MOVIE
-        "series", "serie" -> ContentKind.SERIES
+        "series", "serie", "series_group" -> ContentKind.SERIES
         else -> ContentKind.CHANNEL
         }
     }
@@ -299,7 +282,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         walacLanguage = optCleanString("country"),
         walacNameNormalized = nombreNormalizado,
         walacGroupNormalized = grupoNormalizado,
-        walacSeriesNameNormalized = optCleanString("serie_name"),
+        walacSeriesNameNormalized = optCleanString("series_name").ifBlank { optCleanString("serie_name") },
     )
     val description = optCleanString("description").ifBlank { optCleanString("subtitle") }
 
