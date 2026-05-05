@@ -35,6 +35,17 @@ data class CatalogItem(
     val episodeNumber: Int? = null,
     val streamOptions: List<StreamOption> = emptyList(),
     val isWatched: Boolean = false,
+    // Campos TMDB metadata
+    val overviewEn: String? = null,           // Sinopsis en inglés (fallback)
+    val voteAverage: Float? = null,          // Rating TMDB 0-10
+    val voteCount: Int? = null,              // Número de votos
+    val runtimeMinutes: Int? = null,         // Duración en minutos
+    val genres: List<String> = emptyList(),  // Lista de géneros
+    val backdropUrl: String? = null,       // URL imagen backdrop
+    val tmdbPosterUrl: String? = null,       // URL poster alternativo TMDB
+    val tagline: String? = null,             // Tagline/eslogan
+    val releaseDate: String? = null,         // Fecha de estreno (YYYY-MM-DD)
+    val year: Int? = null,                   // Año extraído de release_date
 )
 
 fun CatalogItem.searchableText(): List<String> {

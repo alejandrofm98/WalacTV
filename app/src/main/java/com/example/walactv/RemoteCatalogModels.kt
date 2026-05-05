@@ -284,7 +284,40 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         walacGroupNormalized = grupoNormalizado,
         walacSeriesNameNormalized = optCleanString("series_name").ifBlank { optCleanString("serie_name") },
     )
-    val description = optCleanString("description").ifBlank { optCleanString("subtitle") }
+    val description = optCleanString("overview_es")
+        .ifBlank { optCleanString("overview_en") }
+        .ifBlank { optCleanString("description") }
+        .ifBlank { optCleanString("subtitle") }
+
+    // Parsear géneros (viene como array de strings o JSON)
+    val genresList = buildList {
+        if (has("genres")) {
+            val genresArray = optJSONArray("genres")
+            if (genresArray != null) {
+                for (i in 0 until genresArray.length()) {
+                    val genre = genresArray.optString(i, "")
+                    if (genre.isNotBlank()) add(genre)
+                }
+            }
+        }
+    }
+
+    // Construir URL de backdrop
+    val backdropPath = optCleanString("backdrop_path")
+    val backdropUrl = if (backdropPath.isNotBlank()) {
+        "https://image.tmdb.org/t/p/w1280$backdropPath"
+    } else null
+
+    // Construir URL de poster alternativo de TMDB
+    val tmdbPosterPath = optCleanString("tmdb_poster_path").ifBlank { optCleanString("poster_path") }
+    val tmdbPosterUrl = if (tmdbPosterPath.isNotBlank()) {
+        "https://image.tmdb.org/t/p/w500$tmdbPosterPath"
+    } else null
+
+    // Parsear fecha y extraer año
+    val releaseDate = optCleanString("release_date").ifBlank { null }
+    val parsedYear = releaseDate?.takeIf { it.length >= 4 }?.substring(0, 4)?.toIntOrNull()
+        ?: optInt("year").takeIf { has("year") }
 
     return CatalogItem(
         stableId = stableId,
@@ -323,6 +356,17 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
                 )
             },
         ),
+        // Campos TMDB
+        overviewEn = optCleanString("overview_en").ifBlank { null },
+        voteAverage = optDouble("vote_average").toFloat().takeIf { has("vote_average") && get("vote_average") != null },
+        voteCount = optInt("vote_count").takeIf { has("vote_count") },
+        runtimeMinutes = optInt("runtime_minutes").takeIf { has("runtime_minutes") },
+        genres = genresList,
+        backdropUrl = backdropUrl,
+        tmdbPosterUrl = tmdbPosterUrl,
+        tagline = optCleanString("tagline").ifBlank { null },
+        releaseDate = releaseDate,
+        year = parsedYear,
     )
 }
 

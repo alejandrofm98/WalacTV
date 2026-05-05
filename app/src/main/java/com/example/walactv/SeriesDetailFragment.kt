@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,6 +56,7 @@ class SeriesDetailFragment : Fragment() {
 
     companion object {
         private const val TAG = "SeriesDetailFragment"
+        private const val PLAYER_FRAGMENT_TAG = "player_fragment"
         private const val ARG_SERIES_NAME = "series_name"
         fun newInstance(seriesName: String) = SeriesDetailFragment().apply {
             arguments = Bundle().apply { putString(ARG_SERIES_NAME, seriesName) }
@@ -132,10 +134,22 @@ class SeriesDetailFragment : Fragment() {
                 view?.requestFocus()
             },
         )
-        requireActivity().supportFragmentManager.beginTransaction()
-            .replace(R.id.main_browse_fragment, playerFragment)
-            .addToBackStack(null)
-            .commit()
+        val fragmentManager = requireActivity().supportFragmentManager
+        fragmentManager.findFragmentById(R.id.player_container)?.let { existing ->
+            fragmentManager.beginTransaction()
+                .remove(existing)
+                .commitNow()
+        }
+
+        fragmentManager.beginTransaction()
+            .replace(R.id.player_container, playerFragment, PLAYER_FRAGMENT_TAG)
+            .commitNow()
+
+        val container = requireActivity().findViewById<FrameLayout>(R.id.player_container)
+        container.visibility = View.VISIBLE
+        container.isFocusable = true
+        container.isFocusableInTouchMode = true
+        container.requestFocus()
     }
 }
 

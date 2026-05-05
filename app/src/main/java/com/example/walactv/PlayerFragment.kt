@@ -178,6 +178,7 @@ class PlayerFragment : Fragment() {
     private var isPlayerInitialized: Boolean = false
     private var isReleasing: Boolean = false
     private var closedByHost: Boolean = false
+    private var playerClosed: Boolean = false
     private lateinit var trackSelector: DefaultTrackSelector
 
     private var watchedMarked = false
@@ -326,6 +327,8 @@ class PlayerFragment : Fragment() {
 
     override fun onStart() {
         super.onStart()
+        if (playerClosed) return
+        activity?.findViewById<FrameLayout>(R.id.player_container)?.visibility = View.VISIBLE
         if (!isPlayerInitialized) {
             initializePlayer()
         }
@@ -334,6 +337,7 @@ class PlayerFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        if (playerClosed) return
         if (player == null && !isReleasing) {
             Log.d(TAG, "Reinicializando player en onResume")
             initializePlayer()
@@ -367,6 +371,7 @@ class PlayerFragment : Fragment() {
         handler.removeCallbacksAndMessages(null)
         retryCount = 0
         isReleasing = false
+        playerClosed = false
 
         try {
             val isStreamWish = StreamWishDataSourceFactory.isStreamWishUrl(streamUrl)
@@ -1648,17 +1653,18 @@ class PlayerFragment : Fragment() {
 
     override fun onStop() {
         super.onStop()
-        releasePlayer()
+        releasePlayer(closeUi = false, notifyHost = false)
     }
 
     fun closeFromHost() {
         Log.d(TAG, "closeFromHost called")
         closedByHost = true
+        playerClosed = true
         releasePlayer()
     }
 
-    private fun releasePlayer() {
-        Log.d(TAG, "releasePlayer: isReleasing=$isReleasing, closedByHost=$closedByHost")
+    private fun releasePlayer(closeUi: Boolean = true, notifyHost: Boolean = true) {
+        Log.d(TAG, "releasePlayer: isReleasing=$isReleasing, closedByHost=$closedByHost, closeUi=$closeUi, notifyHost=$notifyHost")
 
         if (isVodMode && contentId.isNotBlank()) {
             saveWatchProgress()
@@ -1666,6 +1672,7 @@ class PlayerFragment : Fragment() {
 
         isReleasing = true
         isPlayerInitialized = false
+        if (closeUi) playerClosed = true
         handler.removeCallbacksAndMessages(null)
 
         if (::playerView.isInitialized) {
@@ -1685,9 +1692,11 @@ class PlayerFragment : Fragment() {
         player = null
         retryCount = 0
 
-        activity?.findViewById<FrameLayout>(R.id.player_container)?.visibility = View.GONE
+        if (closeUi) {
+            activity?.findViewById<FrameLayout>(R.id.player_container)?.visibility = View.GONE
+        }
 
-        if (!closedByHost) {
+        if (notifyHost && !closedByHost) {
             Log.d(TAG, "Player closed without host, notifying via onPlayerClosed callback")
             onPlayerClosed?.invoke()
         }
