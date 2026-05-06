@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.LazyColumn
@@ -62,6 +64,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,6 +76,7 @@ import com.example.walactv.BrowseSection
 import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
+import com.example.walactv.tmdbDebug
 import com.example.walactv.ui.theme.IptvAccent
 import com.example.walactv.ui.theme.IptvCard
 import com.example.walactv.ui.theme.IptvFocusBg
@@ -89,18 +93,21 @@ import kotlinx.coroutines.launch
 
 // ── Constantes de diseño ───────────────────────────────────────────────────
 
-// Cards VOD (películas / series) — más anchas para mejor legibilidad
-internal val VOD_CARD_WIDTH = 160.dp
-private val VOD_IMAGE_HEIGHT  = 224.dp   // ratio ~2:3
-// Área de texto unificada: siempre la misma altura para VOD (con o sin subtítulo)
-// Línea 1: título (puede ocupar hasta 2 líneas)
-// Línea 2: subtítulo/episodio (siempre reservado, vacío en películas)
-private val VOD_TEXT_AREA_HEIGHT = 72.dp
+// Cards VOD — solo imagen, sin texto debajo (el título está en el hero)
+internal val VOD_CARD_WIDTH      = 120.dp
+private val VOD_IMAGE_HEIGHT     = 178.dp   // ratio ~2:3
+private val VOD_TEXT_AREA_HEIGHT = 0.dp     // sin texto para VOD
 
-// Cards canal / evento
-private val CH_CARD_WIDTH   = 200.dp
-private val CH_IMAGE_HEIGHT = 112.dp
-private val CH_TEXT_AREA_HEIGHT = 68.dp
+// Hero inmersivo — ocupa ~55% de la pantalla (el backdrop es fillMaxSize)
+// La zona de texto hero se posiciona encima del backdrop con gradiente
+private val HOME_HERO_FRACTION    = 0.56f   // fracción de pantalla para el hero
+// Zona de texto hero (título + meta + sinopsis) — dentro del hero
+private val HOME_HERO_TEXT_HEIGHT = 230.dp
+
+// Cards canal / evento — mantienen su texto
+private val CH_CARD_WIDTH       = 180.dp
+private val CH_IMAGE_HEIGHT     = 100.dp
+private val CH_TEXT_AREA_HEIGHT = 60.dp
 
 // Custom BringIntoViewSpec for Stremio-style focus scrolling (snap to left edge)
 @OptIn(ExperimentalFoundationApi::class)
@@ -126,6 +133,7 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
 
     LaunchedEffect(fragment.homeSections) {
         if (fragment.homeSections.isEmpty()) return@LaunchedEffect
+        if (fragment.selectedHero != null || fragment.pendingFocusItem != null) return@LaunchedEffect
         delay(200)
         runCatching { focusRequesters.firstOrNull()?.requestFocus() }
     }
@@ -143,44 +151,89 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         }
     }
 
-    
+    // Hero: solo VOD (películas y series), nunca canales ni eventos
+    val heroItem = remember(fragment.selectedHero, fragment.homeSections) {
+        fragment.selectedHero?.takeIf { it.isVodContent() }
+            ?: fragment.homeSections.asSequence()
+                .flatMap { it.items.asSequence() }
+                .firstOrNull { it.isVodContent() }
+    }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
-    ) {
-        item { ScreenHeader(title = "Inicio", subtitle = "") }
-        itemsIndexed(fragment.homeSections) { index, section ->
-            ContentSection(
-                fragment = fragment,
-                section = section,
-                selfFocusRequester = focusRequesters[index],
-                onFocused = { fragment.selectedHero = it },
-                onLoadMore = if (section.contentType != null && section.groupName != null && section.hasNextPage) {
-                    { sectionToLoad: BrowseSection, onDone: () -> Unit ->
-                        fragment.scope.launch {
-                            try {
-                                val pageSize = 24
-                                val nextPage = sectionToLoad.currentPage + 1
-                                val (newItems, hasNext) = fragment.repository.loadContentPage(
-                                    sectionToLoad.contentType!!, sectionToLoad.groupName!!, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
-                                )
-                                val actuallyHasNext = if (newItems.isEmpty()) false else hasNext
-                                val updated = sectionToLoad.copy(
-                                    items = (sectionToLoad.items + newItems).distinctBy(CatalogItem::stableId),
-                                    currentPage = nextPage,
-                                    hasNextPage = actuallyHasNext
-                                )
-                                val idx = fragment.homeSections.indexOfFirst {
-                                    it.title == sectionToLoad.title && it.contentType == sectionToLoad.contentType
-                                }
-                                if (idx >= 0) fragment.homeSections = fragment.homeSections.toMutableList().also { it[idx] = updated }
-                            } finally { onDone() }
-                        }
-                    }
-                } else null,
+    LaunchedEffect(heroItem?.stableId, heroItem?.backdropUrl, heroItem?.description, heroItem?.overviewEn) {
+        Log.d("TMDB_HOME", "hero=${heroItem.tmdbDebug()}")
+    }
+
+    // ── Layout inmersivo estilo Stremio: backdrop fullscreen, hero arriba, filas abajo ──
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFF050507))) {
+        val screenHeight = maxHeight
+        val heroHeight   = screenHeight * HOME_HERO_FRACTION
+        // Altura disponible para cada fila de contenido (lo que queda debajo del hero)
+        val rowZoneHeight = screenHeight - heroHeight
+
+        // ── Capa 1: Backdrop fullscreen — cubre toda la pantalla ─────────
+        HomeBackdrop(
+            item = heroItem,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        // ── Capa 2: Contenido (texto + filas) encima del backdrop ────────
+        Column(modifier = Modifier.fillMaxSize()) {
+
+            // ── Zona hero: texto + meta sobre el backdrop ─────────────────
+            HomeHeroText(
+                item = heroItem,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(heroHeight),
             )
+
+            // ── Filas de contenido — cada sección llena el espacio restante ─
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(rowZoneHeight),
+                contentPadding = PaddingValues(top = 0.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                itemsIndexed(fragment.homeSections, key = { index, s -> "$index-${s.title}" }) { index, section ->
+                    ContentSection(
+                        fragment = fragment,
+                        section = section,
+                        selfFocusRequester = focusRequesters[index],
+                        // Cada sección ocupa el rowZoneHeight completo → una fila visible
+                        sectionHeight = rowZoneHeight,
+                        onFocused = {
+                            if (it.kind == ContentKind.MOVIE || it.kind == ContentKind.SERIES) {
+                                Log.d("TMDB_HOME", "focus item=${it.tmdbDebug()}")
+                                fragment.selectedHero = it
+                            }
+                        },
+                        onLoadMore = if (section.contentType != null && section.groupName != null && section.hasNextPage) {
+                            { sectionToLoad: BrowseSection, onDone: () -> Unit ->
+                                fragment.scope.launch {
+                                    try {
+                                        val pageSize = 24
+                                        val nextPage = sectionToLoad.currentPage + 1
+                                        val (newItems, hasNext) = fragment.repository.loadContentPage(
+                                            sectionToLoad.contentType!!, sectionToLoad.groupName!!, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
+                                        )
+                                        val actuallyHasNext = if (newItems.isEmpty()) false else hasNext
+                                        val updated = sectionToLoad.copy(
+                                            items = (sectionToLoad.items + newItems).distinctBy(CatalogItem::stableId),
+                                            currentPage = nextPage,
+                                            hasNextPage = actuallyHasNext
+                                        )
+                                        val idx = fragment.homeSections.indexOfFirst {
+                                            it.title == sectionToLoad.title && it.contentType == sectionToLoad.contentType
+                                        }
+                                        if (idx >= 0) fragment.homeSections = fragment.homeSections.toMutableList().also { it[idx] = updated }
+                                    } finally { onDone() }
+                                }
+                            }
+                        } else null,
+                    )
+                }
+            }
         }
     }
 
@@ -202,6 +255,194 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
     }
 }
 
+// ── Backdrop inmersivo — capa de fondo que se extiende detrás de las filas ──
+
+@Composable
+private fun HomeBackdrop(item: CatalogItem?, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.background(Color(0xFF050507))) {
+        val backdropUrl = item?.backdropUrl?.takeIf { it.isNotBlank() }
+        val posterUrl   = item?.preferredVodPosterUrl().orEmpty()
+
+        // ── Imagen de fondo ──────────────────────────────────────────────
+        when {
+            !backdropUrl.isNullOrBlank() -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 180.dp),
+            ) {
+                RemoteImage(
+                    url = backdropUrl,
+                    width = 1920,
+                    height = 1080,
+                    scaleType = ScaleType.CENTER_CROP,
+                )
+            }
+            posterUrl.isNotBlank() -> {
+                // Poster: lo mostramos a la derecha para no interferir con el texto izquierdo
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF050507)),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(0.55f),
+                    ) {
+                        RemoteImage(
+                            url = posterUrl,
+                            width = 600,
+                            height = 900,
+                            scaleType = ScaleType.CENTER_CROP,
+                        )
+                    }
+                }
+            }
+            else -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF050507)),
+            )
+        }
+
+        // ── Gradiente horizontal: oscurece izquierda para legibilidad del texto ──
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0.0f  to Color(0xFF050507),
+                            0.18f to Color(0xFF050507),
+                            0.38f to Color(0xFF050507).copy(alpha = 0.88f),
+                            0.55f to Color(0xFF050507).copy(alpha = 0.45f),
+                            0.75f to Color(0xFF050507).copy(alpha = 0.08f),
+                            1.0f  to Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        // ── Gradiente vertical: negro denso en la parte inferior (zona de filas) ──
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f  to Color.Transparent,
+                            0.30f to Color.Transparent,
+                            0.48f to Color(0xFF050507).copy(alpha = 0.30f),
+                            0.58f to Color(0xFF050507).copy(alpha = 0.70f),
+                            0.65f to Color(0xFF050507).copy(alpha = 0.92f),
+                            0.72f to Color(0xFF050507),
+                            1.0f  to Color(0xFF050507),
+                        ),
+                    ),
+                ),
+        )
+    }
+}
+
+// ── Texto hero — título, meta y sinopsis sobre el backdrop ─────────────────
+
+@Composable
+private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
+    Box(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 44.dp, end = 44.dp, bottom = 20.dp)
+                .fillMaxWidth(0.52f),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // Título principal
+            Text(
+                text = item?.resolveDisplayTitle().orEmpty().ifBlank { "Inicio" },
+                color = Color.White,
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 40.sp,
+            )
+
+            // Rating + año + runtime + géneros
+            HomeHeroMeta(item)
+
+            // Sinopsis
+            Text(
+                text = item?.description
+                    ?.takeIf { it.isNotBlank() && it != item.group }
+                    ?: item?.overviewEn
+                    ?: "Explora películas y series con imágenes oficiales, resumen y puntuación de TMDB.",
+                color = Color.White.copy(alpha = 0.75f),
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeHeroMeta(item: CatalogItem?) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Rating con estrella dorada
+        item?.voteAverage?.takeIf { it > 0f }?.let { rating ->
+            Row(
+                modifier = Modifier
+                    .background(Color(0xFFE5B35B), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text("★", color = Color(0xFF101014), fontSize = 13.sp, fontWeight = FontWeight.Black)
+                Text(
+                    text = String.format(java.util.Locale.US, "%.1f", rating),
+                    color = Color(0xFF101014),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+        }
+        item?.year?.let { HomeHeroMetaText(it.toString()) }
+
+        // ── Runtime (ej: "1h 58min" o "45min") ──────────────────────────
+        item?.runtimeMinutes?.takeIf { it > 0 }?.let { mins ->
+            val h = mins / 60
+            val m = mins % 60
+            val runtimeStr = if (h > 0) "${h}h ${m}min" else "${m}min"
+            HomeHeroMetaText(runtimeStr)
+        }
+
+        if (item?.kind == ContentKind.SERIES) {
+            item.totalSeasons?.takeIf { it > 0 }?.let { total ->
+                HomeHeroMetaText(if (total == 1) "1 temporada" else "$total temporadas")
+            }
+        }
+
+        item?.genres.orEmpty().take(2).forEach { genre -> HomeHeroMetaText(genre) }
+        if (item == null) HomeHeroMetaText("TMDB")
+    }
+}
+
+@Composable
+private fun HomeHeroMetaText(text: String) {
+    Text(
+        text = text,
+        color = Color.White.copy(alpha = 0.72f),
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
 // ── Content section ────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
@@ -210,6 +451,7 @@ internal fun ContentSection(
     fragment: ComposeMainFragment,
     section: BrowseSection,
     selfFocusRequester: FocusRequester,
+    sectionHeight: Dp = 0.dp,
     onFocused: (CatalogItem) -> Unit,
     onLoadMore: ((BrowseSection, () -> Unit) -> Unit)? = null,
 ) {
@@ -235,15 +477,14 @@ internal fun ContentSection(
         val target = fragment.pendingFocusItem ?: return@LaunchedEffect
         val targetId = target.stableId
         Log.d("HomeContent", "=== LaunchedEffect FOCUS RESTORE: section=${section.title} targetId=$targetId ===")
-        
-        // Retry logic: intentar hasta 3 veces
+
         for (attempt in 1..3) {
             val idx = section.items.indexOfFirst { it.stableId == targetId }
             Log.d("HomeContent", "Focus restore attempt $attempt: idx=$idx for targetId=$targetId in section '${section.title}'")
             if (idx >= 0) {
                 try {
                     lazyListState.scrollToItem(idx)
-                    delay(80L * attempt) // incrementally longer: 80, 160, 240ms
+                    delay(80L * attempt)
                     val fr = focusRequesters.getOrNull(idx)
                     if (fr != null) {
                         fr.requestFocus()
@@ -279,23 +520,40 @@ internal fun ContentSection(
             }
     }
 
-    Column(
-        modifier = Modifier
+    val columnModifier = if (sectionHeight > 0.dp) {
+        Modifier
             .focusRequester(selfFocusRequester)
+            .height(sectionHeight)
+            .padding(horizontal = 32.dp)
+            .padding(top = 16.dp, bottom = 16.dp)
             .onFocusChanged { state ->
                 Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
-            },
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            }
+    } else {
+        Modifier
+            .focusRequester(selfFocusRequester)
+            .padding(horizontal = 32.dp)
+            .onFocusChanged { state ->
+                Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
+            }
+    }
+
+    Column(
+        modifier = columnModifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // ── Título de sección ─────────────────────────────────────────────
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                section.title,
-                color = IptvTextPrimary,
+                text = section.title,
+                color = Color.White,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             section.contentType?.let { type ->
                 if (type == "movies" || type == "series") {
@@ -338,13 +596,26 @@ internal fun ContentSection(
                         .focusRequester(focusRequesters[index])
 
                     if (section.title == "Continuar viendo") {
+                        val wp = fragment.continueWatchingEntries[item.stableId]
+                            ?: fragment.continueWatchingEntries[item.providerId.orEmpty()]
+                            ?: item.providerId?.substringAfterLast(":")
+                                ?.let { fragment.continueWatchingEntries["movie:$it"]
+                                    ?: fragment.continueWatchingEntries["series:$it"] }
+                            ?: run {
+                                val titleKey = when (item.kind) {
+                                    ContentKind.SERIES -> item.seriesName?.trim()?.lowercase()
+                                    ContentKind.MOVIE  -> (item.normalizedTitle ?: item.title).trim().lowercase()
+                                    else -> null
+                                }
+                                titleKey?.let { fragment.continueWatchingEntries["title:$it"] }
+                            }
                         ContinueWatchingCard(
                             fragment = fragment,
                             item = item,
                             modifier = cardModifier,
                             debugTag = "${section.title}[$index]",
-                            progressPercent = fragment.continueWatchingEntries[item.stableId]?.progressPercent ?: 0,
-                            isWatched = fragment.continueWatchingEntries[item.stableId]?.isWatched == true,
+                            progressPercent = wp?.progressPercent ?: 0,
+                            isWatched = wp?.isWatched == true,
                             onFocused = { onFocused(item) },
                             onDeleteRequest = { fragment.deleteContinueWatchingItem = it },
                         )
@@ -388,105 +659,137 @@ internal fun MediaCard(
     onClick: () -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val isVod = item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES
     val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
-    val cardWidth   = if (isChannelOrEvent) CH_CARD_WIDTH   else VOD_CARD_WIDTH
-    val imageHeight = if (isChannelOrEvent) CH_IMAGE_HEIGHT  else VOD_IMAGE_HEIGHT
-    val textHeight  = if (isChannelOrEvent) CH_TEXT_AREA_HEIGHT else VOD_TEXT_AREA_HEIGHT
+    val cardWidth   = if (isChannelOrEvent) CH_CARD_WIDTH else VOD_CARD_WIDTH
+    val imageHeight = if (isChannelOrEvent) CH_IMAGE_HEIGHT else VOD_IMAGE_HEIGHT
 
-    Column(
-        modifier = modifier
-            .width(cardWidth)
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (isFocused) IptvFocusBg else IptvCard)
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color  = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
-                shape  = RoundedCornerShape(10.dp),
-            )
-            .onFocusChanged {
-                isFocused = it.isFocused
-                if (it.isFocused) {
-                    onFocused()
-                }
-            }
-            .focusable()
-            .clickable { onClick() },
-    ) {
+    val baseModifier = modifier
+        .width(cardWidth)
+        .clip(RoundedCornerShape(10.dp))
+        .border(
+            width = if (isFocused) 2.dp else 1.dp,
+            color  = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
+            shape  = RoundedCornerShape(10.dp),
+        )
+        .onFocusChanged {
+            isFocused = it.isFocused
+            if (it.isFocused) onFocused()
+        }
+        .focusable()
+        .clickable { onClick() }
+
+    if (isVod) {
+        // ── VOD: solo imagen, sin texto debajo ───────────────────────────
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
+            modifier = baseModifier
                 .height(imageHeight)
                 .background(IptvSurfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            when {
-                item.kind == ContentKind.EVENT -> EventSportPlaceholder(item)
-                item.imageUrl.isNotBlank() -> RemoteImage(
-                    url = item.imageUrl, width = 300, height = 400,
-                    scaleType = if (item.kind == ContentKind.CHANNEL) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP,
+            if (item.preferredCardImageUrl().isNotBlank()) {
+                RemoteImage(
+                    url = item.preferredCardImageUrl(),
+                    width = 300,
+                    height = 450,
+                    scaleType = ScaleType.CENTER_CROP,
                 )
-                else -> PlaceholderIcon(kind = item.kind)
+            } else {
+                PlaceholderIcon(kind = item.kind)
             }
 
-            item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES && item.kind != ContentKind.CHANNEL }?.let { badge ->
+            // Badge (ej: "+18", "4K") — top-left
+            item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES }?.let { badge ->
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .background(
-                            if (item.kind == ContentKind.EVENT) IptvLive else IptvSurface.copy(alpha = 0.85f),
-                            RoundedCornerShape(5.dp),
-                        )
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                        .padding(6.dp)
+                        .background(IptvSurface.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                 ) {
-                    Text(badge, color = IptvTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text(badge, color = IptvTextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
-            if (item.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
+            // Visto — top-right
+            if (item.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
+
+            // Borde de foco luminoso encima de la imagen
+            if (isFocused) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .border(2.dp, IptvFocusBorder, RoundedCornerShape(10.dp)),
+                )
+            }
         }
-
+    } else {
+        // ── Canal / Evento: imagen + texto debajo ────────────────────────
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(textHeight)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.Center,
+            modifier = baseModifier.background(if (isFocused) IptvFocusBg else IptvCard),
         ) {
-            val displayTitle = item.resolveDisplayTitle()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(imageHeight)
+                    .background(IptvSurfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    item.kind == ContentKind.EVENT -> EventSportPlaceholder(item)
+                    item.preferredCardImageUrl().isNotBlank() -> RemoteImage(
+                        url = item.preferredCardImageUrl(), width = 300, height = 200,
+                        scaleType = ScaleType.FIT_CENTER,
+                    )
+                    else -> PlaceholderIcon(kind = item.kind)
+                }
 
-            if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
+                item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES }?.let { badge ->
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .background(
+                                if (item.kind == ContentKind.EVENT) IptvLive else IptvSurface.copy(alpha = 0.85f),
+                                RoundedCornerShape(4.dp),
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(badge, color = IptvTextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(CH_TEXT_AREA_HEIGHT)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
                 Text(
-                    text = displayTitle,
+                    text = item.resolveDisplayTitle(),
                     color = IptvTextPrimary,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 17.sp,
                 )
-            } else {
-                Text(
-                    text = displayTitle,
-                    color = IptvTextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 18.sp,
-                )
-                Spacer(Modifier.weight(1f))
                 val rawSub = item.subtitle
                 val displaySub = if (item.badgeText.isNotBlank() && rawSub.contains(item.badgeText))
                     rawSub.replace(item.badgeText, "").replace("•", "").trim()
                 else rawSub
-                Text(
-                    text = displaySub.ifBlank { item.group.ifBlank { kindLabel(item.kind) } },
-                    color = IptvTextMuted,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (displaySub.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = displaySub,
+                        color = IptvTextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -568,8 +871,9 @@ internal fun ContinueWatchingCard(
                 .background(IptvSurfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            if (item.imageUrl.isNotBlank()) RemoteImage(
-                url = item.imageUrl, width = 300, height = 400,
+            val imageUrl = item.preferredCardImageUrl()
+            if (imageUrl.isNotBlank()) RemoteImage(
+                url = imageUrl, width = 300, height = 400,
                 scaleType = if (isChannelOrEvent) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP,
             )
             else PlaceholderIcon(kind = item.kind)
@@ -587,21 +891,22 @@ internal fun ContinueWatchingCard(
             )
 
             if (isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
-        }
 
-        if (progressPercent in 1..99) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .background(Color.White.copy(alpha = 0.15f)),
-            ) {
+            if (progressPercent in 1..99) {
                 Box(
                     modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(progressPercent / 100f)
-                        .background(IptvAccent),
-                )
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .background(Color.White.copy(alpha = 0.22f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progressPercent / 100f)
+                            .background(IptvAccent),
+                    )
+                }
             }
         }
 
@@ -770,9 +1075,17 @@ internal fun EventSportPlaceholder(item: CatalogItem, emojiSize: TextUnit = 48.s
 }
 
 internal fun CatalogItem.resolveDisplayTitle(): String = when {
+    !tmdbTitle.isNullOrBlank() -> tmdbTitle
     kind == ContentKind.SERIES && !seriesName.isNullOrBlank() -> seriesName
     else -> normalizedTitle?.takeUnless { it.equals("null", ignoreCase = true) }?.takeIf { it.isNotBlank() }
         ?: title.takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
 }
+
+private fun CatalogItem.isVodContent(): Boolean = kind == ContentKind.MOVIE || kind == ContentKind.SERIES
+
+private fun CatalogItem.preferredVodPosterUrl(): String = tmdbPosterUrl?.takeIf { it.isNotBlank() }
+    ?: imageUrl
+
+private fun CatalogItem.preferredCardImageUrl(): String = if (isVodContent()) preferredVodPosterUrl() else imageUrl
 
 private val REDUNDANT_BADGES = setOf("CINE", "SERIE", "Pelicula", "Serie")

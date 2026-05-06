@@ -188,7 +188,7 @@ private fun MutableList<BrowseSection>.addSeriesSectionIfNotEmpty(title: String,
             val firstEpisode = episodes.first()
             firstEpisode.copy(
                 stableId = "series_group:$seriesName",
-                title = seriesName,
+                title = firstEpisode.tmdbTitle ?: seriesName,
                 subtitle = firstEpisode.group,
                 description = firstEpisode.description,
                 streamOptions = emptyList(),
@@ -256,6 +256,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
     }
     val nombreNormalizado = optCleanString("nombre_normalizado")
         .ifBlank { optCleanString("normalized_title") }
+    val tmdbTitle = optCleanString("tmdb_title")
 
     val inferredChannelNumber = Regex("^\\s*(\\d{1,5})\\s+")
         .find(rawTitle)
@@ -304,7 +305,10 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
     }
 
     // Construir URL de backdrop
-    val backdropPath = optCleanString("backdrop_path")
+    val backdropPath = optCleanString("tmdb_backposter")
+        .ifBlank { optCleanString("backposter") }
+        .ifBlank { optCleanString("backdrop_path") }
+        .ifBlank { optCleanString("backdrop") }
     val backdropUrl = buildTmdbImageUrl(backdropPath, "w1280")
 
     // Construir URL de poster alternativo de TMDB
@@ -331,7 +335,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
     return CatalogItem(
         stableId = stableId,
         providerId = providerId,
-        title = buildRemoteDisplayTitle(kind, normalized.displayTitle, channelDisplayName),
+        title = tmdbTitle.ifBlank { buildRemoteDisplayTitle(kind, normalized.displayTitle, channelDisplayName) },
         normalizedTitle = nombreNormalizado.ifBlank { null },
         subtitle = normalized.groupTitle.ifBlank { rawGroup },
         description = description.ifBlank { normalized.groupTitle.ifBlank { rawGroup } },
@@ -367,6 +371,9 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         tagline = optCleanString("tagline").ifBlank { null },
         releaseDate = releaseDate,
         year = parsedYear,
+        tmdbTitle = tmdbTitle.ifBlank { null },
+        totalSeasons = optCleanString("total_seasons").toIntOrNull()
+            ?: optInt("total_seasons").takeIf { has("total_seasons") && it > 0 },
     )
 }
 

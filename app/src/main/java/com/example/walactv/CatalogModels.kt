@@ -46,6 +46,8 @@ data class CatalogItem(
     val tagline: String? = null,             // Tagline/eslogan
     val releaseDate: String? = null,         // Fecha de estreno (YYYY-MM-DD)
     val year: Int? = null,                   // Año extraído de release_date
+    val tmdbTitle: String? = null,           // Título oficial TMDB
+    val totalSeasons: Int? = null,           // Total de temporadas para series
 )
 
 fun CatalogItem.searchableText(): List<String> {
@@ -110,7 +112,19 @@ fun buildSeriesGridItems(items: List<CatalogItem>): List<CatalogItem> {
                 group = firstEpisode.group,
                 badgeText = "",
                 seriesName = seriesName,
+                totalSeasons = firstEpisode.totalSeasons,
                 streamOptions = emptyList(),
+                overviewEn = firstEpisode.overviewEn,
+                voteAverage = firstEpisode.voteAverage,
+                voteCount = firstEpisode.voteCount,
+                runtimeMinutes = firstEpisode.runtimeMinutes,
+                genres = firstEpisode.genres,
+                backdropUrl = firstEpisode.backdropUrl,
+                tmdbPosterUrl = firstEpisode.tmdbPosterUrl,
+                tagline = firstEpisode.tagline,
+                releaseDate = firstEpisode.releaseDate,
+                year = firstEpisode.year,
+                tmdbTitle = firstEpisode.tmdbTitle,
             )
         }
         .sortedBy { it.title }

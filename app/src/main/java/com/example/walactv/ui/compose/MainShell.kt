@@ -119,7 +119,6 @@ internal fun SideRail(fragment: ComposeMainFragment) {
             .width(railWidth)
             .fillMaxHeight()
             .background(IptvSurface)
-            .border(1.dp, IptvSurfaceVariant)
             .focusable()
             .onFocusChanged { fragment.isRailExpanded = it.hasFocus }
             .onPreviewKeyEvent { keyEvent ->

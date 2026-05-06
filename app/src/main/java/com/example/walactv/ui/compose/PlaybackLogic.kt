@@ -17,6 +17,7 @@ import com.example.walactv.StreamOption
 import com.example.walactv.WatchProgressItem
 import com.example.walactv.idioma
 import com.example.walactv.normalizeLanguageCode
+import com.example.walactv.tmdbDebug
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -26,11 +27,13 @@ private const val TAG = "PlaybackLogic"
 // ── Card click dispatcher ──────────────────────────────────────────────────
 
 internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List<CatalogItem> = emptyList()) {
+    Log.d(TAG, "TMDB_CLICK item=${item.tmdbDebug()} lineupSize=${lineup.size}")
     continueWatchingEntries[item.stableId]?.let { progress ->
         openContinueWatchingItem(item, progress)
         return
     }
     if (item.kind == ContentKind.SERIES && item.seriesName != null) {
+        rememberPlaybackReturnState(item)
         val fragment = SeriesDetailFragment.newInstance(item.seriesName)
         requireActivity().supportFragmentManager.beginTransaction()
             .replace(R.id.main_browse_fragment, fragment)
@@ -73,6 +76,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     progress: WatchProgressItem,
 ) {
     val episode = repository.fetchContentItem(ContentKind.SERIES, progress.contentId)
+    Log.d(TAG, "TMDB_CW_SERIES card=${cardItem.tmdbDebug()} progressSeries=${progress.seriesName} episode=${episode.tmdbDebug()}")
     if (episode == null) {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la serie", Toast.LENGTH_SHORT).show() }
         return

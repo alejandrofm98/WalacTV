@@ -13,6 +13,7 @@ import com.example.walactv.HomeCatalog
 import com.example.walactv.PreferencesManager
 import com.example.walactv.SearchFragment
 import com.example.walactv.WatchProgressItem
+import com.example.walactv.tmdbDebug
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -193,11 +194,20 @@ internal fun ComposeMainFragment.buildContinueWatchingItem(
         .ifBlank { wp.title.cleanDisplayText() }
     val fallbackStableId = if (wp.contentType == "series") "cw_series:${wp.contentId}" else "cw_movie:${wp.contentId}"
 
+    val homeSnapshot = homeSections.asSequence().flatMap { it.items.asSequence() }.toList()
+    val richSnapshot = homeSnapshot + searchableSnapshot
+
     val matched = when (wp.contentType) {
-        "movie"  -> searchableSnapshot.firstOrNull { it.kind == ContentKind.MOVIE && it.matchesByProviderId(wp.contentId) }
-        "series" -> findSeriesMatch(wp, searchableSnapshot)
+        "movie"  -> richSnapshot.firstOrNull { it.kind == ContentKind.MOVIE && it.matchesByProviderId(wp.contentId) }
+        "series" -> findSeriesMatch(wp, richSnapshot)
+            ?: richSnapshot.firstOrNull { it.kind == ContentKind.SERIES && it.matchesByProviderId(wp.contentId) }
         else     -> null
     }
+
+    Log.d(
+        TAG,
+        "TMDB_CW build contentId=${wp.contentId} type=${wp.contentType} series=${wp.seriesName} matched=${matched.tmdbDebug()} wpImage=${wp.imageUrl.take(80)}",
+    )
 
     return matched?.copy(
         stableId = fallbackStableId,
@@ -351,9 +361,11 @@ internal fun ComposeMainFragment.changeMode(newMode: ComposeMainFragment.MainMod
 }
 
 internal fun ComposeMainFragment.rememberPlaybackReturnState(item: CatalogItem) {
+    Log.d(TAG, "TMDB_RETURN remember mode=$currentMode item=${item.tmdbDebug()}")
     playbackReturnState = ComposeMainFragment.PlaybackReturnState(
         mode = currentMode,
         selectedItemStableId = item.stableId,
+        selectedItemSnapshot = item,
     )
 }
 
@@ -422,17 +434,25 @@ internal fun ComposeMainFragment.findNextEventIndex(items: List<CatalogItem>): I
 
 internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgressItem) {
     val searchableSnapshot = searchableItems
+    val previous = continueWatchingEntries[item.contentId]
+        ?: continueWatchingEntries["${item.contentType}:${item.contentId}"]
+        ?: continueWatchingEntries[item.contentId.substringAfterLast(":")]
+    val progressItem = if (item.contentType == "series" && item.seriesName.isNullOrBlank() && !previous?.seriesName.isNullOrBlank()) {
+        item.copy(seriesName = previous?.seriesName)
+    } else {
+        item
+    }
     
     // Agregar/actualizar en continueWatchingEntries
     val newEntryMap = continueWatchingEntries.toMutableMap()
-    newEntryMap[item.contentId] = item
-    newEntryMap["${item.contentType}:${item.contentId}"] = item
-    val bareId = item.contentId.substringAfterLast(":")
-    newEntryMap["${item.contentType}:$bareId"] = item
-    val normalizedKey = when (item.contentType) {
-        "series" -> item.seriesName?.trim()?.lowercase()
-        else -> item.normalizedTitle.trim().lowercase()
-            .ifBlank { item.title.trim().lowercase() }
+    newEntryMap[progressItem.contentId] = progressItem
+    newEntryMap["${progressItem.contentType}:${progressItem.contentId}"] = progressItem
+    val bareId = progressItem.contentId.substringAfterLast(":")
+    newEntryMap["${progressItem.contentType}:$bareId"] = progressItem
+    val normalizedKey = when (progressItem.contentType) {
+        "series" -> progressItem.seriesName?.trim()?.lowercase()
+        else -> progressItem.normalizedTitle.trim().lowercase()
+            .ifBlank { progressItem.title.trim().lowercase() }
     }
     if (!normalizedKey.isNullOrBlank()) {
         newEntryMap["title:$normalizedKey"] = item
@@ -441,14 +461,14 @@ internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgress
     
     // Crear o actualizar la card en continueWatchingSection
     val existingCwSection = continueWatchingSection
-    val synthetic = buildContinueWatchingItem(item, searchableSnapshot)
-    newEntryMap[synthetic.stableId] = item
+    val synthetic = buildContinueWatchingItem(progressItem, searchableSnapshot)
+    newEntryMap[synthetic.stableId] = progressItem
     
     val currentCwItems = continueWatchingSection?.items?.toMutableList() ?: mutableListOf()
     val existingIdx = currentCwItems.indexOfFirst { 
         it.stableId == synthetic.stableId || 
-        (item.contentType == "series" && it.seriesName == item.seriesName) ||
-        (item.contentType == "movie" && it.providerId == item.contentId)
+        (progressItem.contentType == "series" && it.seriesName == progressItem.seriesName) ||
+        (progressItem.contentType == "movie" && it.providerId == progressItem.contentId)
     }
     
     if (existingIdx >= 0) {

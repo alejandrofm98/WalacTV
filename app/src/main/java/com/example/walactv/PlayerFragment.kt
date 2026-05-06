@@ -130,6 +130,7 @@ class PlayerFragment : Fragment() {
         this.onPreviousEpisode = onPreviousEpisode
         this.allSeriesEpisodes = allSeriesEpisodes
         this.currentEpisode = currentEpisode
+        this.currentSeriesEpisode = currentEpisode
         this.streamOptionLabels = streamOptionLabels
         this.currentOptionIndex = currentOptionIndex
         this.liveOptionIndex = currentOptionIndex

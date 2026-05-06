@@ -95,6 +95,7 @@ class SeriesDetailFragment : Fragment() {
         } ?: item
 
         val stream = episodeToPlay.streamOptions.firstOrNull() ?: return
+        Log.d(TAG, "TMDB_SERIES_PLAY item=${item.tmdbDebug()} episode=${episodeToPlay.tmdbDebug()}")
 
         val currentIndex = logicalEpisodes.indexOfFirst {
             it.seriesName == episodeToPlay.seriesName &&
@@ -215,6 +216,8 @@ fun SeriesDetailScreen(
     }
 
     val posterUrl = allEpisodes.firstOrNull()?.imageUrl ?: ""
+    val totalSeasons = allEpisodes.firstOrNull { it.totalSeasons != null }?.totalSeasons ?: seasons.size
+    val seriesDisplayName = allEpisodes.firstOrNull { !it.tmdbTitle.isNullOrBlank() }?.tmdbTitle ?: seriesName
 
     if (isLoading) {
         val infiniteTransition = rememberInfiniteTransition(label = "loadingSpinner")
@@ -278,8 +281,8 @@ fun SeriesDetailScreen(
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                    Text(seriesName, color = IptvTextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-                    Text("${seasons.size} Temporadas • ${uniqueEpisodes.size} Episodios", color = IptvTextMuted, fontSize = 16.sp)
+                    Text(seriesDisplayName, color = IptvTextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                    Text("$totalSeasons Temporadas • ${uniqueEpisodes.size} Episodios", color = IptvTextMuted, fontSize = 16.sp)
 
                     Spacer(Modifier.height(8.dp))
 

@@ -201,11 +201,19 @@ class ComposeMainFragment : Fragment() {
             MainMode.Series -> ensureFiltersLoaded(ContentKind.SERIES)
             else            -> Unit
         }
-        // Buscar en searchableItems Y en homeSections (para CW items)
-        selectedHero = searchableItems.firstOrNull { it.stableId == state.selectedItemStableId }
-            ?: homeSections.asSequence().flatMap { it.items.asSequence() }.firstOrNull { it.stableId == state.selectedItemStableId }
+        val homeItem = homeSections.asSequence()
+            .flatMap { it.items.asSequence() }
+            .firstOrNull { it.stableId == state.selectedItemStableId }
+        val searchableItem = searchableItems.firstOrNull { it.stableId == state.selectedItemStableId }
+        Log.d(
+            TAG,
+            "TMDB_RESTORE candidates id=${state.selectedItemStableId} " +
+                "home=${homeItem.tmdbDebug()} snapshot=${state.selectedItemSnapshot.tmdbDebug()} searchable=${searchableItem.tmdbDebug()}",
+        )
+        selectedHero = homeItem
+            .richestTmdbItem(state.selectedItemSnapshot, searchableItem)
             ?: defaultItemForMode(currentMode)
-        Log.d(TAG, "SelectedHero restored: ${selectedHero?.stableId} title=${selectedHero?.title}")
+        Log.d(TAG, "TMDB_RESTORE selected=${selectedHero.tmdbDebug()}")
         pendingFocusItem = selectedHero
         pendingFocusTrigger++
         suppressEventAutoScroll = true
@@ -230,6 +238,7 @@ class ComposeMainFragment : Fragment() {
     internal data class PlaybackReturnState(
         val mode: MainMode,
         val selectedItemStableId: String,
+        val selectedItemSnapshot: CatalogItem?,
     )
 
     
@@ -243,4 +252,26 @@ class ComposeMainFragment : Fragment() {
         private const val COUNTRY_FILTER_LABEL = "País"
         private const val COUNTRY_FILTER_DIALOG_TITLE = "Selecciona país"
     }
+}
+
+internal fun CatalogItem?.tmdbDebug(): String {
+    if (this == null) return "null"
+    return "stableId=$stableId kind=$kind title=$title series=$seriesName hasBackdrop=${!backdropUrl.isNullOrBlank()} " +
+        "hasDesc=${description.isNotBlank()} hasOverview=${!overviewEn.isNullOrBlank()} hasTmdbPoster=${!tmdbPosterUrl.isNullOrBlank()} " +
+        "tmdbTitle=${tmdbTitle.orEmpty()} backdrop=${backdropUrl.orEmpty().take(80)}"
+}
+
+private fun CatalogItem?.richestTmdbItem(vararg others: CatalogItem?): CatalogItem? {
+    return (listOf(this) + others).filterNotNull().maxByOrNull { it.tmdbScore() }
+}
+
+private fun CatalogItem.tmdbScore(): Int {
+    return listOf(
+        !backdropUrl.isNullOrBlank(),
+        description.isNotBlank(),
+        !overviewEn.isNullOrBlank(),
+        !tmdbPosterUrl.isNullOrBlank(),
+        !tmdbTitle.isNullOrBlank(),
+        !seriesName.isNullOrBlank(),
+    ).count { it }
 }
