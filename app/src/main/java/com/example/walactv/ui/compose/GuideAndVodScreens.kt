@@ -31,9 +31,7 @@ import com.example.walactv.CatalogFilterOption
 import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
-import com.example.walactv.local.MovieEntity
 import com.example.walactv.local.PagedContentLoader
-import com.example.walactv.local.SeriesEntity
 import com.example.walactv.ui.theme.*
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -391,6 +389,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
     var totalCount by remember { mutableStateOf(0) }
     var currentPage by remember { mutableStateOf(0) }
     var isLoadingPage by remember { mutableStateOf(false) }
+    var loadError by remember { mutableStateOf<String?>(null) }
     val pageSize = 50
 
     val currentFilters =
@@ -409,25 +408,15 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
 
     LaunchedEffect(selectedCountry, currentFilters) {
         val country = selectedCountry.takeUnless { it == ALL_OPTION }
-        val groups: List<String> = if (country != null) {
-            if (kind == ContentKind.MOVIE) {
-                fragment.contentCacheManager.getMoviesByCountry(country)
-                    .mapNotNull { it.grupoNormalizado.takeIf { g -> g.isNotBlank() } }
-            } else {
-                fragment.contentCacheManager.getSeriesByCountry(country)
-                    .mapNotNull { it.grupoNormalizado.takeIf { g -> g.isNotBlank() } }
-            }.distinct()
-        } else {
-            currentFilters.groups.distinctBy { it.value }
-                .filter { it.value != "Favorites" && it.value != "Favoritos" }.map { it.value }
-        }
+        val filters = if (country != null) {
+            runCatching { fragment.repository.loadCatalogFilters(kind, country) }
+                .getOrElse { currentFilters }
+        } else currentFilters
+        val groups = filters.groups.distinctBy { it.value }
+            .filter { it.value != "Favorites" && it.value != "Favoritos" }
         groupOptions = buildList {
-            add(
-                CatalogFilterOption(
-                    ALL_OPTION,
-                    "Todos"
-                )
-            ); addAll(groups.map { CatalogFilterOption(it, it) })
+            add(CatalogFilterOption(ALL_OPTION, "Todos"))
+            addAll(groups)
         }
     }
 
@@ -445,11 +434,16 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
         lastLoadKey = key
         val country = selectedCountry.takeUnless { it == ALL_OPTION }
         val group = selectedGroup.takeUnless { it == ALL_OPTION }
-        if (searchQuery.isNotBlank()) {
-            loader.loadSearch(searchQuery, country, group)
-        } else {
-            loader.refreshTotalCount(country, group)
-            loader.loadPage(0, country, group)
+        loadError = null
+        runCatching {
+            if (searchQuery.isNotBlank()) {
+                loader.loadSearch(searchQuery, country, group)
+            } else {
+                loader.refreshTotalCount(country, group)
+                loader.loadPage(0, country, group)
+            }
+        }.onFailure {
+            loadError = it.message ?: "No se pudo cargar el contenido"
         }
         totalCount = loader.getTotalCount()
         displayItems = loader.getDisplayItems()
@@ -469,12 +463,17 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
                 val maxPages = (totalCount + pageSize - 1) / pageSize
                 if (nextPage >= maxPages || loader.isPageLoaded(nextPage)) return@collect
                 isLoadingPage = true
-                loader.loadPage(
-                    nextPage,
-                    selectedCountry.takeUnless { it == ALL_OPTION },
-                    selectedGroup.takeUnless { it == ALL_OPTION })
-                displayItems = loader.getDisplayItems(); currentPage = nextPage; isLoadingPage =
-                false
+                runCatching {
+                    loader.loadPage(
+                        nextPage,
+                        selectedCountry.takeUnless { it == ALL_OPTION },
+                        selectedGroup.takeUnless { it == ALL_OPTION })
+                }.onSuccess {
+                    displayItems = loader.getDisplayItems(); currentPage = nextPage
+                }.onFailure {
+                    loadError = it.message ?: "No se pudo cargar mas contenido"
+                }
+                isLoadingPage = false
             }
     }
 
@@ -502,7 +501,16 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
             searchFocusRequester = remember { FocusRequester() },
             idiomaLabel = "Idioma",
         )
-        if (displayItemsForGrid.isEmpty() && !isLoadingPage) {
+        if (loadError != null && displayItemsForGrid.isEmpty() && !isLoadingPage) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "Error al cargar contenido: $loadError",
+                    color = IptvTextMuted,
+                    fontSize = 18.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        } else if (displayItemsForGrid.isEmpty() && !isLoadingPage) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     if (searchQuery.isNotBlank()) "No hay resultados para \"$searchQuery\"" else "No hay contenido disponible",

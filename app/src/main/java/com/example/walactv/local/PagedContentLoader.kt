@@ -4,7 +4,6 @@ import android.util.Log
 import com.example.walactv.CatalogItem
 import com.example.walactv.ContentKind
 import com.example.walactv.IptvRepository
-import com.example.walactv.uniqueMovies
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -55,16 +54,14 @@ class PagedContentLoader(
                     entities.map { it.toCatalogItem(user, pass) }
                 }
                 ContentKind.MOVIE -> {
-                    val entities = withContext(Dispatchers.IO) {
-                        contentCacheManager.getMoviesPaged(country, group, page, pageSize)
-                    }
-                    entities.map { it.toCatalogItem(user, pass) }.uniqueMovies()
+                    val result = repository.loadCatalogPage(kind, page + 1, country, group)
+                    totalCount = result.total
+                    result.items
                 }
                 ContentKind.SERIES -> {
-                    val entities = withContext(Dispatchers.IO) {
-                        contentCacheManager.getSeriesPaged(country, group, page, pageSize)
-                    }
-                    entities.map { it.toCatalogItem(user, pass) }
+                    val result = repository.loadCatalogPage(kind, page + 1, country, group)
+                    totalCount = result.total
+                    result.items
                 }
                 else -> emptyList()
             }
@@ -103,14 +100,16 @@ class PagedContentLoader(
                     entities.map { it.toCatalogItem(user, pass) }
                 }
                 ContentKind.MOVIE -> {
-                    val entities = withContext(Dispatchers.IO) { contentCacheManager.searchMovies(query, country, group) }
-                    Log.d(TAG, "loadSearch: movies search returned ${entities.size} entities")
-                    entities.map { it.toCatalogItem(user, pass) }.uniqueMovies()
+                    val result = repository.loadCatalogPage(kind, 1, country, group, query)
+                    totalCount = result.total
+                    Log.d(TAG, "loadSearch: movies search returned ${result.items.size} items")
+                    result.items
                 }
                 ContentKind.SERIES -> {
-                    val entities = withContext(Dispatchers.IO) { contentCacheManager.searchSeries(query, country, group) }
-                    Log.d(TAG, "loadSearch: series search returned ${entities.size} entities")
-                    entities.map { it.toCatalogItem(user, pass) }
+                    val result = repository.loadCatalogPage(kind, 1, country, group, query)
+                    totalCount = result.total
+                    Log.d(TAG, "loadSearch: series search returned ${result.items.size} items")
+                    result.items
                 }
                 else -> emptyList()
             }
@@ -127,8 +126,9 @@ class PagedContentLoader(
         totalCount = withContext(Dispatchers.IO) {
             when (kind) {
                 ContentKind.CHANNEL -> contentCacheManager.getChannelsTotalCount(country, group)
-                ContentKind.MOVIE -> contentCacheManager.getMoviesTotalCount(country, group)
-                ContentKind.SERIES -> contentCacheManager.getSeriesTotalCount(country, group)
+                ContentKind.MOVIE,
+                ContentKind.SERIES,
+                -> totalCount
                 else -> 0
             }
         }

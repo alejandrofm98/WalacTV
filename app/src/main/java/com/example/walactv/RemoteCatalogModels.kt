@@ -284,7 +284,8 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         walacGroupNormalized = grupoNormalizado,
         walacSeriesNameNormalized = optCleanString("series_name").ifBlank { optCleanString("serie_name") },
     )
-    val description = optCleanString("overview_es")
+    val description = optCleanString("overview")
+        .ifBlank { optCleanString("overview_es") }
         .ifBlank { optCleanString("overview_en") }
         .ifBlank { optCleanString("description") }
         .ifBlank { optCleanString("subtitle") }
@@ -304,20 +305,28 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
 
     // Construir URL de backdrop
     val backdropPath = optCleanString("backdrop_path")
-    val backdropUrl = if (backdropPath.isNotBlank()) {
-        "https://image.tmdb.org/t/p/w1280$backdropPath"
-    } else null
+    val backdropUrl = buildTmdbImageUrl(backdropPath, "w1280")
 
     // Construir URL de poster alternativo de TMDB
     val tmdbPosterPath = optCleanString("tmdb_poster_path").ifBlank { optCleanString("poster_path") }
-    val tmdbPosterUrl = if (tmdbPosterPath.isNotBlank()) {
-        "https://image.tmdb.org/t/p/w500$tmdbPosterPath"
-    } else null
+    val tmdbPosterUrl = buildTmdbImageUrl(tmdbPosterPath, "w500")
 
     // Parsear fecha y extraer año
     val releaseDate = optCleanString("release_date").ifBlank { null }
     val parsedYear = releaseDate?.takeIf { it.length >= 4 }?.substring(0, 4)?.toIntOrNull()
         ?: optInt("year").takeIf { has("year") }
+
+    val imageUrl = normalizeRemoteImageUrl(
+        optCleanString("logo").ifBlank {
+            optCleanString("image_url").ifBlank {
+                optCleanString("logo_url").ifBlank {
+                    optCleanString("stream_icon").ifBlank {
+                        optCleanString("poster")
+                    }
+                }
+            }
+        }
+    ).ifBlank { tmdbPosterUrl.orEmpty() }
 
     return CatalogItem(
         stableId = stableId,
@@ -326,17 +335,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         normalizedTitle = nombreNormalizado.ifBlank { null },
         subtitle = normalized.groupTitle.ifBlank { rawGroup },
         description = description.ifBlank { normalized.groupTitle.ifBlank { rawGroup } },
-        imageUrl = normalizeRemoteImageUrl(
-            optCleanString("logo").ifBlank {
-                optCleanString("image_url").ifBlank {
-                    optCleanString("logo_url").ifBlank {
-                        optCleanString("stream_icon").ifBlank {
-                            optCleanString("poster")
-                        }
-                    }
-                }
-            }
-        ),
+        imageUrl = imageUrl,
         kind = kind,
         group = normalized.groupTitle.ifBlank { rawGroup },
         badgeText = optCleanString("badge_text").ifBlank { optCleanString("quality") },
@@ -358,7 +357,8 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         ),
         // Campos TMDB
         overviewEn = optCleanString("overview_en").ifBlank { null },
-        voteAverage = optDouble("vote_average").toFloat().takeIf { has("vote_average") && get("vote_average") != null },
+        voteAverage = optDoubleValue("vote_average")?.toFloat()
+            ?: optDoubleValue("rating")?.toFloat(),
         voteCount = optInt("vote_count").takeIf { has("vote_count") },
         runtimeMinutes = optInt("runtime_minutes").takeIf { has("runtime_minutes") },
         genres = genresList,
@@ -375,6 +375,17 @@ private fun JSONObject.optCleanString(key: String): String {
         .takeUnless { it.equals("null", ignoreCase = true) }
         ?.trim()
         .orEmpty()
+}
+
+private fun JSONObject.optDoubleValue(key: String): Double? {
+    if (!has(key) || isNull(key)) return null
+    return optDouble(key).takeUnless { it.isNaN() }
+}
+
+private fun buildTmdbImageUrl(path: String, size: String): String? {
+    if (path.isBlank()) return null
+    if (path.startsWith("http://") || path.startsWith("https://")) return normalizeRemoteImageUrl(path)
+    return "https://image.tmdb.org/t/p/$size$path"
 }
 
 private fun buildRemoteDisplayTitle(kind: ContentKind, normalizedTitle: String, channelDisplayName: String): String {

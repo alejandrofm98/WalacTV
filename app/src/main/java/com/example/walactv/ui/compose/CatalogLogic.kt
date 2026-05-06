@@ -31,12 +31,10 @@ internal fun ComposeMainFragment.startLoad(forceRefresh: Boolean = false) {
         val token = runCatching { repository.getAccessToken() }.getOrNull() ?: ""
 
         val needsChannels = contentCacheManager.needsSyncChannels(token)
-        val needsMovies   = contentCacheManager.needsSyncMovies(token)
-        val needsSeries   = contentCacheManager.needsSyncSeries(token)
 
-        if (!needsChannels && !needsMovies && !needsSeries) {
+        if (!needsChannels) {
             contentSyncState = ContentSyncState.READY
-            loadLocalFilters()
+            loadChannelFilters()
         } else {
             contentSyncState = ContentSyncState.SYNCING
             currentSyncLabel = ""
@@ -44,35 +42,13 @@ internal fun ComposeMainFragment.startLoad(forceRefresh: Boolean = false) {
             overallSyncProgress = 0f
 
             val results = mutableListOf<Result<*>>()
-            val totalSteps = listOf(needsChannels, needsMovies, needsSeries).count { it }.coerceAtLeast(1)
-            var completedSteps = 0
+            val totalSteps = 1
 
-            if (needsChannels) {
-                currentSyncLabel = "Sincronizando canales"
-                val r = contentCacheManager.syncChannels(token)
-                results.add(r)
-                completedSteps++
-                overallSyncProgress = completedSteps.toFloat() / totalSteps
-                currentSyncCount = r.getOrNull() as? Int ?: 0
-            } else { completedSteps++; overallSyncProgress = completedSteps.toFloat() / totalSteps }
-
-            if (needsMovies) {
-                currentSyncLabel = "Sincronizando películas"
-                val r = contentCacheManager.syncMovies(token)
-                results.add(r)
-                completedSteps++
-                overallSyncProgress = completedSteps.toFloat() / totalSteps
-                currentSyncCount = r.getOrNull() as? Int ?: 0
-            } else { completedSteps++; overallSyncProgress = completedSteps.toFloat() / totalSteps }
-
-            if (needsSeries) {
-                currentSyncLabel = "Sincronizando series"
-                val r = contentCacheManager.syncSeries(token)
-                results.add(r)
-                completedSteps++
-                overallSyncProgress = completedSteps.toFloat() / totalSteps
-                currentSyncCount = r.getOrNull() as? Int ?: 0
-            } else { completedSteps++; overallSyncProgress = completedSteps.toFloat() / totalSteps }
+            currentSyncLabel = "Sincronizando canales"
+            val r = contentCacheManager.syncChannels(token)
+            results.add(r)
+            overallSyncProgress = 1f / totalSteps
+            currentSyncCount = r.getOrNull() as? Int ?: 0
 
             if (results.any { it.isFailure }) {
                 contentSyncState = ContentSyncState.ERROR
@@ -82,7 +58,7 @@ internal fun ComposeMainFragment.startLoad(forceRefresh: Boolean = false) {
                 currentSyncCount = 0
                 overallSyncProgress = 1f
                 contentSyncState = ContentSyncState.READY
-                loadLocalFilters()
+                loadChannelFilters()
             }
         }
 
@@ -98,14 +74,10 @@ internal fun ComposeMainFragment.startLoad(forceRefresh: Boolean = false) {
     }
 }
 
-internal fun ComposeMainFragment.loadLocalFilters() {
+internal fun ComposeMainFragment.loadChannelFilters() {
     scope.launch {
         runCatching { channelFilters = contentCacheManager.getLocalChannelFilters() }
             .onFailure { Log.e(TAG, "Error loading local channel filters", it) }
-        runCatching { movieFilters = contentCacheManager.getLocalMovieFilters() }
-            .onFailure { Log.e(TAG, "Error loading local movie filters", it) }
-        runCatching { seriesFilters = contentCacheManager.getLocalSeriesFilters() }
-            .onFailure { Log.e(TAG, "Error loading local series filters", it) }
     }
 }
 
