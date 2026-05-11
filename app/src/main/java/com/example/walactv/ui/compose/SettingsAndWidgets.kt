@@ -55,6 +55,14 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
     val hasUpdate = fragment.availableUpdate?.let { evaluateAppUpdate(fragment.installedAppVersion ?: InstalledAppVersion("0", 0), it) != AppUpdateAvailability.UP_TO_DATE } == true
     val updateActionLabel = when { fragment.isUpdateDownloading -> "Descargando..."; fragment.isCheckingUpdates -> "Comprobando..."; hasUpdate -> "Descargar actualización"; else -> "Buscar actualizaciones" }
     val scope = rememberCoroutineScope()
+    val firstFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(fragment.contentFocusTrigger) {
+        if (fragment.contentFocusTrigger == 0) return@LaunchedEffect
+        runCatching { firstFocusRequester.requestFocus() }
+            .onSuccess { Log.d("MainShellFocus", "settings first row requestFocus success") }
+            .onFailure { Log.w("MainShellFocus", "settings first row requestFocus failed: ${it.message}") }
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         ScreenHeader(title = "Ajustes", subtitle = "Actualizaciones, idioma y sesion")
@@ -64,7 +72,11 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             val selectedLanguageLabel = availableLanguages.find { it.first == preferredLanguage }?.second ?: "Español"
-            SettingsRowClickable(label = "Idioma de series", value = selectedLanguageLabel) { showLanguageDialog = true }
+            SettingsRowClickable(
+                label = "Idioma de series",
+                value = selectedLanguageLabel,
+                modifier = Modifier.focusRequester(firstFocusRequester),
+            ) { showLanguageDialog = true }
             SettingsRow("Version de la app", installedVersionLabel)
             SettingsRow("Canales cargados", fragment.channelLineup.size.toString())
             SettingsRow("Contenido indexado", fragment.searchableItems.size.toString())
@@ -123,10 +135,10 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
 }
 
 @Composable
-internal fun SettingsRowClickable(label: String, value: String, onClick: () -> Unit) {
+internal fun SettingsRowClickable(label: String, value: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
             .background(if (isFocused) IptvFocusBg else Color.Transparent, RoundedCornerShape(8.dp))
             .border(1.dp, if (isFocused) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
             .onFocusChanged { isFocused = it.isFocused }.clickable { onClick() }.padding(vertical = 8.dp),

@@ -67,6 +67,7 @@ class ComposeMainFragment : Fragment() {
     internal var lastHomeFocusTarget by mutableStateOf<HomeFocusTarget?>(null)
     internal var pendingHomeFocusTarget by mutableStateOf<HomeFocusTarget?>(null)
     internal var homeFocusRestoreTrigger by mutableStateOf(0)
+    internal var contentFocusTrigger by mutableStateOf(0)
     internal var suppressEventAutoScroll by mutableStateOf(false)
     internal var currentMode by mutableStateOf(MainMode.Home)
     internal var isRailExpanded by mutableStateOf(false)
@@ -241,10 +242,10 @@ class ComposeMainFragment : Fragment() {
     }
 
     internal fun requestHomeFocusRestoreFromRail(): Boolean {
-        val target = lastHomeFocusTarget ?: return false
+        val target = lastHomeFocusTarget
         pendingHomeFocusTarget = target
         homeFocusRestoreTrigger++
-        return true
+        return target != null
     }
 
     // ── Inner types ────────────────────────────────────────────────────────

@@ -553,8 +553,27 @@ internal fun ContentSection(
     }
 
     LaunchedEffect(fragment.homeFocusRestoreTrigger, section.items) {
-        val target = fragment.pendingHomeFocusTarget ?: return@LaunchedEffect
+        val target = fragment.pendingHomeFocusTarget
+        if (target == null) {
+            if (sectionIndex != 0) return@LaunchedEffect
+            Log.d("HomeContent", "Rail restore has no target, focusing first card section=${section.title} items=${section.items.size} requesters=${focusRequesters.size}")
+            runCatching {
+                lazyListState.scrollToItem(0)
+                delay(80)
+                val requester = focusRequesters.firstOrNull()
+                if (requester == null) {
+                    Log.w("HomeContent", "Home first card focus skipped: no requester section=${section.title}")
+                } else {
+                    requester.requestFocus()
+                    Log.d("HomeContent", "Home first card requestFocus success section=${section.title}")
+                }
+            }.onFailure {
+                Log.w("HomeContent", "Home first card focus failed: ${it.message}")
+            }
+            return@LaunchedEffect
+        }
         if (target.sectionIndex != sectionIndex || target.sectionTitle != section.title) return@LaunchedEffect
+        Log.d("HomeContent", "Rail restore target section=${section.title} itemIndex=${target.itemIndex}")
 
         val targetIndex = target.itemIndex
             .takeIf { index -> section.items.getOrNull(index)?.stableId == target.itemStableId }

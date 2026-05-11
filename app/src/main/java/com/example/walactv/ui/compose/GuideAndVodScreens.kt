@@ -1,5 +1,6 @@
 package com.example.walactv.ui
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -111,6 +112,22 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
     val displayItemsForGrid = remember(displayItems) {
         if (isEventGuide) displayItems.sortedWith(compareBy<CatalogItem> { it.badgeText }.thenBy { it.title })
         else displayItems.sortedBy { it.channelNumber ?: Int.MAX_VALUE }
+    }
+    val itemFocusRequesters = remember(displayItemsForGrid.size) {
+        List(displayItemsForGrid.size) { FocusRequester() }
+    }
+
+    LaunchedEffect(fragment.contentFocusTrigger, displayItemsForGrid) {
+        if (fragment.contentFocusTrigger == 0 || displayItemsForGrid.isEmpty()) return@LaunchedEffect
+        runCatching {
+            lazyGridState.scrollToItem(0)
+            kotlinx.coroutines.delay(80)
+            itemFocusRequesters.firstOrNull()?.requestFocus()
+        }.onSuccess {
+            Log.d("MainShellFocus", "guide first item requestFocus success kind=$kind items=${displayItemsForGrid.size}")
+        }.onFailure {
+            Log.w("MainShellFocus", "guide first item requestFocus failed kind=$kind: ${it.message}")
+        }
     }
 
     LaunchedEffect(displayItemsForGrid, fragment.currentItem) {
@@ -238,6 +255,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
                     if (isEventGuide) {
                         MediaCard(
                             item = item,
+                            modifier = Modifier.focusRequester(itemFocusRequesters[index]),
                             onFocused = {
                                 fragment.selectedHero = item
                             }) { fragment.handleCardClick(item, displayItemsForGrid) }
@@ -245,6 +263,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
                         EpgChannelCard(
                             item = item,
                             isCurrentChannel = fragment.currentItem?.stableId == item.stableId,
+                            modifier = Modifier.focusRequester(itemFocusRequesters[index]),
                             onFocused = {
                                 fragment.selectedHero = item
                             }) { fragment.handleCardClick(item, displayItemsForGrid) }
@@ -282,6 +301,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
 internal fun EpgChannelCard(
     item: CatalogItem,
     isCurrentChannel: Boolean,
+    modifier: Modifier = Modifier,
     onFocused: () -> Unit,
     onClick: () -> Unit
 ) {
@@ -298,7 +318,7 @@ internal fun EpgChannelCard(
     }
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(72.dp)
             .background(bgColor, RoundedCornerShape(10.dp))
@@ -478,6 +498,22 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
     }
 
     val displayItemsForGrid = remember(displayItems) { displayItems.sortedBy { it.title } }
+    val itemFocusRequesters = remember(displayItemsForGrid.size) {
+        List(displayItemsForGrid.size) { FocusRequester() }
+    }
+
+    LaunchedEffect(fragment.contentFocusTrigger, displayItemsForGrid) {
+        if (fragment.contentFocusTrigger == 0 || displayItemsForGrid.isEmpty()) return@LaunchedEffect
+        runCatching {
+            lazyGridState.scrollToItem(0)
+            kotlinx.coroutines.delay(80)
+            itemFocusRequesters.firstOrNull()?.requestFocus()
+        }.onSuccess {
+            Log.d("MainShellFocus", "vod first item requestFocus success kind=$kind items=${displayItemsForGrid.size}")
+        }.onFailure {
+            Log.w("MainShellFocus", "vod first item requestFocus failed kind=$kind: ${it.message}")
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -527,7 +563,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                items(displayItemsForGrid) { item ->
+                itemsIndexed(displayItemsForGrid) { index, item ->
                     val wp = fragment.continueWatchingEntries[item.stableId]
                         ?: fragment.continueWatchingEntries[item.providerId.orEmpty()]
                         ?: item.providerId?.substringAfterLast(":")
@@ -550,6 +586,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
                             item.copy(isWatched = wp?.isWatched == true) else item
                     MediaCard(
                         item = itemWithWatched,
+                        modifier = Modifier.focusRequester(itemFocusRequesters[index]),
                         onFocused = { fragment.selectedHero = item }) {
                         fragment.handleCardClick(
                             item,
