@@ -454,13 +454,19 @@ class IptvRepository(context: Context) {
 
         if (options.isEmpty()) return null
 
+        val eventImageUrl = normalizeImageUrl(obj.optString("imagen_evento"))
+        val competitionSubtitle = listOf(
+            obj.optString("competicion"),
+            obj.optString("subtitulo_competicion"),
+        ).filter(String::isNotBlank).joinToString(" | ")
+
         return CatalogItem(
             stableId = obj.optString("id"),
             title = obj.optString("equipos"),
-            subtitle = listOf(obj.optString("hora"), obj.optString("competicion"))
+            subtitle = listOf(obj.optString("hora"), competitionSubtitle)
                 .filter(String::isNotBlank).joinToString("  •  "),
             description = channelRefs.joinToString(" · ") { it.displayName },
-            imageUrl = channelRefs.firstOrNull()?.logoUrl.orEmpty(),
+            imageUrl = eventImageUrl.ifBlank { channelRefs.firstOrNull()?.logoUrl.orEmpty() },
             kind = ContentKind.EVENT,
             group = obj.optString("categoria").ifBlank { "Agenda" },
             badgeText = obj.optString("hora"),

@@ -103,13 +103,16 @@ internal fun MainShell(fragment: ComposeMainFragment) {
 
 // ── Side rail ──────────────────────────────────────────────────────────────
 
+private val SIDE_RAIL_COLLAPSED_WIDTH = 78.dp
+private val SIDE_RAIL_EXPANDED_WIDTH = 248.dp
+
 @Composable
 internal fun SideRail(fragment: ComposeMainFragment) {
     val railItems = buildDefaultSideRailEntries().map { entry -> fragment.toNavItem(entry) }
     val focusRequesters = remember { List(railItems.size + 1) { FocusRequester() } }
 
     val railWidth by animateDpAsState(
-        targetValue = if (fragment.isRailExpanded) 248.dp else 78.dp,
+        targetValue = if (fragment.isRailExpanded) SIDE_RAIL_EXPANDED_WIDTH else SIDE_RAIL_COLLAPSED_WIDTH,
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "railWidthAnim",
     )
@@ -122,9 +125,14 @@ internal fun SideRail(fragment: ComposeMainFragment) {
             .focusable()
             .onFocusChanged { fragment.isRailExpanded = it.hasFocus }
             .onPreviewKeyEvent { keyEvent ->
-                if (keyEvent.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                    keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT
-                ) {
+                if (keyEvent.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+
+                if (keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT &&
+                    fragment.currentMode == MainMode.Home &&
+                    fragment.requestHomeFocusRestoreFromRail()
+                ) return@onPreviewKeyEvent true
+
+                if (keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT) {
                     val index = railItems.indexOfFirst { it.mode != null && fragment.currentMode == it.mode }
                     if (index >= 0 && index < focusRequesters.size) runCatching { focusRequesters[index].requestFocus() }
                     else if (focusRequesters.isNotEmpty()) runCatching { focusRequesters.last().requestFocus() }

@@ -64,6 +64,9 @@ class ComposeMainFragment : Fragment() {
     internal var selectedHero by mutableStateOf<CatalogItem?>(null)
     internal var pendingFocusItem by mutableStateOf<CatalogItem?>(null)
     internal var pendingFocusTrigger by mutableStateOf(0)
+    internal var lastHomeFocusTarget by mutableStateOf<HomeFocusTarget?>(null)
+    internal var pendingHomeFocusTarget by mutableStateOf<HomeFocusTarget?>(null)
+    internal var homeFocusRestoreTrigger by mutableStateOf(0)
     internal var suppressEventAutoScroll by mutableStateOf(false)
     internal var currentMode by mutableStateOf(MainMode.Home)
     internal var isRailExpanded by mutableStateOf(false)
@@ -223,6 +226,27 @@ class ComposeMainFragment : Fragment() {
         Log.d(TAG, "restoreFocusAfterPlayer called - pendingFocusTrigger=$pendingFocusTrigger pendingFocusItem=${pendingFocusItem?.stableId}")
     }
 
+    internal fun rememberHomeFocus(
+        sectionIndex: Int,
+        sectionTitle: String,
+        item: CatalogItem,
+        itemIndex: Int,
+    ) {
+        lastHomeFocusTarget = HomeFocusTarget(
+            sectionIndex = sectionIndex,
+            sectionTitle = sectionTitle,
+            itemStableId = item.stableId,
+            itemIndex = itemIndex,
+        )
+    }
+
+    internal fun requestHomeFocusRestoreFromRail(): Boolean {
+        val target = lastHomeFocusTarget ?: return false
+        pendingHomeFocusTarget = target
+        homeFocusRestoreTrigger++
+        return true
+    }
+
     // ── Inner types ────────────────────────────────────────────────────────
 
     internal enum class MainMode { Home, TV, Movies, Series, Events, Settings }
@@ -239,6 +263,13 @@ class ComposeMainFragment : Fragment() {
         val mode: MainMode,
         val selectedItemStableId: String,
         val selectedItemSnapshot: CatalogItem?,
+    )
+
+    internal data class HomeFocusTarget(
+        val sectionIndex: Int,
+        val sectionTitle: String,
+        val itemStableId: String,
+        val itemIndex: Int,
     )
 
     

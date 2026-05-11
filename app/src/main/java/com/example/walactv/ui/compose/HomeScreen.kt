@@ -3,8 +3,12 @@ package com.example.walactv.ui
 import android.util.Log
 import android.widget.ImageView.ScaleType
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -61,6 +65,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,6 +73,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Icon
@@ -76,6 +82,7 @@ import com.example.walactv.BrowseSection
 import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
+import com.example.walactv.R
 import com.example.walactv.tmdbDebug
 import com.example.walactv.ui.theme.IptvAccent
 import com.example.walactv.ui.theme.IptvCard
@@ -99,15 +106,22 @@ private val VOD_IMAGE_HEIGHT     = 178.dp   // ratio ~2:3
 private val VOD_TEXT_AREA_HEIGHT = 0.dp     // sin texto para VOD
 
 // Hero inmersivo — ocupa ~55% de la pantalla (el backdrop es fillMaxSize)
-// La zona de texto hero se posiciona encima del backdrop con gradiente
-private val HOME_HERO_FRACTION    = 0.56f   // fracción de pantalla para el hero
-// Zona de texto hero (título + meta + sinopsis) — dentro del hero
+private val HOME_HERO_FRACTION    = 0.56f
 private val HOME_HERO_TEXT_HEIGHT = 230.dp
 
 // Cards canal / evento — mantienen su texto
 private val CH_CARD_WIDTH       = 180.dp
 private val CH_IMAGE_HEIGHT     = 100.dp
 private val CH_TEXT_AREA_HEIGHT = 60.dp
+
+// Cards evento — texto integrado sobre imagen, estilo evento deportivo
+private val EVENT_CARD_WIDTH       = 240.dp
+private val EVENT_IMAGE_HEIGHT     = 150.dp
+private val EVENT_TEXT_AREA_HEIGHT = 52.dp
+
+// Anchos del rail lateral (deben coincidir con SideRail.kt)
+private val SIDE_RAIL_COLLAPSED_WIDTH = 78.dp
+private val SIDE_RAIL_EXPANDED_WIDTH  = 248.dp
 
 // Custom BringIntoViewSpec for Stremio-style focus scrolling (snap to left edge)
 @OptIn(ExperimentalFoundationApi::class)
@@ -138,7 +152,6 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         runCatching { focusRequesters.firstOrNull()?.requestFocus() }
     }
 
-    // Fallback: si pendingFocusItem no se resolvió en 400ms, focus primera card visible
     LaunchedEffect(fragment.pendingFocusTrigger, fragment.homeSections) {
         if (fragment.pendingFocusItem != null) {
             delay(400)
@@ -151,35 +164,45 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         }
     }
 
-    // Hero: solo VOD (películas y series), nunca canales ni eventos
-    val heroItem = remember(fragment.selectedHero, fragment.homeSections) {
-        fragment.selectedHero?.takeIf { it.isVodContent() }
+    val homePilotEvent = remember(fragment.homeSections) {
+        fragment.homeSections.asSequence()
+            .map { section -> section.items.filter { it.kind == ContentKind.EVENT } }
+            .firstOrNull { it.isNotEmpty() }
+            ?.let { events ->
+                val nextIndex = fragment.findNextEventIndex(events)
+                events.getOrNull(nextIndex.takeIf { it >= 0 } ?: 0)
+            }
+    }
+
+    val heroItem = remember(fragment.selectedHero, fragment.homeSections, homePilotEvent) {
+        fragment.selectedHero?.takeIf { it.isVodContent() || it.stableId == homePilotEvent?.stableId }
             ?: fragment.homeSections.asSequence()
                 .flatMap { it.items.asSequence() }
                 .firstOrNull { it.isVodContent() }
     }
+    val usePilotEventBackdrop = heroItem?.stableId == homePilotEvent?.stableId
 
     LaunchedEffect(heroItem?.stableId, heroItem?.backdropUrl, heroItem?.description, heroItem?.overviewEn) {
         Log.d("TMDB_HOME", "hero=${heroItem.tmdbDebug()}")
     }
 
-    // ── Layout inmersivo estilo Stremio: backdrop fullscreen, hero arriba, filas abajo ──
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFF050507))) {
         val screenHeight = maxHeight
         val heroHeight   = screenHeight * HOME_HERO_FRACTION
-        // Altura disponible para cada fila de contenido (lo que queda debajo del hero)
         val rowZoneHeight = screenHeight - heroHeight
 
-        // ── Capa 1: Backdrop fullscreen — cubre toda la pantalla ─────────
+        // ── FIX: el backdrop ajusta su padding izquierdo dinámicamente
+        // según si el rail está expandido o colapsado, eliminando la franja visible.
+        // Se elimina el Box tapador que antes usaba 110.dp fijo (insuficiente).
         HomeBackdrop(
             item = heroItem,
+            usePilotEventImage = usePilotEventBackdrop,
+            isRailExpanded = fragment.isRailExpanded,
             modifier = Modifier.fillMaxSize(),
         )
 
-        // ── Capa 2: Contenido (texto + filas) encima del backdrop ────────
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // ── Zona hero: texto + meta sobre el backdrop ─────────────────
             HomeHeroText(
                 item = heroItem,
                 modifier = Modifier
@@ -187,7 +210,6 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
                     .height(heroHeight),
             )
 
-            // ── Filas de contenido — cada sección llena el espacio restante ─
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -199,11 +221,11 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
                     ContentSection(
                         fragment = fragment,
                         section = section,
+                        sectionIndex = index,
                         selfFocusRequester = focusRequesters[index],
-                        // Cada sección ocupa el rowZoneHeight completo → una fila visible
                         sectionHeight = rowZoneHeight,
                         onFocused = {
-                            if (it.kind == ContentKind.MOVIE || it.kind == ContentKind.SERIES) {
+                            if (it.kind == ContentKind.MOVIE || it.kind == ContentKind.SERIES || it.stableId == homePilotEvent?.stableId) {
                                 Log.d("TMDB_HOME", "focus item=${it.tmdbDebug()}")
                                 fragment.selectedHero = it
                             }
@@ -255,20 +277,44 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
     }
 }
 
-// ── Backdrop inmersivo — capa de fondo que se extiende detrás de las filas ──
+// ── Backdrop inmersivo ─────────────────────────────────────────────────────
 
 @Composable
-private fun HomeBackdrop(item: CatalogItem?, modifier: Modifier = Modifier) {
+private fun HomeBackdrop(
+    item: CatalogItem?,
+    usePilotEventImage: Boolean,
+    isRailExpanded: Boolean,          // ← NUEVO: controla el padding dinámico
+    modifier: Modifier = Modifier,
+) {
+    // El padding izquierdo se anima con la misma duración y easing que el rail lateral,
+    // evitando la franja visible durante la transición de apertura/cierre.
+    val backdropStartPadding by animateDpAsState(
+        targetValue = if (isRailExpanded) SIDE_RAIL_EXPANDED_WIDTH else SIDE_RAIL_COLLAPSED_WIDTH,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "backdropStartPaddingAnim",
+    )
+
     Box(modifier = modifier.background(Color(0xFF050507))) {
         val backdropUrl = item?.backdropUrl?.takeIf { it.isNotBlank() }
         val posterUrl   = item?.preferredVodPosterUrl().orEmpty()
 
-        // ── Imagen de fondo ──────────────────────────────────────────────
         when {
+            usePilotEventImage -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = backdropStartPadding),   // ← dinámico
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.img),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             !backdropUrl.isNullOrBlank() -> Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(start = 180.dp),
+                    .padding(start = backdropStartPadding),   // ← dinámico
             ) {
                 RemoteImage(
                     url = backdropUrl,
@@ -278,7 +324,6 @@ private fun HomeBackdrop(item: CatalogItem?, modifier: Modifier = Modifier) {
                 )
             }
             posterUrl.isNotBlank() -> {
-                // Poster: lo mostramos a la derecha para no interferir con el texto izquierdo
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -306,7 +351,6 @@ private fun HomeBackdrop(item: CatalogItem?, modifier: Modifier = Modifier) {
             )
         }
 
-        // ── Gradiente horizontal: oscurece izquierda para legibilidad del texto ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -323,7 +367,6 @@ private fun HomeBackdrop(item: CatalogItem?, modifier: Modifier = Modifier) {
                     ),
                 ),
         )
-        // ── Gradiente vertical: negro denso en la parte inferior (zona de filas) ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -344,7 +387,7 @@ private fun HomeBackdrop(item: CatalogItem?, modifier: Modifier = Modifier) {
     }
 }
 
-// ── Texto hero — título, meta y sinopsis sobre el backdrop ─────────────────
+// ── Texto hero ─────────────────────────────────────────────────────────────
 
 @Composable
 private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
@@ -356,7 +399,6 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
                 .fillMaxWidth(0.52f),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Título principal
             Text(
                 text = item?.resolveDisplayTitle().orEmpty().ifBlank { "Inicio" },
                 color = Color.White,
@@ -367,10 +409,8 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
                 lineHeight = 40.sp,
             )
 
-            // Rating + año + runtime + géneros
             HomeHeroMeta(item)
 
-            // Sinopsis
             Text(
                 text = item?.description
                     ?.takeIf { it.isNotBlank() && it != item.group }
@@ -392,7 +432,6 @@ private fun HomeHeroMeta(item: CatalogItem?) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Rating con estrella dorada
         item?.voteAverage?.takeIf { it > 0f }?.let { rating ->
             Row(
                 modifier = Modifier
@@ -412,7 +451,6 @@ private fun HomeHeroMeta(item: CatalogItem?) {
         }
         item?.year?.let { HomeHeroMetaText(it.toString()) }
 
-        // ── Runtime (ej: "1h 58min" o "45min") ──────────────────────────
         item?.runtimeMinutes?.takeIf { it > 0 }?.let { mins ->
             val h = mins / 60
             val m = mins % 60
@@ -450,6 +488,7 @@ private fun HomeHeroMetaText(text: String) {
 internal fun ContentSection(
     fragment: ComposeMainFragment,
     section: BrowseSection,
+    sectionIndex: Int,
     selfFocusRequester: FocusRequester,
     sectionHeight: Dp = 0.dp,
     onFocused: (CatalogItem) -> Unit,
@@ -460,6 +499,14 @@ internal fun ContentSection(
     var rowWidth by remember { mutableStateOf(0) }
     val focusRequesters = remember(section.items.size) {
         List(section.items.size) { FocusRequester() }
+    }
+    val pilotEventId = remember(section.items) {
+        if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
+            val nextIndex = fragment.findNextEventIndex(section.items)
+            section.items.getOrNull(nextIndex.takeIf { it >= 0 } ?: 0)?.stableId
+        } else {
+            null
+        }
     }
 
     LaunchedEffect(section.items) {
@@ -505,6 +552,25 @@ internal fun ContentSection(
         }
     }
 
+    LaunchedEffect(fragment.homeFocusRestoreTrigger, section.items) {
+        val target = fragment.pendingHomeFocusTarget ?: return@LaunchedEffect
+        if (target.sectionIndex != sectionIndex || target.sectionTitle != section.title) return@LaunchedEffect
+
+        val targetIndex = target.itemIndex
+            .takeIf { index -> section.items.getOrNull(index)?.stableId == target.itemStableId }
+            ?: section.items.indexOfFirst { it.stableId == target.itemStableId }
+        if (targetIndex < 0) return@LaunchedEffect
+
+        runCatching {
+            lazyListState.scrollToItem(targetIndex)
+            delay(80)
+            focusRequesters.getOrNull(targetIndex)?.requestFocus()
+            fragment.pendingHomeFocusTarget = null
+        }.onFailure {
+            Log.w("HomeContent", "Home focus restore failed: ${it.message}")
+        }
+    }
+
     val stableOnLoadMore = remember(onLoadMore) { onLoadMore }
 
     LaunchedEffect(lazyListState, section.hasNextPage, section.currentPage) {
@@ -520,12 +586,13 @@ internal fun ContentSection(
             }
     }
 
+    val isEventSection = section.items.firstOrNull()?.kind == ContentKind.EVENT
     val columnModifier = if (sectionHeight > 0.dp) {
         Modifier
             .focusRequester(selfFocusRequester)
             .height(sectionHeight)
             .padding(horizontal = 32.dp)
-            .padding(top = 16.dp, bottom = 16.dp)
+            .padding(top = if (isEventSection) 8.dp else 16.dp, bottom = if (isEventSection) 6.dp else 16.dp)
             .onFocusChanged { state ->
                 Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
             }
@@ -545,16 +612,17 @@ internal fun ContentSection(
         // ── Título de sección ─────────────────────────────────────────────
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = section.title,
+                text = if (isEventSection && section.title == "Eventos de hoy") "Eventos" else section.title,
                 color = Color.White,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+
             section.contentType?.let { type ->
                 if (type == "movies" || type == "series") {
                     Box(
@@ -592,8 +660,7 @@ internal fun ContentSection(
                     },
             ) {
                 itemsIndexed(section.items) { index, item ->
-                    val cardModifier = Modifier
-                        .focusRequester(focusRequesters[index])
+                    val cardModifier = Modifier.focusRequester(focusRequesters[index])
 
                     if (section.title == "Continuar viendo") {
                         val wp = fragment.continueWatchingEntries[item.stableId]
@@ -616,7 +683,10 @@ internal fun ContentSection(
                             debugTag = "${section.title}[$index]",
                             progressPercent = wp?.progressPercent ?: 0,
                             isWatched = wp?.isWatched == true,
-                            onFocused = { onFocused(item) },
+                            onFocused = { focusedItem ->
+                                fragment.rememberHomeFocus(sectionIndex, section.title, focusedItem, index)
+                                onFocused(focusedItem)
+                            },
                             onDeleteRequest = { fragment.deleteContinueWatchingItem = it },
                         )
                     } else {
@@ -635,17 +705,214 @@ internal fun ContentSection(
                             }
                         val itemWithWatched = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES)
                             item.copy(isWatched = wp?.isWatched == true) else item
-                        MediaCard(
-                            item = itemWithWatched,
-                            modifier = cardModifier,
-                            debugTag = "${section.title}[$index]",
-                            onFocused = { onFocused(item) },
-                        ) { fragment.handleCardClick(item, section.items) }
+
+                        // ── Eventos usan el nuevo EventVsCard ─────────────
+                        if (item.kind == ContentKind.EVENT) {
+                            val isLive = item.badgeText.matches(Regex("\\d{1,2}:\\d{2}.*")) ||
+                                    item.badgeText.contains("LIVE", ignoreCase = true) ||
+                                    item.badgeText.contains("EN VIVO", ignoreCase = true)
+                            EventVsCard(
+                                item = item,
+                                modifier = cardModifier,
+                                isLive = isLive,
+                                onFocused = {
+                                    fragment.rememberHomeFocus(sectionIndex, section.title, item, index)
+                                    onFocused(item)
+                                },
+                                onClick = { fragment.handleCardClick(item, section.items) },
+                            )
+                        } else {
+                            MediaCard(
+                                item = itemWithWatched,
+                                modifier = cardModifier,
+                                debugTag = "${section.title}[$index]",
+                                onFocused = {
+                                    fragment.rememberHomeFocus(sectionIndex, section.title, item, index)
+                                    onFocused(item)
+                                },
+                            ) { fragment.handleCardClick(item, section.items) }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+// ── Event VS Card ──────────────────────────────────────────────────────────
+
+@Composable
+internal fun EventVsCard(
+    item: CatalogItem,
+    modifier: Modifier = Modifier,
+    isLive: Boolean = false,
+    onFocused: () -> Unit,
+    onClick: () -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    val displaySubtitle = remember(item.subtitle, item.badgeText) {
+        val cleaned = if (item.badgeText.isNotBlank() && item.subtitle.contains(item.badgeText)) {
+            item.subtitle.replace(item.badgeText, "").replace("•", "").trim()
+        } else {
+            item.subtitle
+        }
+        cleaned.split("  •  ", " • ", "•")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .take(2)
+            .joinToString(" | ")
+    }
+    val displayTitle = remember(item.title, item.normalizedTitle, item.tmdbTitle, item.seriesName) {
+        val title = item.resolveDisplayTitle()
+        val parts = title.split(Regex("\\s+vs\\s+", RegexOption.IGNORE_CASE), limit = 2)
+        if (parts.size == 2 && parts[0].length <= 18 && parts[1].length <= 18) {
+            "${parts[0]} vs\n${parts[1]}"
+        } else {
+            title
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .width(EVENT_CARD_WIDTH)
+            .height(EVENT_IMAGE_HEIGHT)
+            .clip(RoundedCornerShape(12.dp))
+            .background(IptvCard)
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) IptvFocusBorder else Color.White.copy(alpha = 0.10f),
+                shape = RoundedCornerShape(12.dp),
+            )
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
+            .focusable()
+            .clickable { onClick() },
+    ) {
+        if (item.imageUrl.isNotBlank()) {
+            RemoteImage(
+                url = item.imageUrl,
+                width = 480,
+                height = 300,
+                scaleType = ScaleType.CENTER_CROP,
+            )
+        } else {
+            Image(
+                painter = painterResource(R.drawable.img),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(92.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f)),
+                    ),
+                ),
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent),
+                    ),
+                ),
+        )
+
+        val badge = item.badgeText.takeIf { it.isNotBlank() }
+        if (badge != null || isLive) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(7.dp)
+                    .background(
+                        Color.Black.copy(alpha = 0.76f),
+                        RoundedCornerShape(5.dp),
+                    )
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    text = badge ?: "EN VIVO",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.2.sp,
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 12.dp, end = 72.dp, bottom = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
+            Text(
+                text = displayTitle,
+                color = IptvTextPrimary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 14.sp,
+            )
+            if (displaySubtitle.isNotBlank()) {
+                Text(
+                    text = displaySubtitle,
+                    color = Color.White.copy(alpha = 0.72f),
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 10.dp, bottom = 10.dp)
+                .background(Color.Black.copy(alpha = 0.74f), RoundedCornerShape(999.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text("▶", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                Text("Ver", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// ── HomeEventPilotCard — se mantiene para compatibilidad pero usa EventVsCard internamente ──
+
+@Composable
+private fun HomeEventPilotCard(
+    item: CatalogItem,
+    modifier: Modifier = Modifier,
+    onFocused: () -> Unit,
+    onClick: () -> Unit,
+) {
+    EventVsCard(
+        item = item,
+        modifier = modifier,
+        isLive = item.badgeText.matches(Regex("\\d{1,2}:\\d{2}.*")) ||
+                item.badgeText.contains("LIVE", ignoreCase = true),
+        onFocused = onFocused,
+        onClick = onClick,
+    )
 }
 
 // ── Media card ─────────────────────────────────────────────────────────────
@@ -660,9 +927,20 @@ internal fun MediaCard(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val isVod = item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES
-    val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
-    val cardWidth   = if (isChannelOrEvent) CH_CARD_WIDTH else VOD_CARD_WIDTH
-    val imageHeight = if (isChannelOrEvent) CH_IMAGE_HEIGHT else VOD_IMAGE_HEIGHT
+    val isChannel = item.kind == ContentKind.CHANNEL
+    val isEvent = item.kind == ContentKind.EVENT
+    val isChannelOrEvent = isChannel || isEvent
+    val cardWidth = when {
+        isEvent -> EVENT_CARD_WIDTH
+        isChannel -> CH_CARD_WIDTH
+        else -> VOD_CARD_WIDTH
+    }
+    val imageHeight = when {
+        isEvent -> EVENT_IMAGE_HEIGHT
+        isChannel -> CH_IMAGE_HEIGHT
+        else -> VOD_IMAGE_HEIGHT
+    }
+    val textAreaHeight = if (isEvent) EVENT_TEXT_AREA_HEIGHT else CH_TEXT_AREA_HEIGHT
 
     val baseModifier = modifier
         .width(cardWidth)
@@ -680,7 +958,6 @@ internal fun MediaCard(
         .clickable { onClick() }
 
     if (isVod) {
-        // ── VOD: solo imagen, sin texto debajo ───────────────────────────
         Box(
             modifier = baseModifier
                 .height(imageHeight)
@@ -698,7 +975,6 @@ internal fun MediaCard(
                 PlaceholderIcon(kind = item.kind)
             }
 
-            // Badge (ej: "+18", "4K") — top-left
             item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES }?.let { badge ->
                 Box(
                     modifier = Modifier
@@ -711,10 +987,8 @@ internal fun MediaCard(
                 }
             }
 
-            // Visto — top-right
             if (item.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
 
-            // Borde de foco luminoso encima de la imagen
             if (isFocused) {
                 Box(
                     modifier = Modifier
@@ -724,7 +998,6 @@ internal fun MediaCard(
             }
         }
     } else {
-        // ── Canal / Evento: imagen + texto debajo ────────────────────────
         Column(
             modifier = baseModifier.background(if (isFocused) IptvFocusBg else IptvCard),
         ) {
@@ -763,7 +1036,7 @@ internal fun MediaCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(CH_TEXT_AREA_HEIGHT)
+                    .height(textAreaHeight)
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -1049,8 +1322,17 @@ internal fun WatchedBadge(modifier: Modifier = Modifier) {
 
 @Composable
 internal fun EventSportPlaceholder(item: CatalogItem, emojiSize: TextUnit = 48.sp) {
-    val category = item.group.lowercase()
+    val category = listOf(item.title, item.subtitle, item.group, item.description).joinToString(" ").lowercase()
     val text = java.text.Normalizer.normalize(category, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
+    if (text.contains("motogp") || text.contains("motociclismo")) {
+        Image(
+            painter = painterResource(R.drawable.img2),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        return
+    }
     val emoji = when {
         text.contains("futbol") -> "⚽"; text.contains("baloncesto") -> "🏀"; text.contains("tenis") -> "🎾"
         text.contains("motociclismo") -> "🏍️"; text.contains("automovilismo") -> "🏎️"
