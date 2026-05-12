@@ -69,6 +69,7 @@ class ComposeMainFragment : Fragment() {
     internal var pendingHomeFocusTarget by mutableStateOf<HomeFocusTarget?>(null)
     internal var homeFocusRestoreTrigger by mutableStateOf(0)
     internal var contentFocusTrigger by mutableStateOf(0)
+    internal var contentFocusCanOpenRail by mutableStateOf(false)
     internal var suppressEventAutoScroll by mutableStateOf(false)
     internal var currentMode by mutableStateOf(MainMode.Home)
     internal var isRailExpanded by mutableStateOf(false)

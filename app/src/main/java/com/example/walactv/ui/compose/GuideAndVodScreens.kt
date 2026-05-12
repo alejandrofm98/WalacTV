@@ -46,6 +46,7 @@ private const val ALL_OPTION = "Todos"
 @Composable
 internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
     val isEventGuide = kind == ContentKind.EVENT
+    val gridColumns = if (isEventGuide) 5 else 3
     var selectedCountry by remember { mutableStateOf(ALL_OPTION) }
     var selectedGroup by remember { mutableStateOf(ALL_OPTION) }
     var searchQuery by remember { mutableStateOf("") }
@@ -243,7 +244,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(if (isEventGuide) 5 else 3),
+                columns = GridCells.Fixed(gridColumns),
                 state = lazyGridState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = 24.dp),
@@ -257,6 +258,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
                             item = item,
                             modifier = Modifier.focusRequester(itemFocusRequesters[index]),
                             onFocused = {
+                                fragment.contentFocusCanOpenRail = index % gridColumns == 0
                                 fragment.selectedHero = item
                             }) { fragment.handleCardClick(item, displayItemsForGrid) }
                     } else {
@@ -265,6 +267,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
                             isCurrentChannel = fragment.currentItem?.stableId == item.stableId,
                             modifier = Modifier.focusRequester(itemFocusRequesters[index]),
                             onFocused = {
+                                fragment.contentFocusCanOpenRail = index % gridColumns == 0
                                 fragment.selectedHero = item
                             }) { fragment.handleCardClick(item, displayItemsForGrid) }
                     }
@@ -391,6 +394,7 @@ internal fun EpgChannelCard(
 
 @Composable
 internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
+    val gridColumns = 5
     var selectedCountry by remember { mutableStateOf(ALL_OPTION) }
     var selectedGroup by remember { mutableStateOf(ALL_OPTION) }
     var searchQuery by remember { mutableStateOf("") }
@@ -556,7 +560,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(5),
+                columns = GridCells.Fixed(gridColumns),
                 state = lazyGridState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = 24.dp),
@@ -587,7 +591,10 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
                     MediaCard(
                         item = itemWithWatched,
                         modifier = Modifier.focusRequester(itemFocusRequesters[index]),
-                        onFocused = { fragment.selectedHero = item }) {
+                        onFocused = {
+                            fragment.contentFocusCanOpenRail = index % gridColumns == 0
+                            fragment.selectedHero = item
+                        }) {
                         fragment.handleCardClick(
                             item,
                             displayItemsForGrid

@@ -88,6 +88,8 @@ internal fun MainShell(fragment: ComposeMainFragment) {
                             if (fragment.currentMode == MainMode.Home) {
                                 val homeTarget = fragment.lastHomeFocusTarget ?: return@onPreviewKeyEvent false
                                 if (homeTarget.itemIndex > 0) return@onPreviewKeyEvent false
+                            } else if (!fragment.contentFocusCanOpenRail) {
+                                return@onPreviewKeyEvent false
                             }
 
                             val index = railItems.indexOfFirst {
