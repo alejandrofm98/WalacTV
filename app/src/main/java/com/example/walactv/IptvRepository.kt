@@ -75,6 +75,19 @@ class IptvRepository(context: Context) {
 
     fun clearHomeMemoryCache() = clearAllCaches()
 
+    fun updateHomeEventsCache(eventSections: List<BrowseSection>) {
+        val current = memoryHomeCatalog ?: return
+        val freshEventIds = eventSections.flatMap(BrowseSection::items).mapTo(mutableSetOf(), CatalogItem::stableId)
+        val nonEventSections = current.sections.filterNot { section ->
+            section.items.any { it.kind == ContentKind.EVENT || it.stableId in freshEventIds }
+        }
+        memoryHomeCatalog = current.copy(
+            sections = eventSections + nonEventSections,
+            searchableItems = (eventSections.flatMap(BrowseSection::items) + current.searchableItems.filterNot { it.kind == ContentKind.EVENT })
+                .distinctBy(CatalogItem::stableId),
+        )
+    }
+
     suspend fun refreshPlaylistNow(): Long {
         m3uCatalogStore.refreshNow()
         memoryHomeCatalog = null
@@ -409,7 +422,8 @@ class IptvRepository(context: Context) {
         val today = DATE_FORMATTER.format(Date())
         val pass = credentialStore.password()
         val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
-        val url = "${BuildConfig.IPTV_BASE_URL}/api/calendar/$today?client=android$passParam"
+        val cacheBust = System.currentTimeMillis()
+        val url = "${BuildConfig.IPTV_BASE_URL}/api/calendar/$today?client=android&_=$cacheBust$passParam"
         Log.d(TAG, "fetchEventSections: requesting $url")
         val payload = getJsonObject(url, token)
         Log.d(TAG, "fetchEventSections: response keys = ${payload.keys().asSequence().toList()}")
@@ -455,6 +469,10 @@ class IptvRepository(context: Context) {
         if (options.isEmpty()) return null
 
         val eventImageUrl = normalizeImageUrl(obj.optString("imagen_evento"))
+        val channelNames = channelRefs
+            .map { it.displayName.trim() }
+            .filter(String::isNotBlank)
+            .distinctBy { it.lowercase() }
         val competitionSubtitle = listOf(
             obj.optString("competicion"),
             obj.optString("subtitulo_competicion"),
@@ -465,13 +483,20 @@ class IptvRepository(context: Context) {
             title = obj.optString("equipos"),
             subtitle = listOf(obj.optString("hora"), competitionSubtitle)
                 .filter(String::isNotBlank).joinToString("  •  "),
-            description = channelRefs.joinToString(" · ") { it.displayName },
-            imageUrl = eventImageUrl.ifBlank { channelRefs.firstOrNull()?.logoUrl.orEmpty() },
+            description = channelNames.joinToString(" · "),
+            imageUrl = eventImageUrl.ifBlank { channelRefs.firstOrNull()?.logoUrl.orEmpty() }
+                .let(::withEventImageCacheBust),
             kind = ContentKind.EVENT,
             group = obj.optString("categoria").ifBlank { "Agenda" },
             badgeText = obj.optString("hora"),
             streamOptions = options,
         )
+    }
+
+    private fun withEventImageCacheBust(url: String): String {
+        if (url.isBlank()) return url
+        val separator = if (url.contains("?")) "&" else "?"
+        return "$url${separator}_=${System.currentTimeMillis()}"
     }
 
     // ── Resolución de streams ─────────────────────────────────────────────────
@@ -559,9 +584,12 @@ class IptvRepository(context: Context) {
             try {
                 conn.requestMethod = "GET"
                 conn.instanceFollowRedirects = true
+                conn.useCaches = false
                 conn.connectTimeout = 20_000
                 conn.readTimeout = 20_000
                 conn.setRequestProperty("Accept", "application/json")
+                conn.setRequestProperty("Cache-Control", "no-cache")
+                conn.setRequestProperty("Pragma", "no-cache")
                 conn.setRequestProperty("User-Agent", USER_AGENT)
                 token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
 

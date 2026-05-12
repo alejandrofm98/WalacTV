@@ -26,6 +26,7 @@ import com.example.walactv.ui.defaultItemForMode
 import com.example.walactv.ui.ensureFiltersLoaded
 import com.example.walactv.ui.handleCompletedUpdateDownload
 import com.example.walactv.ui.restoreCachedUpdateState
+import com.example.walactv.ui.refreshEvents
 import com.example.walactv.ui.startLoad
 import com.example.walactv.ui.startUpdateDownload
 import com.example.walactv.ui.theme.WalacTVTheme
@@ -165,6 +166,7 @@ class ComposeMainFragment : Fragment() {
             pendingInstallPermission = false
             startUpdateDownload(mandatoryUpdate ?: availableUpdate)
         }
+        if (isSignedIn && isLoaded) refreshEvents()
     }
 
     override fun onStop() {

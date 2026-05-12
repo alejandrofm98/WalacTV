@@ -165,7 +165,7 @@ internal fun SideRail(
         modifier = Modifier
             .width(railWidth)
             .fillMaxHeight()
-            .background(IptvSurface)
+            .background(IptvSidebarBg)
             .onFocusChanged { state ->
                 fragment.isRailExpanded = state.hasFocus
                 Log.d(TAG, "rail focus hasFocus=${state.hasFocus} mode=${fragment.currentMode}")
@@ -237,14 +237,6 @@ private fun RailHeader(expanded: Boolean) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Navegacion",
-                    color = IptvTextMuted,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
     }
@@ -275,22 +267,22 @@ internal fun NavigationItem(
     onClick: () -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val bgColor      = when { isFocused -> IptvFocusBg; selected -> IptvCard; else -> Color.Transparent }
-    val borderColor  = when { isFocused -> IptvFocusBorder; selected -> IptvSurfaceVariant; else -> Color.Transparent }
+    val bgColor      = when { isFocused -> IptvFocusBg; selected -> IptvSidebarSelected; else -> Color.Transparent }
+    val borderColor  = when { isFocused -> IptvFocusBorder; selected -> Color.Transparent; else -> Color.Transparent }
     val contentColor = if (isFocused || selected) IptvTextPrimary else IptvTextMuted
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(44.dp)
-            .background(bgColor, RoundedCornerShape(8.dp))
-            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(8.dp))
+            .background(bgColor, RoundedCornerShape(percent = 50))
+            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(percent = 50))
             .onFocusChanged {
                 isFocused = it.isFocused
                 onFocusChanged(it.isFocused)
             }
             .clickable { onClick() }
-            .padding(horizontal = if (expanded) 12.dp else 0.dp),
+            .padding(horizontal = if (expanded) 14.dp else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,
     ) {

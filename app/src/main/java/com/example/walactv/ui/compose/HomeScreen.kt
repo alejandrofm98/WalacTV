@@ -85,14 +85,17 @@ import com.example.walactv.ContentKind
 import com.example.walactv.R
 import com.example.walactv.tmdbDebug
 import com.example.walactv.ui.theme.IptvAccent
+import com.example.walactv.ui.theme.IptvBackground
 import com.example.walactv.ui.theme.IptvCard
 import com.example.walactv.ui.theme.IptvFocusBg
 import com.example.walactv.ui.theme.IptvFocusBorder
 import com.example.walactv.ui.theme.IptvLive
 import com.example.walactv.ui.theme.IptvSurface
 import com.example.walactv.ui.theme.IptvSurfaceVariant
+import com.example.walactv.ui.theme.IptvTextAccent
 import com.example.walactv.ui.theme.IptvTextMuted
 import com.example.walactv.ui.theme.IptvTextPrimary
+import com.example.walactv.ui.theme.IptvTextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -175,18 +178,18 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
     }
 
     val heroItem = remember(fragment.selectedHero, fragment.homeSections, homePilotEvent) {
-        fragment.selectedHero?.takeIf { it.isVodContent() || it.stableId == homePilotEvent?.stableId }
+        fragment.selectedHero?.takeIf { it.isHeroContent() }
             ?: fragment.homeSections.asSequence()
                 .flatMap { it.items.asSequence() }
                 .firstOrNull { it.isVodContent() }
     }
-    val usePilotEventBackdrop = heroItem?.stableId == homePilotEvent?.stableId
+    val usePilotEventBackdrop = heroItem?.stableId == homePilotEvent?.stableId && heroItem?.imageUrl.orEmpty().isBlank()
 
     LaunchedEffect(heroItem?.stableId, heroItem?.backdropUrl, heroItem?.description, heroItem?.overviewEn) {
         Log.d("TMDB_HOME", "hero=${heroItem.tmdbDebug()}")
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFF050507))) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(IptvBackground)) {
         val screenHeight = maxHeight
         val heroHeight   = screenHeight * HOME_HERO_FRACTION
         val rowZoneHeight = screenHeight - heroHeight
@@ -225,7 +228,7 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
                         selfFocusRequester = focusRequesters[index],
                         sectionHeight = rowZoneHeight,
                         onFocused = {
-                            if (it.kind == ContentKind.MOVIE || it.kind == ContentKind.SERIES || it.stableId == homePilotEvent?.stableId) {
+                            if (it.isHeroContent()) {
                                 Log.d("TMDB_HOME", "focus item=${it.tmdbDebug()}")
                                 fragment.selectedHero = it
                             }
@@ -294,11 +297,32 @@ private fun HomeBackdrop(
         label = "backdropStartPaddingAnim",
     )
 
-    Box(modifier = modifier.background(Color(0xFF050507))) {
+    Box(modifier = modifier.background(IptvBackground)) {
+        val eventImageUrl = item?.takeIf { it.kind == ContentKind.EVENT }?.imageUrl?.takeIf { it.isNotBlank() }
         val backdropUrl = item?.backdropUrl?.takeIf { it.isNotBlank() }
         val posterUrl   = item?.preferredVodPosterUrl().orEmpty()
 
         when {
+            !eventImageUrl.isNullOrBlank() -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = backdropStartPadding),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .fillMaxWidth(0.72f),
+                ) {
+                    RemoteImage(
+                        url = eventImageUrl,
+                        width = 1280,
+                        height = 720,
+                        scaleType = ScaleType.FIT_CENTER,
+                        disableCache = true,
+                    )
+                }
+            }
             usePilotEventImage -> Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -327,7 +351,7 @@ private fun HomeBackdrop(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF050507)),
+                        .background(IptvBackground),
                     contentAlignment = Alignment.CenterEnd,
                 ) {
                     Box(
@@ -347,7 +371,7 @@ private fun HomeBackdrop(
             else -> Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF050507)),
+                    .background(IptvBackground),
             )
         }
 
@@ -357,11 +381,22 @@ private fun HomeBackdrop(
                 .background(
                     Brush.horizontalGradient(
                         colorStops = arrayOf(
-                            0.0f  to Color(0xFF050507),
-                            0.18f to Color(0xFF050507),
-                            0.38f to Color(0xFF050507).copy(alpha = 0.88f),
-                            0.55f to Color(0xFF050507).copy(alpha = 0.45f),
-                            0.75f to Color(0xFF050507).copy(alpha = 0.08f),
+                            0.0f  to IptvBackground,
+                            0.18f to IptvBackground.copy(alpha = 0.94f),
+                            0.42f to IptvBackground.copy(alpha = 0.70f),
+                            0.68f to IptvBackground.copy(alpha = 0.24f),
+                            1.0f  to Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFF0A1A3A).copy(alpha = 0.20f),
                             1.0f  to Color.Transparent,
                         ),
                     ),
@@ -373,13 +408,11 @@ private fun HomeBackdrop(
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0.0f  to Color.Transparent,
-                            0.30f to Color.Transparent,
-                            0.48f to Color(0xFF050507).copy(alpha = 0.30f),
-                            0.58f to Color(0xFF050507).copy(alpha = 0.70f),
-                            0.65f to Color(0xFF050507).copy(alpha = 0.92f),
-                            0.72f to Color(0xFF050507),
-                            1.0f  to Color(0xFF050507),
+                            0.0f  to Color(0xFF06142F).copy(alpha = 0.22f),
+                            0.36f to Color.Transparent,
+                            0.58f to IptvBackground.copy(alpha = 0.34f),
+                            0.74f to IptvBackground.copy(alpha = 0.86f),
+                            1.0f  to IptvBackground,
                         ),
                     ),
                 ),
@@ -391,35 +424,75 @@ private fun HomeBackdrop(
 
 @Composable
 private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
+    val eventCompetitionText = item?.takeIf { it.kind == ContentKind.EVENT }?.eventCompetitionText().orEmpty()
+    val eventTimeText = item?.takeIf { it.kind == ContentKind.EVENT }?.badgeText.orEmpty()
+        .takeIf { it.isNotBlank() }
+        ?.let { if (it.matches(Regex("\\d{1,2}:\\d{2}.*"))) "Hoy, $it" else it }
+    val descriptionText = when {
+        item?.kind == ContentKind.EVENT -> item.description.takeIf { it.isNotBlank() && it != item.group }
+        else -> item?.description?.takeIf { it.isNotBlank() && it != item.group } ?: item?.overviewEn
+    } ?: "Explora películas y series con imágenes oficiales, resumen y puntuación de TMDB."
+
     Box(modifier = modifier) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 44.dp, end = 44.dp, bottom = 20.dp)
-                .fillMaxWidth(0.52f),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(start = 44.dp, end = 44.dp, bottom = 28.dp)
+                .fillMaxWidth(0.48f),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
                 text = item?.resolveDisplayTitle().orEmpty().ifBlank { "Inicio" },
                 color = Color.White,
-                fontSize = 36.sp,
+                fontSize = 42.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 40.sp,
+                lineHeight = 48.sp,
             )
 
-            HomeHeroMeta(item)
+            if (item?.kind == ContentKind.EVENT) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (eventCompetitionText.isNotBlank()) {
+                        Text(
+                            text = eventCompetitionText,
+                            color = IptvTextAccent,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (!eventTimeText.isNullOrBlank()) {
+                        Text(
+                            text = "|",
+                            color = Color.White.copy(alpha = 0.30f),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = eventTimeText,
+                            color = IptvTextSecondary,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            } else {
+                HomeHeroMeta(item)
+            }
 
             Text(
-                text = item?.description
-                    ?.takeIf { it.isNotBlank() && it != item.group }
-                    ?: item?.overviewEn
-                    ?: "Explora películas y series con imágenes oficiales, resumen y puntuación de TMDB.",
-                color = Color.White.copy(alpha = 0.75f),
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                maxLines = 4,
+                text = descriptionText,
+                color = IptvTextSecondary,
+                fontSize = 15.sp,
+                lineHeight = 21.sp,
+                maxLines = if (item?.kind == ContentKind.EVENT) 2 else 4,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -432,6 +505,10 @@ private fun HomeHeroMeta(item: CatalogItem?) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (item?.kind == ContentKind.EVENT) {
+            item.badgeText.takeIf { it.isNotBlank() }?.let { HomeHeroMetaText(it) }
+        }
+
         item?.voteAverage?.takeIf { it > 0f }?.let { rating ->
             Row(
                 modifier = Modifier
@@ -796,12 +873,12 @@ internal fun EventVsCard(
         modifier = modifier
             .width(EVENT_CARD_WIDTH)
             .height(EVENT_IMAGE_HEIGHT)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(IptvCard)
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) IptvFocusBorder else Color.White.copy(alpha = 0.10f),
-                shape = RoundedCornerShape(12.dp),
+                color = if (isFocused) IptvFocusBorder else IptvAccent.copy(alpha = 0.26f),
+                shape = RoundedCornerShape(16.dp),
             )
             .onFocusChanged {
                 isFocused = it.isFocused
@@ -816,6 +893,7 @@ internal fun EventVsCard(
                 width = 480,
                 height = 300,
                 scaleType = ScaleType.CENTER_CROP,
+                disableCache = true,
             )
         } else {
             Image(
@@ -830,10 +908,10 @@ internal fun EventVsCard(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(92.dp)
+                .height(104.dp)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f)),
+                        listOf(Color.Transparent, IptvBackground.copy(alpha = 0.92f)),
                     ),
                 ),
         )
@@ -843,7 +921,7 @@ internal fun EventVsCard(
                 .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(
-                        listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent),
+                        listOf(Color(0xFF113B87).copy(alpha = 0.28f), Color.Transparent),
                     ),
                 ),
         )
@@ -852,18 +930,18 @@ internal fun EventVsCard(
         if (badge != null || isLive) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(7.dp)
+                    .align(Alignment.TopStart)
+                    .padding(10.dp)
                     .background(
-                        Color.Black.copy(alpha = 0.76f),
-                        RoundedCornerShape(5.dp),
+                        IptvAccent,
+                        RoundedCornerShape(7.dp),
                     )
-                    .padding(horizontal = 9.dp, vertical = 4.dp),
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
             ) {
                 Text(
                     text = badge ?: "EN VIVO",
                     color = Color.White,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 0.2.sp,
                 )
@@ -873,22 +951,22 @@ internal fun EventVsCard(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 12.dp, end = 72.dp, bottom = 11.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp),
+                .padding(start = 12.dp, end = 70.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 text = displayTitle,
                 color = IptvTextPrimary,
-                fontSize = 13.sp,
+                fontSize = 13.5.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 14.sp,
+                lineHeight = 15.sp,
             )
             if (displaySubtitle.isNotBlank()) {
                 Text(
                     text = displaySubtitle,
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = IptvTextSecondary,
                     fontSize = 10.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -900,8 +978,8 @@ internal fun EventVsCard(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 10.dp, bottom = 10.dp)
-                .background(Color.Black.copy(alpha = 0.74f), RoundedCornerShape(999.dp))
-                .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(999.dp))
+                .background(IptvBackground.copy(alpha = 0.70f), RoundedCornerShape(999.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(999.dp))
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         ) {
             Row(
@@ -1383,6 +1461,19 @@ internal fun CatalogItem.resolveDisplayTitle(): String = when {
 }
 
 private fun CatalogItem.isVodContent(): Boolean = kind == ContentKind.MOVIE || kind == ContentKind.SERIES
+
+private fun CatalogItem.isHeroContent(): Boolean = isVodContent() || kind == ContentKind.EVENT
+
+private fun CatalogItem.eventCompetitionText(): String {
+    if (kind != ContentKind.EVENT) return ""
+    val withoutTime = subtitle
+        .replace(badgeText, "")
+        .replace("  •  ", " ")
+        .replace(" • ", " ")
+        .replace("•", " ")
+        .trim()
+    return withoutTime.replace(Regex("\\s+"), " ")
+}
 
 private fun CatalogItem.preferredVodPosterUrl(): String = tmdbPosterUrl?.takeIf { it.isNotBlank() }
     ?: imageUrl

@@ -22,7 +22,10 @@ import com.example.walactv.R
 // ── Content loading ────────────────────────────────────────────────────────
 
 internal fun ComposeMainFragment.startLoad(forceRefresh: Boolean = false) {
-    if (homeCatalog != null && !forceRefresh) return
+    if (homeCatalog != null && !forceRefresh) {
+        refreshEvents()
+        return
+    }
 
     scope.launch {
         errorMessage = null
@@ -72,6 +75,29 @@ internal fun ComposeMainFragment.startLoad(forceRefresh: Boolean = false) {
             .onFailure {
                 if (!isLoaded) errorMessage = it.message ?: "Error al cargar la aplicacion"
             }
+    }
+}
+
+internal fun ComposeMainFragment.refreshEvents() {
+    if (!isSignedIn) return
+    scope.launch {
+        runCatching { repository.loadEventsOnly() }
+            .onSuccess { catalog ->
+                val eventSections = catalog.sections
+                repository.updateHomeEventsCache(eventSections)
+                homeCatalog = homeCatalog?.let { current ->
+                    val nonEventSections = current.sections.filterNot { section ->
+                        section.items.any { it.kind == ContentKind.EVENT }
+                    }
+                    current.copy(
+                        sections = eventSections + nonEventSections,
+                        searchableItems = (eventSections.flatMap(BrowseSection::items) + current.searchableItems.filterNot { it.kind == ContentKind.EVENT })
+                            .distinctBy(CatalogItem::stableId),
+                    )
+                } ?: catalog
+                updateStateFromCatalog(homeCatalog ?: catalog)
+            }
+            .onFailure { Log.w(TAG, "No se pudieron refrescar eventos", it) }
     }
 }
 

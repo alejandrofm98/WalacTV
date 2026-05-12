@@ -2,27 +2,27 @@ package com.example.walactv.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val IptvBackground = Color(0xFF0B0B0E)
-val IptvSurface = Color(0xFF14141B)
-val IptvSurfaceVariant = Color(0xFF1F1F29)
-val IptvCard = Color(0xFF181820)
+val IptvBackground = Color(0xFF070B16)
+val IptvSurface = Color(0xFF0C1427)
+val IptvSurfaceVariant = Color(0xFF131D38)
+val IptvCard = Color(0xFF101931)
 
-val IptvAccent = Color(0xFF00C3FF)
-val IptvAccentDark = Color(0xFF008DFF)
+val IptvAccent = Color(0xFF3260F0)
+val IptvAccentDark = Color(0xFF2850D0)
 
-val IptvFocusBorder = Color(0xFF00C3FF)
-val IptvFocusBg = Color(0xFF1A3A5C)
+val IptvFocusBorder = Color(0xFF3260F0)
+val IptvFocusBg = Color(0xFF213A7E)
 
 val IptvTextPrimary = Color(0xFFFFFFFF)
-val IptvTextSecondary = Color(0xFFB4B4C5)
-val IptvTextMuted = Color(0xFF868698)
-val IptvTextAccent = Color(0xFF66D9FF)
+val IptvTextSecondary = Color(0xFFB8C2D8)
+val IptvTextMuted = Color(0xFF8692AA)
+val IptvTextAccent = Color(0xFF6E95FF)
 
 val IptvLive = Color(0xFFE50914)
 val IptvOnline = Color(0xFF1DB954)
 
-val IptvSidebarBg = IptvSurface
-val IptvSidebarSelected = IptvFocusBg
+val IptvSidebarBg = Color(0xFF040812)
+val IptvSidebarSelected = Color(0xFF1E3A8A)
 
 // Legacy (kept for theme compat)
 val Purple80 = Color(0xFFD0BCFF)

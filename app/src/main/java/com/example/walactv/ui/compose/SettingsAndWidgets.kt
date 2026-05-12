@@ -32,6 +32,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.example.walactv.AppUpdateAvailability
 import com.example.walactv.CatalogFilterOption
 import com.example.walactv.ChangelogDialog
@@ -195,10 +196,28 @@ internal fun ScreenHeader(title: String, subtitle: String) {
 }
 
 @Composable
-internal fun RemoteImage(url: String, width: Int, height: Int, scaleType: ImageView.ScaleType) {
+internal fun RemoteImage(
+    url: String,
+    width: Int,
+    height: Int,
+    scaleType: ImageView.ScaleType,
+    disableCache: Boolean = false,
+) {
     AndroidView(
         factory = { context -> ImageView(context).apply { this.scaleType = scaleType; setBackgroundColor(AndroidColor.TRANSPARENT) } },
-        update = { iv -> iv.scaleType = scaleType; Glide.with(iv.context.applicationContext).load(url).override(width, height).dontTransform().into(iv) },
+        update = { iv ->
+            iv.scaleType = scaleType
+            val request = Glide.with(iv.context.applicationContext)
+                .load(url)
+                .override(width, height)
+                .dontTransform()
+            if (disableCache) {
+                request
+                    .skipMemoryCache(true)
+                    .diskCacheStrategy(DiskCacheStrategy.NONE)
+            }
+            request.into(iv)
+        },
         onRelease = { iv -> runCatching { Glide.with(iv.context.applicationContext).clear(iv) }.onFailure { Log.w("RemoteImage", "Could not clear image", it) } },
         modifier = Modifier.fillMaxSize(),
     )
