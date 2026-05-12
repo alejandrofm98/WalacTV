@@ -232,7 +232,8 @@ internal fun ComposeMainFragment.buildContinueWatchingItem(
 
     Log.d(
         TAG,
-        "TMDB_CW build contentId=${wp.contentId} type=${wp.contentType} series=${wp.seriesName} matched=${matched.tmdbDebug()} wpImage=${wp.imageUrl.take(80)}",
+        "TMDB_CW build contentId=${wp.contentId} type=${wp.contentType} series=${wp.seriesName} matched=${matched.tmdbDebug()} " +
+            "wpTmdb=${wp.tmdbTitle.orEmpty()} wpBackdrop=${wp.backdropPath.orEmpty()} wpPoster=${wp.posterPath.orEmpty()} wpImage=${wp.imageUrl.take(80)}",
     )
 
     return matched?.copy(
@@ -244,22 +245,60 @@ internal fun ComposeMainFragment.buildContinueWatchingItem(
         description = matched.description.cleanDisplayText().ifBlank { wp.title },
         imageUrl = matched.imageUrl.ifBlank { wp.imageUrl },
         seriesName = matched.seriesName.cleanDisplayText().ifBlank { wp.seriesName.orEmpty() }.ifBlank { null },
-    ) ?: CatalogItem(
+    ) ?: wp.toCatalogItemFallback(
         stableId = fallbackStableId,
-        providerId = wp.contentId,
+        subtitle = subtitle,
+        imageUrl = wp.imageUrl,
+        kind = kind,
         title = fallbackTitle,
+    )
+}
+
+private fun WatchProgressItem.toCatalogItemFallback(
+    stableId: String,
+    subtitle: String,
+    imageUrl: String,
+    kind: ContentKind,
+    title: String,
+): CatalogItem {
+    val tmdbPosterUrl = buildTmdbImageUrl(posterPath, "w500")
+    val backdropUrl = buildTmdbImageUrl(backdropPath, "w1280")
+    return CatalogItem(
+        stableId = stableId,
+        providerId = contentId,
+        title = title,
         normalizedTitle = null,
         subtitle = subtitle,
-        description = wp.title,
-        imageUrl = wp.imageUrl,
+        description = overview.cleanDisplayText().ifBlank { this.title },
+        imageUrl = imageUrl.ifBlank { tmdbPosterUrl.orEmpty() },
         kind = kind,
         group = "Continuar viendo",
         badgeText = if (kind == ContentKind.MOVIE) "Pelicula" else "Serie",
-        seriesName = wp.seriesName,
-        seasonNumber = wp.seasonNumber,
-        episodeNumber = wp.episodeNumber,
+        seriesName = seriesName,
+        seasonNumber = seasonNumber,
+        episodeNumber = episodeNumber,
         streamOptions = emptyList(),
+        overviewEn = overviewEn,
+        voteAverage = voteAverage,
+        voteCount = voteCount,
+        runtimeMinutes = runtimeMinutes,
+        genres = genres,
+        backdropUrl = backdropUrl,
+        tmdbPosterUrl = tmdbPosterUrl,
+        tagline = tagline,
+        releaseDate = releaseDate,
+        year = year,
+        tmdbTitle = tmdbTitle,
+        totalSeasons = totalSeasons,
     )
+}
+
+private fun buildTmdbImageUrl(path: String?, size: String): String? {
+    val cleanPath = path.cleanDisplayText()
+    if (cleanPath.isBlank()) return null
+    if (cleanPath.startsWith("http://") || cleanPath.startsWith("https://")) return cleanPath
+    val normalizedPath = if (cleanPath.startsWith("/")) cleanPath else "/$cleanPath"
+    return "https://image.tmdb.org/t/p/$size$normalizedPath"
 }
 
 internal fun String?.cleanDisplayText(): String =

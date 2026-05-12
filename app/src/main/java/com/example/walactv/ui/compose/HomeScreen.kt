@@ -308,20 +308,13 @@ private fun HomeBackdrop(
                     .fillMaxSize()
                     .padding(start = backdropStartPadding),
             ) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .fillMaxHeight()
-                        .fillMaxWidth(0.72f),
-                ) {
-                    RemoteImage(
-                        url = eventImageUrl,
-                        width = 1280,
-                        height = 720,
-                        scaleType = ScaleType.FIT_CENTER,
-                        disableCache = true,
-                    )
-                }
+                RemoteImage(
+                    url = eventImageUrl,
+                    width = 1920,
+                    height = 1080,
+                    scaleType = ScaleType.CENTER_CROP,
+                    disableCache = true,
+                )
             }
             usePilotEventImage -> Box(
                 modifier = Modifier
@@ -431,7 +424,7 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
     val descriptionText = when {
         item?.kind == ContentKind.EVENT -> item.description.takeIf { it.isNotBlank() && it != item.group }
         else -> item?.description?.takeIf { it.isNotBlank() && it != item.group } ?: item?.overviewEn
-    } ?: "Explora películas y series con imágenes oficiales, resumen y puntuación de TMDB."
+    }
 
     Box(modifier = modifier) {
         Column(
@@ -487,14 +480,16 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
                 HomeHeroMeta(item)
             }
 
-            Text(
-                text = descriptionText,
-                color = IptvTextSecondary,
-                fontSize = 15.sp,
-                lineHeight = 21.sp,
-                maxLines = if (item?.kind == ContentKind.EVENT) 2 else 4,
-                overflow = TextOverflow.Ellipsis,
-            )
+            descriptionText?.takeIf { it.isNotBlank() }?.let { text ->
+                Text(
+                    text = text,
+                    color = IptvTextSecondary,
+                    fontSize = 15.sp,
+                    lineHeight = 21.sp,
+                    maxLines = if (item?.kind == ContentKind.EVENT) 2 else 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

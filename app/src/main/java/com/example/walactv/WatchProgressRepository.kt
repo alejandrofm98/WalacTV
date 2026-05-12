@@ -270,7 +270,31 @@ class WatchProgressRepository(context: Context) {
             episodeNumber = obj.optInt("episode_number", 0).takeIf { it > 0 },
             lastWatchedAt = obj.optString("last_watched_at", ""),
             isWatched = obj.optBoolean("is_watched", false),
+            overview = obj.optString("overview", "").ifBlank { obj.optString("overview_es", "") }.ifBlank { null },
+            overviewEn = obj.optString("overview_en", "").ifBlank { null },
+            voteAverage = obj.optDouble("vote_average", Double.NaN)
+                .takeUnless { it.isNaN() }
+                ?.toFloat()
+                ?: obj.optDouble("rating", Double.NaN).takeUnless { it.isNaN() }?.toFloat(),
+            voteCount = obj.optInt("vote_count", 0).takeIf { it > 0 },
+            runtimeMinutes = obj.optInt("runtime_minutes", 0).takeIf { it > 0 },
+            genres = obj.optJSONArray("genres")?.toStringList().orEmpty(),
+            posterPath = obj.optString("poster_path", "").ifBlank { null },
+            backdropPath = obj.optString("backdrop_path", "").ifBlank { null },
+            tagline = obj.optString("tagline", "").ifBlank { null },
+            releaseDate = obj.optString("release_date", "").ifBlank { null },
+            year = obj.optInt("year", 0).takeIf { it > 0 },
+            tmdbTitle = obj.optString("tmdb_title", "").ifBlank { null },
+            totalSeasons = obj.optInt("total_seasons", 0).takeIf { it > 0 },
         )
+    }
+
+    private fun JSONArray.toStringList(): List<String> {
+        return buildList {
+            for (index in 0 until length()) {
+                optString(index).takeIf(String::isNotBlank)?.let(::add)
+            }
+        }
     }
 
     companion object {

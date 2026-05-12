@@ -3,6 +3,7 @@
 package com.example.walactv
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -50,6 +51,7 @@ class MovieDetailFragment : Fragment() {
 
     companion object {
         private const val ARG_CATALOG_ITEM = "catalog_item"
+        private const val TAG = "MovieDetailFragment"
 
         fun newInstance(item: CatalogItem): MovieDetailFragment {
             return MovieDetailFragment().apply {
@@ -60,6 +62,7 @@ class MovieDetailFragment : Fragment() {
         }
 
         private fun createItemBundle(item: CatalogItem): Bundle {
+            Log.d(TAG, "TMDB_DETAIL bundle item=${item.tmdbDebug()}")
             return Bundle().apply {
                 putString("stableId", item.stableId)
                 putString("title", item.title)
@@ -113,7 +116,14 @@ class MovieDetailFragment : Fragment() {
             runtimeMinutes = args.getInt("runtimeMinutes").takeIf { it > 0 },
             genres = args.getStringArrayList("genres")?.toList() ?: emptyList(),
             group = args.getString("group") ?: ""
-        )
+        ).also { item ->
+            Log.d(
+                TAG,
+                "TMDB_DETAIL parsed id=${item.stableId} title=${item.title.take(120)} " +
+                    "desc=${item.description.take(160)} image=${item.imageUrl.take(160)} backdrop=${item.backdropUrl.orEmpty().take(160)} " +
+                    "rating=${item.voteAverage} runtime=${item.runtimeMinutes} genres=${item.genres.joinToString("|").take(120)}",
+            )
+        }
     }
 }
 
@@ -140,6 +150,14 @@ fun MovieDetailScreen(
 ) {
     val scrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(item.stableId, item.backdropUrl, item.description, item.imageUrl) {
+        Log.d(
+            "MovieDetailFragment",
+            "TMDB_DETAIL compose id=${item.stableId} title=${item.title.take(120)} hasDesc=${item.description.isNotBlank()} " +
+                "image=${item.imageUrl.take(160)} backdrop=${item.backdropUrl.orEmpty().take(160)}",
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Fondo: Backdrop image

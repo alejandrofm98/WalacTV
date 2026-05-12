@@ -1,6 +1,7 @@
 package com.example.walactv.ui
 
 import android.graphics.Color as AndroidColor
+import android.graphics.drawable.Drawable
 import android.util.Log
 import android.widget.ImageView
 import android.widget.Toast
@@ -32,7 +33,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.DataSource
 import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.engine.GlideException
+import com.bumptech.glide.request.RequestListener
+import com.bumptech.glide.request.target.Target
 import com.example.walactv.AppUpdateAvailability
 import com.example.walactv.CatalogFilterOption
 import com.example.walactv.ChangelogDialog
@@ -211,6 +216,31 @@ internal fun RemoteImage(
                 .load(url)
                 .override(width, height)
                 .dontTransform()
+                .listener(object : RequestListener<Drawable> {
+                    override fun onLoadFailed(
+                        e: GlideException?,
+                        model: Any?,
+                        target: Target<Drawable>,
+                        isFirstResource: Boolean,
+                    ): Boolean {
+                        Log.w(
+                            "RemoteImage",
+                            "load failed url=${url.take(240)} model=$model size=${width}x$height error=${e?.message}",
+                            e,
+                        )
+                        return false
+                    }
+
+                    override fun onResourceReady(
+                        resource: Drawable,
+                        model: Any,
+                        target: Target<Drawable>?,
+                        dataSource: DataSource,
+                        isFirstResource: Boolean,
+                    ): Boolean {
+                        return false
+                    }
+                })
             if (disableCache) {
                 request
                     .skipMemoryCache(true)

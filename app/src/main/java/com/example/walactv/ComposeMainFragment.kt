@@ -292,7 +292,9 @@ internal fun CatalogItem?.tmdbDebug(): String {
     if (this == null) return "null"
     return "stableId=$stableId kind=$kind title=$title series=$seriesName hasBackdrop=${!backdropUrl.isNullOrBlank()} " +
         "hasDesc=${description.isNotBlank()} hasOverview=${!overviewEn.isNullOrBlank()} hasTmdbPoster=${!tmdbPosterUrl.isNullOrBlank()} " +
-        "tmdbTitle=${tmdbTitle.orEmpty()} backdrop=${backdropUrl.orEmpty().take(80)}"
+        "tmdbTitle=${tmdbTitle.orEmpty()} desc=${description.take(120)} overview=${overviewEn.orEmpty().take(120)} " +
+        "image=${imageUrl.take(120)} poster=${tmdbPosterUrl.orEmpty().take(120)} backdrop=${backdropUrl.orEmpty().take(120)} " +
+        "rating=$voteAverage runtime=$runtimeMinutes genres=${genres.joinToString("|").take(120)}"
 }
 
 private fun CatalogItem?.richestTmdbItem(vararg others: CatalogItem?): CatalogItem? {

@@ -484,6 +484,19 @@ data class WatchProgressItem(
     val episodeNumber: Int?,
     val lastWatchedAt: String,
     val isWatched: Boolean = false,
+    val overview: String? = null,
+    val overviewEn: String? = null,
+    val voteAverage: Float? = null,
+    val voteCount: Int? = null,
+    val runtimeMinutes: Int? = null,
+    val genres: List<String> = emptyList(),
+    val posterPath: String? = null,
+    val backdropPath: String? = null,
+    val tagline: String? = null,
+    val releaseDate: String? = null,
+    val year: Int? = null,
+    val tmdbTitle: String? = null,
+    val totalSeasons: Int? = null,
 ) {
     val progressPercent: Int
         get() = if (durationMs > 0) ((positionMs * 100) / durationMs).toInt() else 0

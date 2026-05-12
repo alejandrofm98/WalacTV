@@ -597,11 +597,39 @@ class IptvRepository(context: Context) {
                 val body = (if (status in 200..299) conn.inputStream else conn.errorStream ?: conn.inputStream)
                     .bufferedReader().use(BufferedReader::readText)
                 if (status !in 200..299) throw IllegalStateException("HTTP $status: $body")
-                JSONObject(body)
+                JSONObject(body).also { json -> logApiPayload(url, status, body, json) }
             } finally {
                 conn.disconnect()
             }
         }
+
+    private fun logApiPayload(url: String, status: Int, body: String, json: JSONObject) {
+        val path = runCatching { URL(url).path }.getOrDefault(url)
+        val shouldLog = path.startsWith("/api/home") ||
+            path.startsWith("/api/content") ||
+            path.startsWith("/api/search") ||
+            body.contains("colores", ignoreCase = true)
+        if (!shouldLog) return
+
+        Log.d(
+            TAG,
+            "TMDB_API status=$status url=${sanitizeDebugUrl(url)} bodyChars=${body.length} " +
+                "rootKeys=${json.keys().asSequence().joinToString(",")} containsColores=${body.contains("colores", ignoreCase = true)} " +
+                "snippet=${body.debugSnippetAround("colores")}",
+        )
+    }
+
+    private fun sanitizeDebugUrl(url: String): String {
+        return url.replace(Regex("([?&]password=)[^&]*", RegexOption.IGNORE_CASE), "$1***")
+    }
+
+    private fun String.debugSnippetAround(term: String): String {
+        val index = indexOf(term, ignoreCase = true)
+        if (index < 0) return take(240)
+        val start = (index - 220).coerceAtLeast(0)
+        val end = (index + 420).coerceAtMost(length)
+        return substring(start, end)
+    }
 
     private suspend fun postForm(url: String, body: String): JSONObject =
         withContext(Dispatchers.IO) {

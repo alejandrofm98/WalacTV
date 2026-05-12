@@ -35,6 +35,7 @@ fun parseRemoteHomeCatalog(payload: JSONObject): HomeCatalog {
     }
 
     val searchableItems = (favoriteItems.orEmpty() + sections.flatMap(BrowseSection::items)).distinctBy(CatalogItem::stableId)
+    logHomeCatalogParse(payload, sections, searchableItems)
     return HomeCatalog(sections = sections, searchableItems = searchableItems, favoriteItems = favoriteItems)
 }
 
@@ -94,6 +95,8 @@ fun parseRemoteCatalogPage(payload: JSONObject, expectedKind: ContentKind? = nul
         total > 0 && pageSize > 0 -> page > 1
         else -> false
     }
+
+    logCatalogPageParse(payload, expectedKind, items, page, total)
 
     return RemoteCatalogPage(
         items = items,
@@ -211,6 +214,50 @@ private fun JSONArray?.toCatalogItems(expectedKind: ContentKind? = null): List<C
     }
 }
 
+private fun logHomeCatalogParse(
+    payload: JSONObject,
+    sections: List<BrowseSection>,
+    searchableItems: List<CatalogItem>,
+) {
+    val containsColores = payload.toString().contains("colores", ignoreCase = true)
+    if (!containsColores) return
+    Log.d(
+        "TMDB_PARSE",
+        "home containsColores=true movieSections=${payload.optJSONArray("movie_sections")?.length() ?: 0} " +
+            "seriesSections=${payload.optJSONArray("series_sections")?.length() ?: 0} sections=${sections.size} " +
+            "searchable=${searchableItems.size} coloresItems=${searchableItems.filter(::isDebugColoresItem).joinToString(" || ") { it.tmdbDebugLine() }}",
+    )
+}
+
+private fun logCatalogPageParse(
+    payload: JSONObject,
+    expectedKind: ContentKind?,
+    items: List<CatalogItem>,
+    page: Int,
+    total: Int,
+) {
+    val containsColores = payload.toString().contains("colores", ignoreCase = true) || items.any(::isDebugColoresItem)
+    if (!containsColores) return
+    Log.d(
+        "TMDB_PARSE",
+        "page expectedKind=$expectedKind page=$page total=$total parsed=${items.size} " +
+            "rootKeys=${payload.keys().asSequence().joinToString(",")} coloresItems=${items.filter(::isDebugColoresItem).joinToString(" || ") { it.tmdbDebugLine() }}",
+    )
+}
+
+private fun isDebugColoresItem(item: CatalogItem): Boolean {
+    return item.title.contains("colores", ignoreCase = true) ||
+        item.normalizedTitle.orEmpty().contains("colores", ignoreCase = true) ||
+        item.tmdbTitle.orEmpty().contains("colores", ignoreCase = true)
+}
+
+private fun CatalogItem.tmdbDebugLine(): String {
+    return "id=$stableId provider=$providerId kind=$kind title=${title.take(100)} normalized=${normalizedTitle.orEmpty().take(100)} " +
+        "tmdb=${tmdbTitle.orEmpty().take(100)} desc=${description.take(120)} overview=${overviewEn.orEmpty().take(120)} " +
+        "image=${imageUrl.take(140)} poster=${tmdbPosterUrl.orEmpty().take(140)} backdrop=${backdropUrl.orEmpty().take(140)} " +
+        "rating=$voteAverage runtime=$runtimeMinutes genres=${genres.joinToString("|").take(120)}"
+}
+
 private fun JSONObject.optCatalogItems(
     vararg keys: String,
     expectedKind: ContentKind? = null,
@@ -256,7 +303,13 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
     }
     val nombreNormalizado = optCleanString("nombre_normalizado")
         .ifBlank { optCleanString("normalized_title") }
-    val tmdbTitle = optCleanString("tmdb_title")
+    val tmdbTitle = optFirstCleanString(
+        "tmdb_title",
+        "tmdb_name",
+        "tmdb_original_title",
+        "original_title",
+        "original_name",
+    )
 
     val inferredChannelNumber = Regex("^\\s*(\\d{1,5})\\s+")
         .find(rawTitle)
@@ -285,11 +338,16 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         walacGroupNormalized = grupoNormalizado,
         walacSeriesNameNormalized = optCleanString("series_name").ifBlank { optCleanString("serie_name") },
     )
-    val description = optCleanString("overview")
-        .ifBlank { optCleanString("overview_es") }
-        .ifBlank { optCleanString("overview_en") }
-        .ifBlank { optCleanString("description") }
-        .ifBlank { optCleanString("subtitle") }
+    val description = optFirstCleanString(
+        "overview",
+        "overview_es",
+        "tmdb_overview",
+        "tmdb_overview_es",
+        "overview_en",
+        "tmdb_overview_en",
+        "description",
+        "subtitle",
+    )
 
     // Parsear géneros (viene como array de strings o JSON)
     val genresList = buildList {
@@ -305,14 +363,25 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
     }
 
     // Construir URL de backdrop
-    val backdropPath = optCleanString("tmdb_backposter")
-        .ifBlank { optCleanString("backposter") }
-        .ifBlank { optCleanString("backdrop_path") }
-        .ifBlank { optCleanString("backdrop") }
+    val backdropPath = optFirstCleanString(
+        "tmdb_backposter",
+        "tmdb_backdrop_path",
+        "tmdb_backdrop",
+        "backposter",
+        "backdrop_path",
+        "backdrop",
+        "backdrop_url",
+        "tmdb_backdrop_url",
+    )
     val backdropUrl = buildTmdbImageUrl(backdropPath, "w1280")
 
     // Construir URL de poster alternativo de TMDB
-    val tmdbPosterPath = optCleanString("tmdb_poster_path").ifBlank { optCleanString("poster_path") }
+    val tmdbPosterPath = optFirstCleanString(
+        "tmdb_poster_path",
+        "tmdb_poster",
+        "tmdb_poster_url",
+        "poster_path",
+    ).takeIf(::isTmdbImagePath).orEmpty()
     val tmdbPosterUrl = buildTmdbImageUrl(tmdbPosterPath, "w500")
 
     // Parsear fecha y extraer año
@@ -320,17 +389,20 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
     val parsedYear = releaseDate?.takeIf { it.length >= 4 }?.substring(0, 4)?.toIntOrNull()
         ?: optInt("year").takeIf { has("year") }
 
-    val imageUrl = normalizeRemoteImageUrl(
-        optCleanString("logo").ifBlank {
-            optCleanString("image_url").ifBlank {
-                optCleanString("logo_url").ifBlank {
-                    optCleanString("stream_icon").ifBlank {
-                        optCleanString("poster")
-                    }
-                }
-            }
-        }
-    ).ifBlank { tmdbPosterUrl.orEmpty() }
+    val rawImageUrl = optFirstImageString()
+    val imageUrl = normalizeRemoteImageUrl(rawImageUrl).ifBlank { tmdbPosterUrl.orEmpty() }
+    logVodTmdbParse(
+        kind = kind,
+        title = rawTitle,
+        tmdbTitle = tmdbTitle,
+        description = description,
+        rawImageUrl = rawImageUrl,
+        backdropPath = backdropPath,
+        backdropUrl = backdropUrl.orEmpty(),
+        tmdbPosterPath = tmdbPosterPath,
+        tmdbPosterUrl = tmdbPosterUrl.orEmpty(),
+        imageUrl = imageUrl,
+    )
 
     return CatalogItem(
         stableId = stableId,
@@ -360,7 +432,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
             },
         ),
         // Campos TMDB
-        overviewEn = optCleanString("overview_en").ifBlank { null },
+        overviewEn = optFirstCleanString("overview_en", "tmdb_overview_en").ifBlank { null },
         voteAverage = optDoubleValue("vote_average")?.toFloat()
             ?: optDoubleValue("rating")?.toFloat(),
         voteCount = optInt("vote_count").takeIf { has("vote_count") },
@@ -384,6 +456,10 @@ private fun JSONObject.optCleanString(key: String): String {
         .orEmpty()
 }
 
+private fun JSONObject.optFirstCleanString(vararg keys: String): String {
+    return keys.firstNotNullOfOrNull { key -> optCleanString(key).takeIf(String::isNotBlank) }.orEmpty()
+}
+
 private fun JSONObject.optDoubleValue(key: String): Double? {
     if (!has(key) || isNull(key)) return null
     return optDouble(key).takeUnless { it.isNaN() }
@@ -392,7 +468,102 @@ private fun JSONObject.optDoubleValue(key: String): Double? {
 private fun buildTmdbImageUrl(path: String, size: String): String? {
     if (path.isBlank()) return null
     if (path.startsWith("http://") || path.startsWith("https://")) return normalizeRemoteImageUrl(path)
-    return "https://image.tmdb.org/t/p/$size$path"
+    val normalizedPath = if (path.startsWith("/")) path else "/$path"
+    return "https://image.tmdb.org/t/p/$size$normalizedPath"
+}
+
+private fun JSONObject.optFirstImageString(): String {
+    val keys = listOf(
+        "logo",
+        "image_url",
+        "logo_url",
+        "stream_icon",
+        "poster",
+        "poster_url",
+        "cover",
+        "cover_url",
+        "thumbnail",
+        "thumbnail_url",
+        "image",
+        "img",
+    )
+    return keys.firstNotNullOfOrNull { key -> optCleanString(key).takeIf(String::isNotBlank) }.orEmpty()
+}
+
+private fun JSONObject.logVodTmdbParse(
+    kind: ContentKind,
+    title: String,
+    tmdbTitle: String,
+    description: String,
+    rawImageUrl: String,
+    backdropPath: String,
+    backdropUrl: String,
+    tmdbPosterPath: String,
+    tmdbPosterUrl: String,
+    imageUrl: String,
+) {
+    if (kind != ContentKind.MOVIE && kind != ContentKind.SERIES) return
+    val shouldLog = title.contains("colores", ignoreCase = true) || imageUrl.isBlank()
+    if (!shouldLog) return
+
+    val knownTmdbValues = listOf(
+        "tmdb_title",
+        "tmdb_name",
+        "tmdb_original_title",
+        "original_title",
+        "original_name",
+        "overview",
+        "overview_es",
+        "tmdb_overview",
+        "tmdb_overview_es",
+        "overview_en",
+        "tmdb_overview_en",
+        "logo",
+        "image_url",
+        "logo_url",
+        "stream_icon",
+        "poster",
+        "poster_url",
+        "cover",
+        "cover_url",
+        "thumbnail",
+        "thumbnail_url",
+        "image",
+        "img",
+        "poster_path",
+        "tmdb_poster_path",
+        "tmdb_poster",
+        "tmdb_poster_url",
+        "tmdb_backposter",
+        "tmdb_backdrop_path",
+        "tmdb_backdrop",
+        "backposter",
+        "backdrop_path",
+        "backdrop",
+        "backdrop_url",
+        "tmdb_backdrop_url",
+    ).mapNotNull { key ->
+        optCleanString(key).takeIf(String::isNotBlank)?.let { value -> "$key=${value.take(160)}" }
+    }
+
+    Log.d(
+        "VOD_IMAGE_PARSE",
+        "kind=$kind title=${title.take(120)} keys=${keys().asSequence().joinToString(",")} " +
+            "knownTmdb=${knownTmdbValues.joinToString(" | ")} tmdbTitle=${tmdbTitle.take(120)} " +
+            "hasDescription=${description.isNotBlank()} rawImage=${rawImageUrl.take(160)} " +
+            "backdropPath=${backdropPath.take(160)} backdropUrl=${backdropUrl.take(160)} " +
+            "tmdbPosterPath=${tmdbPosterPath.take(160)} tmdbPosterUrl=${tmdbPosterUrl.take(160)} finalImage=${imageUrl.take(160)}",
+    )
+
+    if (title.contains("colores", ignoreCase = true)) {
+        Log.d("TMDB_PARSE", "rawColoresJson=${toString().take(4000)}")
+    }
+}
+
+private fun isTmdbImagePath(path: String): Boolean {
+    if (path.isBlank()) return false
+    if (path.startsWith("http://image.tmdb.org") || path.startsWith("https://image.tmdb.org")) return true
+    return path.trimStart('/').isNotBlank() && !path.trimStart('/').contains("/")
 }
 
 private fun buildRemoteDisplayTitle(kind: ContentKind, normalizedTitle: String, channelDisplayName: String): String {
@@ -413,7 +584,15 @@ private fun defaultStreamLabel(kind: ContentKind): String {
 
 private fun normalizeRemoteImageUrl(url: String): String {
     if (url.isBlank() || url == "null") return ""
-    return url
+    val trimmedUrl = url.trim()
+    val normalizedBaseUrl = BuildConfig.IPTV_BASE_URL.trimEnd('/')
+    val normalizedUrl = when {
+        trimmedUrl.startsWith("//") -> "https:$trimmedUrl"
+        trimmedUrl.startsWith("/") -> "$normalizedBaseUrl$trimmedUrl"
+        trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://") -> trimmedUrl
+        else -> "$normalizedBaseUrl/$trimmedUrl"
+    }
+    return normalizedUrl
         .replace("http://${BuildConfig.IPTV_BASE_URL.removePrefix("https://").removePrefix("http://")}", BuildConfig.IPTV_BASE_URL)
         .replace("http://image.tmdb.org", "https://image.tmdb.org")
 }
