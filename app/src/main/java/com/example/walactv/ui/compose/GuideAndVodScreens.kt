@@ -46,7 +46,7 @@ private const val ALL_OPTION = "Todos"
 @Composable
 internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
     val isEventGuide = kind == ContentKind.EVENT
-    val gridColumns = if (isEventGuide) 5 else 3
+    val gridColumns = if (isEventGuide) 4 else 3
     var selectedCountry by remember { mutableStateOf(ALL_OPTION) }
     var selectedGroup by remember { mutableStateOf(ALL_OPTION) }
     var searchQuery by remember { mutableStateOf("") }
@@ -254,9 +254,14 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
                 items(displayItemsForGrid.size) { index ->
                     val item = displayItemsForGrid[index]
                     if (isEventGuide) {
-                        MediaCard(
+                        val isLive = item.badgeText.matches(Regex("\\d{1,2}:\\d{2}.*")) ||
+                            item.badgeText.contains("LIVE", ignoreCase = true) ||
+                            item.badgeText.contains("EN VIVO", ignoreCase = true)
+                        EventVsCard(
                             item = item,
                             modifier = Modifier.focusRequester(itemFocusRequesters[index]),
+                            isLive = isLive,
+                            useFixedWidth = false,
                             onFocused = {
                                 fragment.contentFocusCanOpenRail = index % gridColumns == 0
                                 fragment.selectedHero = item

@@ -8,7 +8,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +31,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -65,15 +65,11 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Icon
@@ -321,12 +317,7 @@ private fun HomeBackdrop(
                     .fillMaxSize()
                     .padding(start = backdropStartPadding),   // ← dinámico
             ) {
-                Image(
-                    painter = painterResource(R.drawable.img),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                item?.let { EventSportPlaceholder(it) }
             }
             !backdropUrl.isNullOrBlank() -> Box(
                 modifier = Modifier
@@ -837,6 +828,7 @@ internal fun EventVsCard(
     item: CatalogItem,
     modifier: Modifier = Modifier,
     isLive: Boolean = false,
+    useFixedWidth: Boolean = true,
     onFocused: () -> Unit,
     onClick: () -> Unit,
 ) {
@@ -864,10 +856,14 @@ internal fun EventVsCard(
         }
     }
 
+    val baseModifier = if (useFixedWidth) {
+        modifier.width(EVENT_CARD_WIDTH).height(EVENT_IMAGE_HEIGHT)
+    } else {
+        modifier.fillMaxWidth().aspectRatio(EVENT_CARD_WIDTH / EVENT_IMAGE_HEIGHT)
+    }
+
     Box(
-        modifier = modifier
-            .width(EVENT_CARD_WIDTH)
-            .height(EVENT_IMAGE_HEIGHT)
+        modifier = baseModifier
             .clip(RoundedCornerShape(16.dp))
             .background(IptvCard)
             .border(
@@ -891,12 +887,7 @@ internal fun EventVsCard(
                 disableCache = true,
             )
         } else {
-            Image(
-                painter = painterResource(R.drawable.img),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            EventSportPlaceholder(item)
         }
 
         Box(
@@ -1413,25 +1404,9 @@ internal fun WatchedBadge(modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun EventSportPlaceholder(item: CatalogItem, emojiSize: TextUnit = 48.sp) {
+internal fun EventSportPlaceholder(item: CatalogItem) {
     val category = listOf(item.title, item.subtitle, item.group, item.description).joinToString(" ").lowercase()
     val text = java.text.Normalizer.normalize(category, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
-    if (text.contains("motogp") || text.contains("motociclismo")) {
-        Image(
-            painter = painterResource(R.drawable.img2),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        return
-    }
-    val emoji = when {
-        text.contains("futbol") -> "⚽"; text.contains("baloncesto") -> "🏀"; text.contains("tenis") -> "🎾"
-        text.contains("motociclismo") -> "🏍️"; text.contains("automovilismo") -> "🏎️"
-        text.contains("mma") || text.contains("boxeo") -> "🥊"; text.contains("rugby") -> "🏈"
-        text.contains("balonmano") -> "🤾"; text.contains("hockey") -> "🏒"; text.contains("padel") -> "🏸"
-        else -> "🏆"
-    }
     val colors = when {
         text.contains("futbol") -> listOf(Color(0xFF0B6E4F), Color(0xFF1A936F))
         text.contains("baloncesto") -> listOf(Color(0xFF7F4F24), Color(0xFFD68C45))
@@ -1444,7 +1419,15 @@ internal fun EventSportPlaceholder(item: CatalogItem, emojiSize: TextUnit = 48.s
         modifier = Modifier.fillMaxSize().background(Brush.linearGradient(colors)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = emoji, fontSize = emojiSize, textAlign = TextAlign.Center)
+        Text(
+            text = item.group.ifBlank { "EVENTO" }.uppercase().take(18),
+            color = Color.White.copy(alpha = 0.86f),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.2.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
