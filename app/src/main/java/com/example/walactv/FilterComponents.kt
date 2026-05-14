@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -125,13 +126,13 @@ fun NativeSearchBar(
         modifier = modifier
             .width(280.dp)
             .background(
-                if (isFocused) IptvFocusBg else IptvCard,
-                RoundedCornerShape(6.dp)
+                if (isFocused) IptvFocusBg else IptvBackground,
+                RoundedCornerShape(8.dp)
             )
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
                 color = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
-                shape = RoundedCornerShape(6.dp)
+                shape = RoundedCornerShape(8.dp)
             )
             .focusRequester(focusRequester)
             .clickable(
@@ -267,13 +268,25 @@ fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: Focus
                 } else false
             }
             .padding(horizontal = 12.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = "$label \u25BE",
-            color = if (isFocused) IptvTextPrimary else IptvTextMuted,
-            fontSize = 13.sp,
-            fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = label,
+                color = if (isFocused) IptvTextPrimary else IptvTextMuted,
+                fontSize = 13.sp,
+                fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
+            )
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                tint = if (isFocused) IptvTextPrimary else IptvTextMuted,
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }
 

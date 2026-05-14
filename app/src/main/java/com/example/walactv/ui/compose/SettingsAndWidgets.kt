@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -284,13 +285,24 @@ private fun FilterChip(label: String, focusRequester: FocusRequester, onClick: (
     var isFocused by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier.height(40.dp)
-            .background(if (isFocused) IptvFocusBg else IptvSurface, RoundedCornerShape(8.dp))
+            .background(if (isFocused) IptvFocusBg else IptvBackground, RoundedCornerShape(8.dp))
             .border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(8.dp))
             .focusRequester(focusRequester).onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }.padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = if (isFocused) IptvTextPrimary else IptvTextSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(label, color = if (isFocused) IptvTextPrimary else IptvTextSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                tint = if (isFocused) IptvTextPrimary else IptvTextSecondary,
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }
 
@@ -299,21 +311,32 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit, focusReque
     var isFocused by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier.width(260.dp).height(40.dp)
-            .background(if (isFocused) IptvFocusBg else IptvSurface, RoundedCornerShape(8.dp))
+            .background(if (isFocused) IptvFocusBg else IptvBackground, RoundedCornerShape(8.dp))
             .border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(8.dp))
             .focusRequester(focusRequester).onFocusChanged { isFocused = it.isFocused }
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
-        BasicTextField(
-            value = query, onValueChange = onQueryChange, singleLine = true,
-            textStyle = TextStyle(color = IptvTextPrimary, fontSize = 14.sp),
-            modifier = Modifier.fillMaxWidth(),
-            decorationBox = { inner ->
-                if (query.isEmpty()) Text("Buscar...", color = IptvTextMuted, fontSize = 14.sp)
-                inner()
-            },
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Search,
+                contentDescription = "Buscar",
+                tint = IptvTextMuted,
+                modifier = Modifier.size(16.dp)
+            )
+            BasicTextField(
+                value = query, onValueChange = onQueryChange, singleLine = true,
+                textStyle = TextStyle(color = IptvTextPrimary, fontSize = 14.sp),
+                modifier = Modifier.fillMaxWidth(),
+                decorationBox = { inner ->
+                    if (query.isEmpty()) Text("Buscar...", color = IptvTextMuted, fontSize = 14.sp)
+                    inner()
+                },
+            )
+        }
     }
 }
 

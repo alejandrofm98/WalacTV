@@ -9,7 +9,9 @@ import com.example.walactv.CatalogItem
 import com.example.walactv.CatalogMemory
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
+import com.example.walactv.isVodContent
 import com.example.walactv.PlayerFragment
+import com.example.walactv.preferredVodPosterUrl
 import com.example.walactv.PreferencesManager
 import com.example.walactv.R
 import com.example.walactv.SeriesDetailFragment
@@ -137,7 +139,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
             onNextEpisode = nextEpisodeCallback,
             onPreviousEpisode = previousEpisodeCallback,
             allSeriesEpisodes = allEpisodes, currentEpisode = episode,
-            overlayLogoUrl = episode.imageUrl, contentId = episode.providerId ?: progress.contentId,
+            overlayLogoUrl = episode.preferredVodPosterUrl(), contentId = episode.providerId ?: progress.contentId,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
         )
@@ -201,7 +203,7 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
         onSelectQuality = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
             { newIndex -> playCatalogItem(item, newIndex) }
         } else null,
-        overlayLogoUrl = item.imageUrl,
+        overlayLogoUrl = item.preferredVodPosterUrl(),
         isFavorite = channelStateStore.isFavorite(favoriteTarget),
         contentId = item.providerId ?: item.stableId,
         onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },

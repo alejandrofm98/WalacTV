@@ -21,6 +21,8 @@ import androidx.leanback.widget.Presenter
 import androidx.leanback.widget.Row
 import androidx.leanback.widget.RowPresenter
 import androidx.media3.common.util.UnstableApi
+import com.bumptech.glide.Glide
+import com.example.walactv.preferredCardImageUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -175,7 +177,7 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
                 onOpenRecents = ::openRecentChannel,
                 streamOptionLabels = resolvedItem.streamOptions.map { it.label },
                 currentOptionIndex = streamIndex,
-                overlayLogoUrl = resolvedItem.imageUrl,
+                overlayLogoUrl = resolvedItem.preferredVodPosterUrl(),
                 isFavorite = channelStateStore.isFavorite(resolvedItem),
                 contentId = resolvedItem.providerId ?: resolvedItem.stableId,
             )
@@ -290,7 +292,17 @@ private class SearchResultCardPresenter : Presenter() {
         val cardView = viewHolder.view as ImageCardView
         cardView.titleText = displayCardTitle(catalogItem)
         cardView.contentText = catalogItem.subtitle.ifBlank { catalogItem.description.ifBlank { catalogItem.group } }
-        cardView.mainImage = null
+        val imageUrl = catalogItem.preferredCardImageUrl()
+        val mainImageView = cardView.mainImageView
+        if (imageUrl.isNotBlank() && mainImageView != null) {
+            Glide.with(cardView.context)
+                .load(imageUrl)
+                .override(CARD_WIDTH, CARD_HEIGHT)
+                .centerCrop()
+                .into(mainImageView)
+        } else {
+            cardView.mainImage = null
+        }
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {

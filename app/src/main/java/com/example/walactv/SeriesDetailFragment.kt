@@ -49,6 +49,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.bumptech.glide.Glide
+import com.example.walactv.preferredVodPosterUrl
 import com.example.walactv.ui.theme.*
 
 class SeriesDetailFragment : Fragment() {
@@ -215,7 +216,7 @@ fun SeriesDetailScreen(
         uniqueEpisodes.filter { (it.seasonNumber ?: 1) == selectedSeason }
     }
 
-    val posterUrl = allEpisodes.firstOrNull()?.imageUrl ?: ""
+    val posterUrl = allEpisodes.firstOrNull()?.preferredVodPosterUrl() ?: ""
     val totalSeasons = allEpisodes.firstOrNull { it.totalSeasons != null }?.totalSeasons ?: seasons.size
     val seriesDisplayName = allEpisodes.firstOrNull { !it.tmdbTitle.isNullOrBlank() }?.tmdbTitle ?: seriesName
 
@@ -353,8 +354,8 @@ fun EpisodeCard(
     val progressPercent = watchProgress?.progressPercent ?: 0
     val hasProgress = progressPercent in 1..99 && !isWatched
 
-    LaunchedEffect(item.imageUrl) {
-        currentUrl = item.imageUrl
+    LaunchedEffect(item) {
+        currentUrl = item.preferredVodPosterUrl()
     }
 
     Column(

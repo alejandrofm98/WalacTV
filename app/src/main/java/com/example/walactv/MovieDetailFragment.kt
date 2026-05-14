@@ -69,6 +69,7 @@ class MovieDetailFragment : Fragment() {
                 putString("description", item.description)
                 putString("imageUrl", item.imageUrl)
                 putString("backdropUrl", item.backdropUrl)
+                putString("tmdbPosterUrl", item.tmdbPosterUrl.orEmpty())
                 putFloat("voteAverage", item.voteAverage ?: 0f)
                 putInt("voteCount", item.voteCount ?: 0)
                 putString("tagline", item.tagline)
@@ -115,7 +116,8 @@ class MovieDetailFragment : Fragment() {
             releaseDate = args.getString("releaseDate"),
             runtimeMinutes = args.getInt("runtimeMinutes").takeIf { it > 0 },
             genres = args.getStringArrayList("genres")?.toList() ?: emptyList(),
-            group = args.getString("group") ?: ""
+            group = args.getString("group") ?: "",
+            tmdbPosterUrl = args.getString("tmdbPosterUrl") ?: "",
         ).also { item ->
             Log.d(
                 TAG,
@@ -139,7 +141,8 @@ data class MovieDetailItem(
     val releaseDate: String?,
     val runtimeMinutes: Int?,
     val genres: List<String>,
-    val group: String
+    val group: String,
+    val tmdbPosterUrl: String = "",
 )
 
 @Composable
@@ -204,9 +207,10 @@ fun MovieDetailScreen(
                 horizontalArrangement = Arrangement.spacedBy(32.dp)
             ) {
                 // Poster izquierdo
-                if (item.imageUrl.isNotBlank()) {
+                val posterImageUrl = item.tmdbPosterUrl.takeIf { it.isNotBlank() } ?: item.imageUrl
+                if (posterImageUrl.isNotBlank()) {
                     PosterImage(
-                        url = item.imageUrl,
+                        url = posterImageUrl,
                         modifier = Modifier
                             .width(240.dp)
                             .aspectRatio(2f / 3f)

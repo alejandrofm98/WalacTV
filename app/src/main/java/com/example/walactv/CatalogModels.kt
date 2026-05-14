@@ -1,5 +1,6 @@
 package com.example.walactv
 
+import android.util.Log
 import java.text.Normalizer
 
 enum class ContentKind {
@@ -59,6 +60,22 @@ fun CatalogItem.searchableText(): List<String> {
         add(kind.name)
         channelNumber?.let { add(it.toString()) }
     }
+}
+
+private const val TMDB_IMG_TAG = "TMDB_IMG"
+
+fun CatalogItem.isVodContent(): Boolean = kind == ContentKind.MOVIE || kind == ContentKind.SERIES
+
+fun CatalogItem.preferredVodPosterUrl(): String {
+    val result = tmdbPosterUrl?.takeIf { it.isNotBlank() } ?: imageUrl
+    Log.d(TMDB_IMG_TAG, "preferredVodPosterUrl stableId=${stableId.take(40)} kind=$kind tmdbPosterUrl=${tmdbPosterUrl.orEmpty().take(120)} imageUrl=${imageUrl.take(120)} result=${result.take(120)}")
+    return result
+}
+
+fun CatalogItem.preferredCardImageUrl(): String {
+    val result = if (isVodContent()) preferredVodPosterUrl() else imageUrl
+    Log.d(TMDB_IMG_TAG, "preferredCardImageUrl stableId=${stableId.take(40)} kind=$kind isVod=${isVodContent()} result=${result.take(120)}")
+    return result
 }
 
 fun displayCardTitle(item: CatalogItem): String {

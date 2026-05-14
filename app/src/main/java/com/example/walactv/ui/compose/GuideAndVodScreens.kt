@@ -32,11 +32,13 @@ import com.example.walactv.CatalogFilterOption
 import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
+import com.example.walactv.searchableText
 import com.example.walactv.local.PagedContentLoader
 import com.example.walactv.ui.theme.*
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val ALL_OPTION = "Todos"
@@ -160,7 +162,16 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
     var lastLoadKey by remember { mutableStateOf("") }
 
     LaunchedEffect(selectedCountry, selectedGroup, searchQuery) {
-        if (isEventGuide) return@LaunchedEffect
+        if (isEventGuide) {
+            delay(300)
+            val group = selectedGroup.takeUnless { it == ALL_OPTION }
+            val query = searchQuery.takeIf { it.isNotBlank() }?.trim()?.lowercase()
+            displayItems = eventItems.filter { item ->
+                (group == null || item.group.trim() == group) &&
+                (query == null || item.searchableText().joinToString(" ").lowercase().contains(query))
+            }
+            return@LaunchedEffect
+        }
         val key = "$selectedCountry|$selectedGroup|$searchQuery"
         if (key == lastLoadKey) return@LaunchedEffect
         loader.clear(); currentPage = 0; isLoadingPage = false

@@ -79,6 +79,9 @@ import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
 import com.example.walactv.R
+import com.example.walactv.isVodContent
+import com.example.walactv.preferredCardImageUrl
+import com.example.walactv.preferredVodPosterUrl
 import com.example.walactv.tmdbDebug
 import com.example.walactv.ui.theme.IptvAccent
 import com.example.walactv.ui.theme.IptvBackground
@@ -834,26 +837,23 @@ internal fun EventVsCard(
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
-    val displaySubtitle = remember(item.subtitle, item.badgeText) {
+    val displaySubtitle = remember(item.subtitle, item.badgeText, item.group) {
         val cleaned = if (item.badgeText.isNotBlank() && item.subtitle.contains(item.badgeText)) {
             item.subtitle.replace(item.badgeText, "").replace("•", "").trim()
         } else {
             item.subtitle
         }
-        cleaned.split("  •  ", " • ", "•")
+        val parts = cleaned.split("  •  ", " • ", "•")
             .map { it.trim() }
             .filter { it.isNotBlank() }
-            .take(2)
-            .joinToString(" | ")
+        when {
+            parts.size >= 2 -> "${parts[0]} | ${parts[1]}"
+            parts.size == 1 -> parts[0]
+            else -> item.group.takeIf { it.isNotBlank() && it != "Agenda" }.orEmpty()
+        }
     }
     val displayTitle = remember(item.title, item.normalizedTitle, item.tmdbTitle, item.seriesName) {
-        val title = item.resolveDisplayTitle()
-        val parts = title.split(Regex("\\s+vs\\s+", RegexOption.IGNORE_CASE), limit = 2)
-        if (parts.size == 2 && parts[0].length <= 18 && parts[1].length <= 18) {
-            "${parts[0]} vs\n${parts[1]}"
-        } else {
-            title
-        }
+        item.resolveDisplayTitle().replace("\n", " ").replace(Regex("\\s{2,}"), " ")
     }
 
     val baseModifier = if (useFixedWidth) {
@@ -894,10 +894,10 @@ internal fun EventVsCard(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(104.dp)
+                .height(140.dp)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, IptvBackground.copy(alpha = 0.92f)),
+                        listOf(Color.Transparent, IptvBackground.copy(alpha = 0.95f)),
                     ),
                 ),
         )
@@ -937,25 +937,29 @@ internal fun EventVsCard(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 12.dp, end = 70.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 12.dp, bottom = 14.dp, top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Text(
                 text = displayTitle,
-                color = IptvTextPrimary,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.Black,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 15.sp,
+                lineHeight = 16.sp,
+                modifier = if (displaySubtitle.isBlank()) Modifier.padding(end = 56.dp) else Modifier
             )
             if (displaySubtitle.isNotBlank()) {
                 Text(
                     text = displaySubtitle,
-                    color = IptvTextSecondary,
-                    fontSize = 10.sp,
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 10.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(end = 56.dp)
                 )
             }
         }
@@ -1047,9 +1051,11 @@ internal fun MediaCard(
                 .background(IptvSurfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            if (item.preferredCardImageUrl().isNotBlank()) {
+            val cardImgUrl = item.preferredCardImageUrl()
+            Log.d("TMDB_IMG", "MediaCard vod stableId=${item.stableId.take(40)} kind=${item.kind} url=${cardImgUrl.take(120)}")
+            if (cardImgUrl.isNotBlank()) {
                 RemoteImage(
-                    url = item.preferredCardImageUrl(),
+                    url = cardImgUrl,
                     width = 300,
                     height = 450,
                     scaleType = ScaleType.CENTER_CROP,
@@ -1438,8 +1444,6 @@ internal fun CatalogItem.resolveDisplayTitle(): String = when {
         ?: title.takeUnless { it.equals("null", ignoreCase = true) }.orEmpty()
 }
 
-private fun CatalogItem.isVodContent(): Boolean = kind == ContentKind.MOVIE || kind == ContentKind.SERIES
-
 private fun CatalogItem.isHeroContent(): Boolean = isVodContent() || kind == ContentKind.EVENT
 
 private fun CatalogItem.eventCompetitionText(): String {
@@ -1452,10 +1456,5 @@ private fun CatalogItem.eventCompetitionText(): String {
         .trim()
     return withoutTime.replace(Regex("\\s+"), " ")
 }
-
-private fun CatalogItem.preferredVodPosterUrl(): String = tmdbPosterUrl?.takeIf { it.isNotBlank() }
-    ?: imageUrl
-
-private fun CatalogItem.preferredCardImageUrl(): String = if (isVodContent()) preferredVodPosterUrl() else imageUrl
 
 private val REDUNDANT_BADGES = setOf("CINE", "SERIE", "Pelicula", "Serie")
