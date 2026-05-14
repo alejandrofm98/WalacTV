@@ -174,6 +174,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
         }
         val key = "$selectedCountry|$selectedGroup|$searchQuery"
         if (key == lastLoadKey) return@LaunchedEffect
+        Log.d("GuideContent", "filter changed for $kind: key=$key, clearing and reloading")
         loader.clear(); currentPage = 0; isLoadingPage = false
         if (searchQuery.isNotBlank()) {
             val country = selectedCountry.takeUnless { it == ALL_OPTION }
@@ -188,6 +189,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
         lastLoadKey = key
         displayItems = loader.getDisplayItems()
         totalCount = loader.getTotalCount()
+        Log.d("GuideContent", "filter load complete for $kind: displayItems=${displayItems.size}, totalCount=$totalCount")
     }
 
     LaunchedEffect(displayItemsForGrid) {
@@ -210,6 +212,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
                 val nextPage = currentPage + 1
                 val maxPages = (totalCount + pageSize - 1) / pageSize
                 if (nextPage >= maxPages || loader.isPageLoaded(nextPage)) return@collect
+                Log.d("GuideContent", "pagination trigger for $kind: loading page=$nextPage (currentPage=$currentPage, maxPages=$maxPages)")
                 isLoadingPage = true
                 loader.loadPage(
                     nextPage,
@@ -217,6 +220,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
                     selectedGroup.takeUnless { it == ALL_OPTION })
                 displayItems = loader.getDisplayItems(); currentPage = nextPage; isLoadingPage =
                 false
+                Log.d("GuideContent", "page $nextPage loaded for $kind: cache.size=${displayItems.size}")
             }
     }
 
@@ -467,6 +471,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
     LaunchedEffect(selectedCountry, selectedGroup, searchQuery) {
         val key = "$selectedCountry|$selectedGroup|$searchQuery"
         if (key == lastLoadKey) return@LaunchedEffect
+        Log.d("VodGrid", "filter changed for $kind: key=$key, cancelling and reloading")
         loader.clear(); currentPage = 0; isLoadingPage = false
         if (searchQuery.isNotBlank()) {
             kotlinx.coroutines.delay(300)
@@ -487,6 +492,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
         }
         totalCount = loader.getTotalCount()
         displayItems = loader.getDisplayItems()
+        Log.d("VodGrid", "filter load complete for $kind: displayItems=${displayItems.size}, totalCount=$totalCount")
     }
 
     LaunchedEffect(lazyGridState, searchQuery) {
@@ -502,6 +508,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
                 val nextPage = currentPage + 1
                 val maxPages = (totalCount + pageSize - 1) / pageSize
                 if (nextPage >= maxPages || loader.isPageLoaded(nextPage)) return@collect
+                Log.d("VodGrid", "pagination trigger for $kind: loading page=$nextPage (currentPage=$currentPage, maxPages=$maxPages)")
                 isLoadingPage = true
                 runCatching {
                     loader.loadPage(
@@ -509,15 +516,19 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
                         selectedCountry.takeUnless { it == ALL_OPTION },
                         selectedGroup.takeUnless { it == ALL_OPTION })
                 }.onSuccess {
-                    displayItems = loader.getDisplayItems(); currentPage = nextPage
+                    val newItems = loader.getDisplayItems()
+                    Log.d("VodGrid", "page $nextPage loaded for $kind: cache.size=${newItems.size}")
+                    displayItems = newItems
+                    currentPage = nextPage
                 }.onFailure {
                     loadError = it.message ?: "No se pudo cargar mas contenido"
+                    Log.e("VodGrid", "page $nextPage failed for $kind: $loadError")
                 }
                 isLoadingPage = false
             }
     }
 
-    val displayItemsForGrid = remember(displayItems) { displayItems.sortedBy { it.title } }
+    val displayItemsForGrid = remember(displayItems) { displayItems }
     val itemFocusRequesters = remember(displayItemsForGrid.size) {
         List(displayItemsForGrid.size) { FocusRequester() }
     }

@@ -13,8 +13,7 @@ class PagedContentLoader(
     private val contentCacheManager: ContentCacheManager,
     private val repository: IptvRepository,
     private val kind: ContentKind,
-    private val pageSize: Int = 50,
-    private val maxCacheSize: Int = 100
+    private val pageSize: Int = 50
 ) {
     private val cache = mutableListOf<CatalogItem>()
     private val loadedPages = mutableSetOf<Int>()
@@ -31,10 +30,17 @@ class PagedContentLoader(
     fun isCurrentlyLoading(): Boolean = isLoading
 
     suspend fun loadPage(page: Int, country: String?, group: String?) {
-        if (loadedPages.contains(page)) return
-        if (isLoading) return
+        if (loadedPages.contains(page)) {
+            Log.d(TAG, "loadPage($kind, page=$page): already loaded, skipping")
+            return
+        }
+        if (isLoading) {
+            Log.w(TAG, "loadPage($kind, page=$page): another load in progress, skipping")
+            return
+        }
 
         if (country != lastCountry || group != lastGroup) {
+            Log.d(TAG, "loadPage($kind, page=$page): filter changed (country: $lastCountry→$country, group: $lastGroup→$group), clearing cache")
             cache.clear()
             loadedPages.clear()
             lastCountry = country
@@ -44,6 +50,7 @@ class PagedContentLoader(
 
         isLoading = true
         try {
+            Log.d(TAG, "loadPage($kind, page=$page): starting load, country=$country, group=$group, cache.size=${cache.size}")
             val user = repository.currentUsername()
             val pass = repository.currentPassword()
             val items = when (kind) {
@@ -66,18 +73,32 @@ class PagedContentLoader(
                 else -> emptyList()
             }
 
-            val insertIndex = page * pageSize
-            val clampedIndex = insertIndex.coerceAtMost(cache.size)
-            cache.addAll(clampedIndex, items)
+            Log.d(TAG, "loadPage($kind, page=$page): fetched ${items.size} items, totalCount=$totalCount")
 
-            // Evict oldest items if exceeding maxCacheSize, but NEVER remove from loadedPages
-            // loadedPages tracks what has been loaded from DB; cache is just the display window
-            while (cache.size > maxCacheSize) {
-                cache.removeAt(0)
+            // Append items at the end of cache (sequential loading guarantee)
+            val insertIndex = cache.size
+            cache.addAll(insertIndex, items)
+
+            // Deduplicate by stableId to prevent server-side duplicates
+            val beforeDedup = cache.size
+            val seen = mutableSetOf<String>()
+            val iterator = cache.iterator()
+            while (iterator.hasNext()) {
+                val item = iterator.next()
+                if (!seen.add(item.stableId)) {
+                    iterator.remove()
+                }
+            }
+            val removed = beforeDedup - cache.size
+            if (removed > 0) {
+                Log.w(TAG, "loadPage($kind, page=$page): removed $removed duplicate items")
             }
 
             loadedPages.add(page)
-            Log.d(TAG, "loadPage($kind, page=$page): loaded ${items.size} items, cache size=${cache.size}, loadedPages=$loadedPages")
+            Log.d(TAG, "loadPage($kind, page=$page): cache.size=${cache.size}, loadedPages=$loadedPages")
+        } catch (e: Exception) {
+            Log.e(TAG, "loadPage($kind, page=$page): failed", e)
+            throw e
         } finally {
             isLoading = false
         }
@@ -116,6 +137,9 @@ class PagedContentLoader(
 
             cache.addAll(items)
             Log.d(TAG, "loadSearch($kind, query='$query', country=$country, group=$group): found ${cache.size} results")
+        } catch (e: Exception) {
+            Log.e(TAG, "loadSearch($kind, query='$query'): failed", e)
+            throw e
         } finally {
             isLoading = false
         }
@@ -135,6 +159,7 @@ class PagedContentLoader(
     }
 
     fun clear() {
+        Log.d(TAG, "clear($kind): clearing loader, cache.size=${cache.size}, loadedPages=$loadedPages")
         cache.clear()
         loadedPages.clear()
         totalCount = 0
