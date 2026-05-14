@@ -580,8 +580,8 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
                 state = lazyGridState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(0.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 itemsIndexed(displayItemsForGrid) { index, item ->
                     val wp = fragment.continueWatchingEntries[item.stableId]
