@@ -298,7 +298,7 @@ private class SearchResultCardPresenter : Presenter() {
             Glide.with(cardView.context)
                 .load(imageUrl)
                 .override(CARD_WIDTH, CARD_HEIGHT)
-                .centerCrop()
+                .fitCenter()
                 .into(mainImageView)
         } else {
             cardView.mainImage = null
@@ -312,6 +312,6 @@ private class SearchResultCardPresenter : Presenter() {
 
     private companion object {
         private const val CARD_WIDTH = 320
-        private const val CARD_HEIGHT = 180
+        private const val CARD_HEIGHT = 480
     }
 }

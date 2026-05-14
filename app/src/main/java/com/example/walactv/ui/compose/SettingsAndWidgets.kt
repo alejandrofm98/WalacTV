@@ -208,40 +208,50 @@ internal fun RemoteImage(
     height: Int,
     scaleType: ImageView.ScaleType,
     disableCache: Boolean = false,
+    adjustViewBounds: Boolean = false,
 ) {
     AndroidView(
-        factory = { context -> ImageView(context).apply { this.scaleType = scaleType; setBackgroundColor(AndroidColor.TRANSPARENT) } },
+        factory = { context ->
+            ImageView(context).apply {
+                this.scaleType = scaleType
+                setBackgroundColor(AndroidColor.TRANSPARENT)
+                if (adjustViewBounds) this.adjustViewBounds = true
+            }
+        },
         update = { iv ->
             iv.scaleType = scaleType
-            val request = Glide.with(iv.context.applicationContext)
-                .load(url)
-                .override(width, height)
-                .dontTransform()
-                .listener(object : RequestListener<Drawable> {
-                    override fun onLoadFailed(
-                        e: GlideException?,
-                        model: Any?,
-                        target: Target<Drawable>,
-                        isFirstResource: Boolean,
-                    ): Boolean {
-                        Log.w(
-                            "RemoteImage",
-                            "load failed url=${url.take(240)} model=$model size=${width}x$height error=${e?.message}",
-                            e,
-                        )
-                        return false
-                    }
+            if (adjustViewBounds) iv.adjustViewBounds = true
+            val requestBuilder = Glide.with(iv.context.applicationContext).load(url)
+            val request = if (adjustViewBounds) {
+                requestBuilder
+            } else {
+                requestBuilder.override(width, height).dontTransform()
+            }
+            request.listener(object : RequestListener<Drawable> {
+                override fun onLoadFailed(
+                    e: GlideException?,
+                    model: Any?,
+                    target: Target<Drawable>,
+                    isFirstResource: Boolean,
+                ): Boolean {
+                    Log.w(
+                        "RemoteImage",
+                        "load failed url=${url.take(240)} model=$model size=${width}x$height error=${e?.message}",
+                        e,
+                    )
+                    return false
+                }
 
-                    override fun onResourceReady(
-                        resource: Drawable,
-                        model: Any,
-                        target: Target<Drawable>?,
-                        dataSource: DataSource,
-                        isFirstResource: Boolean,
-                    ): Boolean {
-                        return false
-                    }
-                })
+                override fun onResourceReady(
+                    resource: Drawable,
+                    model: Any,
+                    target: Target<Drawable>?,
+                    dataSource: DataSource,
+                    isFirstResource: Boolean,
+                ): Boolean {
+                    return false
+                }
+            })
             if (disableCache) {
                 request
                     .skipMemoryCache(true)
@@ -250,7 +260,7 @@ internal fun RemoteImage(
             request.into(iv)
         },
         onRelease = { iv -> runCatching { Glide.with(iv.context.applicationContext).clear(iv) }.onFailure { Log.w("RemoteImage", "Could not clear image", it) } },
-        modifier = Modifier.fillMaxSize(),
+        modifier = if (adjustViewBounds) Modifier.fillMaxHeight() else Modifier.fillMaxSize(),
     )
 }
 

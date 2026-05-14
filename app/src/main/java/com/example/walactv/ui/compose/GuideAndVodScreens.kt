@@ -576,12 +576,12 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(gridColumns),
+                columns = GridCells.Adaptive(minSize = 120.dp),
                 state = lazyGridState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 itemsIndexed(displayItemsForGrid) { index, item ->
                     val wp = fragment.continueWatchingEntries[item.stableId]
@@ -607,6 +607,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
                     MediaCard(
                         item = itemWithWatched,
                         modifier = Modifier.focusRequester(itemFocusRequesters[index]),
+                        narrowCard = true,
                         onFocused = {
                             fragment.contentFocusCanOpenRail = index % gridColumns == 0
                             fragment.selectedHero = item

@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.layout.onSizeChanged
@@ -103,8 +104,9 @@ import kotlinx.coroutines.launch
 // ── Constantes de diseño ───────────────────────────────────────────────────
 
 // Cards VOD — solo imagen, sin texto debajo (el título está en el hero)
-internal val VOD_CARD_WIDTH      = 120.dp
-private val VOD_IMAGE_HEIGHT     = 178.dp   // ratio ~2:3
+internal val VOD_CARD_WIDTH        = 120.dp
+internal val VOD_CARD_WIDTH_NARROW = 108.dp
+private val VOD_IMAGE_HEIGHT       = 180.dp   // ratio 2:3 exact
 private val VOD_TEXT_AREA_HEIGHT = 0.dp     // sin texto para VOD
 
 // Hero inmersivo — ocupa ~55% de la pantalla (el backdrop es fillMaxSize)
@@ -1009,6 +1011,7 @@ internal fun MediaCard(
     item: CatalogItem,
     modifier: Modifier = Modifier,
     debugTag: String = "",
+    narrowCard: Boolean = false,
     onFocused: () -> Unit,
     onClick: () -> Unit,
 ) {
@@ -1029,11 +1032,17 @@ internal fun MediaCard(
     }
     val textAreaHeight = if (isEvent) EVENT_TEXT_AREA_HEIGHT else CH_TEXT_AREA_HEIGHT
 
+    val vodModifier = if (isVod && narrowCard) {
+        Modifier.fillMaxWidth().aspectRatio(2f / 3f)
+    } else {
+        Modifier.width(cardWidth)
+    }
+
     val baseModifier = modifier
-        .width(cardWidth)
+        .then(vodModifier)
         .clip(RoundedCornerShape(10.dp))
         .border(
-            width = if (isFocused) 2.dp else 1.dp,
+            width = if (isFocused) 2.dp else if (isVod && narrowCard) 0.dp else 1.dp,
             color  = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
             shape  = RoundedCornerShape(10.dp),
         )
@@ -1046,9 +1055,7 @@ internal fun MediaCard(
 
     if (isVod) {
         Box(
-            modifier = baseModifier
-                .height(imageHeight)
-                .background(IptvSurfaceVariant),
+            modifier = baseModifier.then(if (isVod && narrowCard) Modifier else Modifier.background(IptvSurfaceVariant)),
             contentAlignment = Alignment.Center,
         ) {
             val cardImgUrl = item.preferredCardImageUrl()
@@ -1235,7 +1242,7 @@ internal fun ContinueWatchingCard(
         ) {
             val imageUrl = item.preferredCardImageUrl()
             if (imageUrl.isNotBlank()) RemoteImage(
-                url = imageUrl, width = 300, height = 400,
+                url = imageUrl, width = 300, height = 450,
                 scaleType = if (isChannelOrEvent) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP,
             )
             else PlaceholderIcon(kind = item.kind)
