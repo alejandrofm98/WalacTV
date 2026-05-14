@@ -630,7 +630,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
     }
 
     if (showCountryDialog) FilterDialog(
-        title = "Selecciona país",
+        title = "Selecciona idioma",
         options = countryOptions,
         selectedOption = selectedCountry,
         onOptionSelected = { selectedCountry = it.value; showCountryDialog = false },

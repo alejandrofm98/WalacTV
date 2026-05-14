@@ -340,13 +340,6 @@ internal fun buildEpisodeLabel(season: Int?, episode: Int?): String {
 // ── Filters ────────────────────────────────────────────────────────────────
 
 internal fun ComposeMainFragment.ensureFiltersLoaded(kind: ContentKind, country: String? = null) {
-    val alreadyLoaded = when (kind) {
-        ContentKind.CHANNEL -> channelFilters.countries.isNotEmpty() && channelFilterCountry == country
-        ContentKind.MOVIE   -> movieFilters.countries.isNotEmpty() && movieFilterCountry == country
-        ContentKind.SERIES  -> seriesFilters.countries.isNotEmpty() && seriesFilterCountry == country
-        ContentKind.EVENT   -> true
-    }
-    if (alreadyLoaded) return
     scope.launch {
         runCatching { repository.loadCatalogFilters(kind, country) }
             .onSuccess { filters ->
@@ -362,13 +355,6 @@ internal fun ComposeMainFragment.ensureFiltersLoaded(kind: ContentKind, country:
 }
 
 internal suspend fun ComposeMainFragment.ensureFiltersLoadedAwait(kind: ContentKind, country: String? = null) {
-    val alreadyLoaded = when (kind) {
-        ContentKind.CHANNEL -> channelFilters.countries.isNotEmpty() && channelFilterCountry == country
-        ContentKind.MOVIE   -> movieFilters.countries.isNotEmpty() && movieFilterCountry == country
-        ContentKind.SERIES  -> seriesFilters.countries.isNotEmpty() && seriesFilterCountry == country
-        ContentKind.EVENT   -> true
-    }
-    if (alreadyLoaded) return
     runCatching { withContext(Dispatchers.IO) { repository.loadCatalogFilters(kind, country) } }
         .onSuccess { filters ->
             when (kind) {

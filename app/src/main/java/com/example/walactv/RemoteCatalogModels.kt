@@ -142,7 +142,6 @@ fun parseRemoteFilterOptions(payload: JSONObject, key: String): List<CatalogFilt
         }
     }
         .distinctBy(CatalogFilterOption::value)
-        .sortedBy(CatalogFilterOption::label)
 }
 
 fun buildRemoteCatalogFilters(
