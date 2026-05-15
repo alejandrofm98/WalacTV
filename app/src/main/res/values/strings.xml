@@ -75,6 +75,13 @@
     <string name="live_direct_hint">Suelta y espera para sintonizar</string>
     <string name="live_channel_not_found">Canal no encontrado</string>
     <string name="live_channel_not_found_hint">Prueba con otra numeración</string>
+    <string name="live_channel_default">CH #</string>
+    <string name="events_title">Eventos</string>
+    <string name="tv_live_title">TV en directo</string>
+    <string name="events_today_title">Eventos de hoy</string>
+    <string name="continue_watching_title">Continuar viendo</string>
+    <string name="home_tab_title">Inicio</string>
+    <string name="search_tab_title">Buscar</string>
 
     <!-- VOD player controls -->
     <string name="vod_subtitles">Subtitulos</string>

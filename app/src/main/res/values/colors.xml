@@ -5,4 +5,11 @@
     <color name="card_info_surface">#CC0A1118</color>
     <color name="guide_row_dark">#99101922</color>
     <color name="guide_row_darker">#80101922</color>
+    <color name="player_surface">#FF171D1A</color>
+    <color name="player_container_bg">#FF000000</color>
+    <color name="overlay_bg_dark">#E6000000</color>
+    <color name="player_action_card_bg">#D9202730</color>
+    <color name="text_white_80">#CCFFFFFF</color>
+    <color name="text_gray_muted">#FFB9C1BC</color>
+    <color name="text_accent_info">#FF4FC3F7</color>
 </resources>

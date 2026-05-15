@@ -5,14 +5,17 @@
     android:background="@drawable/app_background"
     android:gravity="center"
     android:orientation="vertical"
-    android:padding="32dp">
+    android:padding="32dp"
+    android:descendantFocusability="afterDescendants">
 
     <LinearLayout
         android:layout_width="680dp"
         android:layout_height="wrap_content"
         android:background="#FF171D1A"
         android:orientation="vertical"
-        android:padding="28dp">
+        android:padding="28dp"
+        android:focusable="true"
+        android:focusableInTouchMode="true">
 
         <TextView
             android:layout_width="wrap_content"
@@ -48,6 +51,8 @@
             android:text="@string/settings_refresh_button"
             android:textAllCaps="false"
             android:textColor="#FFF2F4F1"
-            android:textSize="18sp" />
+            android:textSize="18sp"
+            android:focusable="true"
+            android:focusableInTouchMode="true" />
     </LinearLayout>
 </LinearLayout>

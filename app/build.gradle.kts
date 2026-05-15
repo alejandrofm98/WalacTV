@@ -116,9 +116,6 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.leanback:leanback:1.0.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
 
@@ -130,7 +127,6 @@ dependencies {
 
     // Glide para cargar imágenes de logos
     implementation("com.github.bumptech.glide:glide:4.16.0")
-    annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
 
     // OkHttp para actualizaciones
     implementation(libs.okhttp)
@@ -143,4 +139,6 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+
+    implementation(libs.androidx.security.crypto)
 }

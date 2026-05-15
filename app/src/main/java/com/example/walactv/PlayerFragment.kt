@@ -19,8 +19,8 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -586,7 +586,7 @@ class PlayerFragment : Fragment() {
         onProgressSaved?.invoke(progressItem)
         
         // Guardar en backend (asíncrono)
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             repo.saveProgress(
                 contentId = contentId,
                 contentType = contentType,
@@ -628,21 +628,16 @@ class PlayerFragment : Fragment() {
         watchedMarked = true
         val repo = watchProgressRepo ?: return
 
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             when (contentKind) {
                 ContentKind.MOVIE -> {
                     repo.markAsWatched(contentId)
-                    Log.d(TAG, "Movie marked as watched: $contentId")
                 }
                 ContentKind.SERIES -> {
                     repo.markAsWatched(contentId)
-                    Log.d(TAG, "Episode marked as watched: $contentId")
-                    // Si es el último episodio de la última temporada, marcar toda la serie
                     if (isLastEpisodeOfSeries()) {
                         val seriesKey = currentSeriesEpisode?.seriesName
                         if (!seriesKey.isNullOrBlank()) {
-                            Log.d(TAG, "Last episode of series, marking series as watched: $seriesKey")
-                            // El badge de serie se actualiza al recargar continueWatching en HomeContent
                         }
                     }
                 }
@@ -655,7 +650,7 @@ class PlayerFragment : Fragment() {
         if (contentId.isBlank() || !isVodMode) return
         val repo = watchProgressRepo ?: return
 
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val progress = repo.getProgress(contentId)
                 if (progress != null && progress.shouldRestoreProgress){
@@ -706,7 +701,7 @@ class PlayerFragment : Fragment() {
         val duration = exoPlayer.duration
         val position = exoPlayer.currentPosition
         val state = exoPlayer.playbackState
-        Log.d(TAG, "seekRelative: delta=$deltaMs position=$position duration=$duration state=$state isReleasing=$isReleasing")
+        Log.v(TAG, "seekRelative: delta=$deltaMs position=$position duration=$duration state=$state isReleasing=$isReleasing")
         if (duration == C.TIME_UNSET || duration <= 0) {
             Log.w(TAG, "seekRelative: duration invalid ($duration), aborting")
             return
@@ -717,7 +712,7 @@ class PlayerFragment : Fragment() {
             return
         }
         val target = (position + deltaMs).coerceIn(0, duration)
-        Log.d(TAG, "seekRelative: seeking to $target")
+        Log.v(TAG, "seekRelative: seeking to $target")
         exoPlayer.seekTo(target)
     }
 
@@ -1030,7 +1025,7 @@ class PlayerFragment : Fragment() {
         val g = btnGuide?.hasFocus() == true
         val f = btnFavorites?.hasFocus() == true
         val c = btnChannel?.hasFocus() == true
-        Log.d(TAG, "FAV_MENU_FOCUS: guide=$g fav=$f ch=$c")
+        Log.v(TAG, "FAV_MENU_FOCUS: guide=$g fav=$f ch=$c")
         return g || f || c
     }
 
@@ -1244,7 +1239,7 @@ class PlayerFragment : Fragment() {
         val focusOnPlayPause = isFocusOnPlayPauseButton()
         val focusOnProgressBar = isFocusOnProgressBar()
 
-        Log.d(TAG, "VOD_KEY: keyCode=$keyCode focusedView=${focusedView?.let { describeView(it) }} " +
+        Log.v(TAG, "VOD_KEY: keyCode=$keyCode focusedView=${focusedView?.let { describeView(it) }} " +
                 "customBtn=${focusedCustomButton?.let { describeView(it) }} " +
                 "playPause=$focusOnPlayPause progressBar=$focusOnProgressBar")
 
@@ -1252,17 +1247,17 @@ class PlayerFragment : Fragment() {
 
             KeyEvent.KEYCODE_DPAD_LEFT -> when {
                 focusedCustomButton != null -> {
-                    Log.d(TAG, "VOD_LEFT: focus on custom button → letting system handle focus")
+                    Log.v(TAG, "VOD_LEFT: focus on custom button → letting system handle focus")
                     false
                 }
                 focusOnProgressBar -> {
-                    Log.d(TAG, "VOD_LEFT: focus on progress bar → seeking backward")
+                    Log.v(TAG, "VOD_LEFT: focus on progress bar → seeking backward")
                     seekRelative(getSeekIncrement(-1))
                     playerView.showController()
                     true
                 }
                 else -> {
-                    Log.d(TAG, "VOD_LEFT: seeking backward")
+                    Log.v(TAG, "VOD_LEFT: seeking backward")
                     seekRelative(getSeekIncrement(-1))
                     playerView.showController()
                     true
@@ -1271,22 +1266,22 @@ class PlayerFragment : Fragment() {
 
             KeyEvent.KEYCODE_DPAD_RIGHT -> when {
                 focusedCustomButton != null -> {
-                    Log.d(TAG, "VOD_RIGHT: focus on custom button → letting system handle focus")
+                    Log.v(TAG, "VOD_RIGHT: focus on custom button → letting system handle focus")
                     false
                 }
                 focusOnPlayPause -> {
-                    Log.d(TAG, "VOD_RIGHT: focus on play/pause → moving to first custom button")
+                    Log.v(TAG, "VOD_RIGHT: focus on play/pause → moving to first custom button")
                     moveFocusToFirstCustomButton()
                     true
                 }
                 focusOnProgressBar -> {
-                    Log.d(TAG, "VOD_RIGHT: focus on progress bar → seeking forward")
+                    Log.v(TAG, "VOD_RIGHT: focus on progress bar → seeking forward")
                     seekRelative(getSeekIncrement(1))
                     playerView.showController()
                     true
                 }
                 else -> {
-                    Log.d(TAG, "VOD_RIGHT: no special focus → seeking forward")
+                    Log.v(TAG, "VOD_RIGHT: no special focus → seeking forward")
                     seekRelative(getSeekIncrement(1))
                     playerView.showController()
                     true
@@ -1296,15 +1291,15 @@ class PlayerFragment : Fragment() {
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER -> {
                 val focused = getFocusedVodButton()
-                Log.d(TAG, "VOD_CENTER: focusedCustomButton=${focused?.let { describeView(it) }}")
+                Log.v(TAG, "VOD_CENTER: focusedCustomButton=${focused?.let { describeView(it) }}")
                 when {
                     focused != null -> {
-                        Log.d(TAG, "VOD_CENTER: performing click on ${describeView(focused)}")
+                        Log.v(TAG, "VOD_CENTER: performing click on ${describeView(focused)}")
                         focused.performClick()
                         true
                     }
                     else -> {
-                        Log.d(TAG, "VOD_CENTER: toggling play/pause")
+                        Log.v(TAG, "VOD_CENTER: toggling play/pause")
                         player?.let { if (it.isPlaying) it.pause() else it.play() }
                         playerView.showController()
                         true
@@ -1316,12 +1311,12 @@ class PlayerFragment : Fragment() {
                 playerView.showController()
                 when {
                     isFocusOnPlayPauseButton() || getFocusedVodButton() != null -> {
-                        Log.d(TAG, "VOD_UP: buttons → progress bar")
+                        Log.v(TAG, "VOD_UP: buttons → progress bar")
                         val progressView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
                         progressView?.requestFocus()
                     }
                     else -> {
-                        Log.d(TAG, "VOD_UP: already on top row")
+                        Log.v(TAG, "VOD_UP: already on top row")
                     }
                 }
                 true
@@ -1331,11 +1326,11 @@ class PlayerFragment : Fragment() {
                 playerView.showController()
                 when {
                     isFocusOnProgressBar() -> {
-                        Log.d(TAG, "VOD_DOWN: progress bar → play/pause")
+                        Log.v(TAG, "VOD_DOWN: progress bar → play/pause")
                         moveToPlayPauseButton()
                     }
                     else -> {
-                        Log.d(TAG, "VOD_DOWN: already on bottom row")
+                        Log.v(TAG, "VOD_DOWN: already on bottom row")
                     }
                 }
                 true
@@ -1399,7 +1394,7 @@ class PlayerFragment : Fragment() {
         val result = playPauseView?.hasFocus() == true ||
                 playView?.hasFocus() == true ||
                 pauseView?.hasFocus() == true
-        Log.d(TAG, "isFocusOnPlayPauseButton: playPause=${playPauseView?.hasFocus()} " +
+        Log.v(TAG, "isFocusOnPlayPauseButton: playPause=${playPauseView?.hasFocus()} " +
                 "play=${playView?.hasFocus()} pause=${pauseView?.hasFocus()} → $result")
         return result
     }
@@ -1407,7 +1402,7 @@ class PlayerFragment : Fragment() {
     private fun isFocusOnProgressBar(): Boolean {
         val progressView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)
         val result = progressView?.hasFocus() == true
-        Log.d(TAG, "isFocusOnProgressBar: ${progressView?.hasFocus()} → $result")
+        Log.v(TAG, "isFocusOnProgressBar: ${progressView?.hasFocus()} → $result")
         return result
     }
 
@@ -1415,7 +1410,7 @@ class PlayerFragment : Fragment() {
         val playPauseView = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
             ?: playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play)
             ?: playerView.findViewById<View>(androidx.media3.ui.R.id.exo_pause)
-        Log.d(TAG, "moveToPlayPauseButton: target=${playPauseView?.let { describeView(it) }}")
+        Log.v(TAG, "moveToPlayPauseButton: target=${playPauseView?.let { describeView(it) }}")
         playPauseView?.requestFocus()
         playerView.showController()
     }
@@ -1431,7 +1426,7 @@ class PlayerFragment : Fragment() {
         val target = customButtonIds
             .mapNotNull { id -> playerView.findViewById<View>(id) }
             .firstOrNull { it.visibility == View.VISIBLE && it.isEnabled }
-        Log.d(TAG, "moveFocusToFirstCustomButton: target=${target?.let { describeView(it) }}")
+        Log.v(TAG, "moveFocusToFirstCustomButton: target=${target?.let { describeView(it) }}")
         target?.requestFocus()
         playerView.showController()
     }
@@ -1484,7 +1479,7 @@ class PlayerFragment : Fragment() {
                 if (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE) {
                     handler.removeCallbacks(hideOverlayRunnable)
                     val focusResult = btnGuide?.requestFocus() ?: false
-                    Log.d(TAG, "FAV_UP: btnGuide.requestFocus()=$focusResult")
+                    Log.v(TAG, "FAV_UP: btnGuide.requestFocus()=$focusResult")
                     return true
                 }
                 val newIndex = liveOptionIndex - 1
@@ -1503,7 +1498,7 @@ class PlayerFragment : Fragment() {
                 if (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE) {
                     handler.removeCallbacks(hideOverlayRunnable)
                     val focusResult = btnGuide?.requestFocus() ?: false
-                    Log.d(TAG, "FAV_DOWN: btnGuide.requestFocus()=$focusResult")
+                    Log.v(TAG, "FAV_DOWN: btnGuide.requestFocus()=$focusResult")
                     return true
                 }
                 val newIndex = liveOptionIndex + 1
@@ -1539,7 +1534,7 @@ class PlayerFragment : Fragment() {
                     btnChannel?.hasFocus() == true -> btnChannel
                     else -> null
                 }
-                Log.d(TAG, "FAV_CENTER: focusedButton=${focusedButton?.id} guide=${btnGuide?.hasFocus()} fav=${btnFavorites?.hasFocus()} ch=${btnChannel?.hasFocus()}")
+                Log.v(TAG, "FAV_CENTER: focusedButton=${focusedButton?.id} guide=${btnGuide?.hasFocus()} fav=${btnFavorites?.hasFocus()} ch=${btnChannel?.hasFocus()}")
                 if (focusedButton != null) {
                     focusedButton.performClick()
                     return true
@@ -1582,7 +1577,7 @@ class PlayerFragment : Fragment() {
             }
 
             KeyEvent.KEYCODE_BACK -> {
-                Log.d(TAG, "FAV_BACK_FRAG: isMenuFocused=${isMenuFocused()}")
+                Log.v(TAG, "FAV_BACK_FRAG: isMenuFocused=${isMenuFocused()}")
                 if (isMenuFocused()) {
                     playerView.requestFocus()
                     hideOverlay()

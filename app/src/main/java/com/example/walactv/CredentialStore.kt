@@ -1,10 +1,22 @@
 package com.example.walactv
 
 import android.content.Context
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 
 class CredentialStore(context: Context) {
 
-    private val preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val masterKey = MasterKey.Builder(context.applicationContext)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val preferences = EncryptedSharedPreferences.create(
+        context.applicationContext,
+        PREFS_NAME,
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
 
     fun hasCredentials(): Boolean {
         return username().isNotBlank() && password().isNotBlank()

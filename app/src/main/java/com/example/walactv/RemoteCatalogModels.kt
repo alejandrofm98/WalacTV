@@ -464,13 +464,6 @@ private fun JSONObject.optDoubleValue(key: String): Double? {
     return optDouble(key).takeUnless { it.isNaN() }
 }
 
-private fun buildTmdbImageUrl(path: String, size: String): String? {
-    if (path.isBlank()) return null
-    if (path.startsWith("http://") || path.startsWith("https://")) return normalizeRemoteImageUrl(path)
-    val normalizedPath = if (path.startsWith("/")) path else "/$path"
-    return "https://image.tmdb.org/t/p/$size$normalizedPath"
-}
-
 private fun JSONObject.optFirstImageString(): String {
     val keys = listOf(
         "logo",

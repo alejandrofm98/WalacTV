@@ -524,3 +524,11 @@ data class WatchProgressItem(
     val shouldRestoreProgress: Boolean
         get() = !isWatched && positionMs > 60_000 && !isCompleted
 }
+
+fun buildTmdbImageUrl(path: String?, size: String): String? {
+    val cleanPath = path?.takeUnless { it.equals("null", ignoreCase = true) }?.trim().orEmpty()
+    if (cleanPath.isBlank()) return null
+    if (cleanPath.startsWith("http://") || cleanPath.startsWith("https://")) return cleanPath.replace("http://image.tmdb.org", "https://image.tmdb.org")
+    val normalizedPath = if (cleanPath.startsWith("/")) cleanPath else "/$cleanPath"
+    return "https://image.tmdb.org/t/p/$size$normalizedPath"
+}

@@ -12,6 +12,7 @@ leanback = "1.2.0"
 okhttp = "4.12.0"
 retrofit = "2.11.0"
 room = "2.6.1"
+securityCrypto = "1.1.0-alpha06"
 ksp = "2.0.21-1.0.27"
 foundation = "1.11.1"
 
@@ -37,6 +38,7 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

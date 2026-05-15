@@ -61,6 +61,7 @@ internal fun ChannelPickerDialog(
     val groupListState = rememberLazyListState()
     val listFocusRequester = remember { FocusRequester() }
     val groupFocusRequester = remember { FocusRequester() }
+    val dialogScope = rememberCoroutineScope()
 
     val loader = remember { PagedContentLoader(fragment.contentCacheManager, fragment.repository, ContentKind.CHANNEL) }
     var displayChannels by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
@@ -173,7 +174,7 @@ internal fun ChannelPickerDialog(
                                 .border(if (isSelected) 1.dp else 0.dp, if (isSelected) accentColor.copy(alpha = 0.5f) else Color.Transparent, RoundedCornerShape(8.dp))
                                 .clickable {
                                     onCountryChange(option.value); onGroupChange(ALL_OPTION); onFavoritesChange(false); activePanel = 1
-                                    kotlinx.coroutines.GlobalScope.launch { kotlinx.coroutines.delay(50); runCatching { groupFocusRequester.requestFocus() } }
+                                    dialogScope.launch { kotlinx.coroutines.delay(50); runCatching { groupFocusRequester.requestFocus() } }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 9.dp)
                         ) {
@@ -207,7 +208,7 @@ internal fun ChannelPickerDialog(
                                 .clickable {
                                     if (option.value == "__favs__") onFavoritesChange(true) else { onFavoritesChange(false); onGroupChange(option.value) }
                                     selectedIndex = 0; activePanel = 2
-                                    kotlinx.coroutines.GlobalScope.launch { kotlinx.coroutines.delay(50); runCatching { listFocusRequester.requestFocus() } }
+                                    dialogScope.launch { kotlinx.coroutines.delay(50); runCatching { listFocusRequester.requestFocus() } }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 9.dp)
                         ) {

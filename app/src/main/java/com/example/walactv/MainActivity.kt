@@ -16,22 +16,26 @@ class MainActivity : FragmentActivity() {
 
     private val onPlayerClosed: (() -> Unit)? = {
         Log.d(TAG, "onPlayerClosed callback fired")
-        val composeFragment = supportFragmentManager
-            .findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
-        composeFragment?.restorePlaybackReturnState()
-        composeFragment?.restoreFocusAfterPlayer()
+        if (!isFinishing && !isDestroyed) {
+            (supportFragmentManager
+                .findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
+            )?.let { f ->
+                f.restorePlaybackReturnState()
+                f.restoreFocusAfterPlayer()
+            }
+        }
     }
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
             if (backConsumedByDispatch) {
-                Log.d(TAG, "backPressedCallback: skipping, already consumed by dispatchKeyEvent")
+                Log.v(TAG, "backPressedCallback: skipping, already consumed by dispatchKeyEvent")
                 backConsumedByDispatch = false
                 return
             }
-            Log.d(TAG, "backPressedCallback.handleOnBackPressed()")
+            Log.v(TAG, "backPressedCallback.handleOnBackPressed()")
             if (handleCentralizedBack()) return
-            Log.d(TAG, "backPressedCallback: centralized returned false, delegating to system")
+            Log.v(TAG, "backPressedCallback: centralized returned false, delegating to system")
             isEnabled = false
             onBackPressedDispatcher.onBackPressed()
             isEnabled = true
@@ -56,20 +60,20 @@ class MainActivity : FragmentActivity() {
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             when (event.action) {
                 KeyEvent.ACTION_DOWN -> {
-                    Log.d(TAG, "BACK ACTION_DOWN: calling handleCentralizedBack()")
+                    Log.v(TAG, "BACK ACTION_DOWN: calling handleCentralizedBack()")
                     consumeBackKeyUp = handleCentralizedBack()
                     backConsumedByDispatch = consumeBackKeyUp
-                    Log.d(TAG, "BACK ACTION_DOWN: handled=$consumeBackKeyUp")
+                    Log.v(TAG, "BACK ACTION_DOWN: handled=$consumeBackKeyUp")
                     if (consumeBackKeyUp) return true
-                    Log.d(TAG, "BACK ACTION_DOWN: NOT handled, falling through")
+                    Log.v(TAG, "BACK ACTION_DOWN: NOT handled, falling through")
                 }
                 KeyEvent.ACTION_UP -> {
                     if (consumeBackKeyUp) {
-                        Log.d(TAG, "BACK ACTION_UP: consuming (was handled on DOWN)")
+                        Log.v(TAG, "BACK ACTION_UP: consuming (was handled on DOWN)")
                         consumeBackKeyUp = false
                         return true
                     }
-                    Log.d(TAG, "BACK ACTION_UP: NOT consumed (consumeBackKeyUp=false)")
+                    Log.v(TAG, "BACK ACTION_UP: NOT consumed (consumeBackKeyUp=false)")
                 }
             }
         }
