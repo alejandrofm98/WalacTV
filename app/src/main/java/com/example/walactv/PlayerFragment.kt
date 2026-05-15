@@ -1117,18 +1117,27 @@ class PlayerFragment : Fragment() {
 
         if (isCodecIncompatible) {
             Log.w(TAG, "Error de codec incompatible detectado: $errorMessage")
-            showErrorOverlay(categorizedError)
             if (isVodMode && streamOptionLabels.size > 1 && onSelectQuality != null) {
-                handler.postDelayed({ showQualitySelector() }, 500)
-            } else {
-                releasePlayer()
-                runCatching {
-                    parentFragmentManager.beginTransaction()
-                        .remove(this)
-                        .commitAllowingStateLoss()
-                }.onFailure {
-                    Log.e(TAG, "No se pudo cerrar el reproductor tras error fatal", it)
+                val nextIndex = currentOptionIndex + 1
+                if (nextIndex < streamOptionLabels.size) {
+                    Log.d(TAG, "Auto-fallback de calidad: ${streamOptionLabels[currentOptionIndex]} → ${streamOptionLabels[nextIndex]}")
+                    onSelectQuality?.invoke(nextIndex)
+                    return
                 }
+                Log.w(TAG, "Auto-fallback: todas las opciones de calidad agotadas")
+                showErrorOverlay(categorizedError, autoClose = false)
+                handler.postDelayed({ showQualitySelector() }, 500)
+                return
+            }
+            Toast.makeText(context, R.string.codec_unsupported_device, Toast.LENGTH_LONG).show()
+            showErrorOverlay(categorizedError, autoClose = false)
+            releasePlayer()
+            runCatching {
+                parentFragmentManager.beginTransaction()
+                    .remove(this)
+                    .commitAllowingStateLoss()
+            }.onFailure {
+                Log.e(TAG, "No se pudo cerrar el reproductor tras error fatal", it)
             }
             return
         }
@@ -1168,11 +1177,12 @@ class PlayerFragment : Fragment() {
         }
     }
 
-    private fun showErrorOverlay(error: PlaybackError) {
+    private fun showErrorOverlay(error: PlaybackError, autoClose: Boolean = true) {
         errorState = error
         val composeView = errorComposeView ?: return
 
         val autoActionCallback: (() -> Unit)? = when {
+            !autoClose -> null
             isEventMode -> {
                 val hasMoreOptions = liveOptionIndex < streamOptionLabels.size - 1
                 if (hasMoreOptions) {

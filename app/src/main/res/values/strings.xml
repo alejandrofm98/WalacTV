@@ -97,4 +97,5 @@
     <string name="vod_no_subtitles_available">No hay subtitulos disponibles</string>
     <string name="vod_no_audio_available">No hay pistas de audio disponibles</string>
     <string name="episode_not_available_in_language">Este capitulo no esta disponible en el idioma seleccionado</string>
+    <string name="codec_unsupported_device">Este dispositivo no soporta el formato de video</string>
 </resources>

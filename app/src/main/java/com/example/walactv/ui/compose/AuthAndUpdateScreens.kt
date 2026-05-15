@@ -1,7 +1,5 @@
 package com.example.walactv.ui
 
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,9 +11,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -81,8 +77,6 @@ internal fun SyncScreen(fragment: ComposeMainFragment) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        AnimatedSyncSpinner(fragment.overallSyncProgress)
-        Spacer(modifier = Modifier.height(32.dp))
         if (fragment.contentSyncState == ComposeMainFragment.ContentSyncState.CHECKING) {
             Text("Comprobando actualizaciones...", color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Medium)
         } else {
@@ -92,29 +86,29 @@ internal fun SyncScreen(fragment: ComposeMainFragment) {
                 Text("${fragment.currentSyncCount.toLocaleString()} elementos", color = IptvTextSecondary, fontSize = 14.sp)
             }
         }
+        Spacer(modifier = Modifier.height(20.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.65f)
+                .height(8.dp)
+                .background(IptvSurfaceVariant, RoundedCornerShape(4.dp)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fragment.overallSyncProgress.coerceIn(0f, 1f))
+                    .height(8.dp)
+                    .background(IptvAccent, RoundedCornerShape(4.dp)),
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            "${(fragment.overallSyncProgress * 100).toInt().coerceIn(0, 100)}% completado",
+            color = IptvTextMuted,
+            fontSize = 14.sp,
+        )
         fragment.contentSyncError?.let {
             Spacer(modifier = Modifier.height(24.dp))
             Text(it, color = IptvLive, fontSize = 14.sp)
-        }
-    }
-}
-
-@Composable
-private fun AnimatedSyncSpinner(progress: Float) {
-    val infiniteTransition = rememberInfiniteTransition(label = "syncSpinner")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart),
-        label = "rotation",
-    )
-    val animatedProgress by animateFloatAsState(targetValue = progress.coerceIn(0f, 1f), animationSpec = tween(300), label = "progress")
-
-    Box(modifier = Modifier.size(64.dp).rotate(rotation), contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val strokeWidth = 4.dp.toPx()
-            drawArc(color = IptvSurface, startAngle = 0f, sweepAngle = 360f, useCenter = false, style = Stroke(strokeWidth))
-            val sweep = (animatedProgress * 360f).coerceAtMost(360f)
-            if (sweep > 1f) drawArc(color = IptvAccent, startAngle = -90f, sweepAngle = sweep, useCenter = false, style = Stroke(strokeWidth))
         }
     }
 }

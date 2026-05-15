@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
@@ -25,6 +26,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,6 +39,7 @@ import androidx.tv.material3.Text
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ComposeMainFragment.MainMode
 import com.example.walactv.ContentKind
+import com.example.walactv.R
 import com.example.walactv.SideRailDestination
 import com.example.walactv.SideRailEntry
 import com.example.walactv.buildDefaultSideRailEntries
@@ -310,25 +314,12 @@ internal fun NavigationItem(
 @Composable
 internal fun LoadingScreen() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(modifier = Modifier.width(520.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("WalacTV", color = IptvTextPrimary, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(12.dp))
-            Text("Cargando contenido...", color = IptvTextMuted, fontSize = 18.sp)
-            Spacer(Modifier.height(18.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp)
-                    .background(IptvSurfaceVariant, RoundedCornerShape(6.dp)),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.04f)
-                        .height(10.dp)
-                        .background(IptvAccent, RoundedCornerShape(6.dp)),
-                )
-            }
-        }
+        Image(
+            painter = painterResource(R.drawable.logo_letra),
+            contentDescription = "WalacTV",
+            modifier = Modifier.fillMaxWidth(0.5f),
+            contentScale = ContentScale.Fit,
+        )
     }
 }
 
