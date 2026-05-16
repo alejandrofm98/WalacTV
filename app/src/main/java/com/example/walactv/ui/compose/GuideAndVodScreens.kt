@@ -351,7 +351,7 @@ internal fun EpgChannelCard(
                 RoundedCornerShape(10.dp)
             )
             .onFocusChanged { isFocused = it.isFocused; if (it.isFocused) onFocused() }
-            .clickable { onClick() }
+            .tvClickable { onClick() }
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),

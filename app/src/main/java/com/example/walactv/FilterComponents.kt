@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.example.walactv.ui.tvClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -466,9 +467,8 @@ fun DialogFilterItem(label: String, selected: Boolean, onClick: () -> Unit) {
                 },
                 RoundedCornerShape(8.dp)
             )
-            .focusable()
             .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onClick() }
+            .tvClickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Text(

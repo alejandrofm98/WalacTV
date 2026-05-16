@@ -12,7 +12,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -80,7 +79,6 @@ internal fun MainShell(fragment: ComposeMainFragment) {
                     .weight(1f)
                     .fillMaxHeight()
                     .focusRequester(contentFocusRequester)
-                    .focusable()
                     .onFocusChanged { state ->
                         Log.d(TAG, "content focus isFocused=${state.isFocused} hasFocus=${state.hasFocus} mode=${fragment.currentMode}")
                     }
@@ -287,7 +285,7 @@ internal fun NavigationItem(
                 isFocused = it.isFocused
                 onFocusChanged(it.isFocused)
             }
-            .clickable { onClick() }
+            .tvClickable { onClick() }
             .padding(horizontal = if (expanded) 14.dp else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (expanded) Arrangement.Start else Arrangement.Center,

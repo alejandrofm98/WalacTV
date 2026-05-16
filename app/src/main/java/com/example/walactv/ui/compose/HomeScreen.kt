@@ -877,8 +877,7 @@ internal fun EventVsCard(
                 isFocused = it.isFocused
                 if (it.isFocused) onFocused()
             }
-            .focusable()
-            .clickable { onClick() },
+            .tvClickable { onClick() },
     ) {
         if (item.imageUrl.isNotBlank()) {
             RemoteImage(
@@ -1050,8 +1049,7 @@ internal fun MediaCard(
             isFocused = it.isFocused
             if (it.isFocused) onFocused()
         }
-        .focusable()
-        .clickable { onClick() }
+        .tvClickable { onClick() }
 
     if (isVod) {
         Box(
@@ -1225,8 +1223,7 @@ internal fun ContinueWatchingCard(
                     onFocused(item)
                 }
             }
-            .focusable()
-            .clickable(interactionSource = interactionSource, indication = null) {
+            .tvClickable {
                 if (!longPressTriggered && fragment.deleteContinueWatchingItem == null) {
                     fragment.handleCardClick(item, listOf(item))
                 }

@@ -12,8 +12,8 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import com.example.walactv.ui.tvClickable
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -369,7 +369,7 @@ fun EpisodeCard(
                 shape = RoundedCornerShape(12.dp)
             )
             .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onClick() }
+            .tvClickable { onClick() }
             .scale(if (isFocused) 1.03f else 1f)
             .padding(8.dp)
     ) {

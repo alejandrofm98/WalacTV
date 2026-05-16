@@ -148,7 +148,7 @@ internal fun SettingsRowClickable(label: String, value: String, modifier: Modifi
         modifier = modifier.fillMaxWidth()
             .background(if (isFocused) IptvFocusBg else Color.Transparent, RoundedCornerShape(8.dp))
             .border(1.dp, if (isFocused) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
-            .onFocusChanged { isFocused = it.isFocused }.clickable { onClick() }.padding(vertical = 8.dp),
+            .onFocusChanged { isFocused = it.isFocused }.tvClickable { onClick() }.padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, color = IptvTextPrimary, fontSize = 16.sp)
@@ -173,7 +173,7 @@ internal fun FocusButton(label: String, icon: ImageVector, modifier: Modifier = 
         modifier = modifier.height(52.dp)
             .background(if (isFocused) IptvAccent else IptvCard, RoundedCornerShape(8.dp))
             .border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvTextPrimary else IptvSurfaceVariant, RoundedCornerShape(8.dp))
-            .onFocusChanged { isFocused = it.isFocused }.clickable { onClick() }.padding(horizontal = 18.dp),
+            .onFocusChanged { isFocused = it.isFocused }.tvClickable { onClick() }.padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = label, tint = IptvTextPrimary, modifier = Modifier.size(18.dp))
@@ -298,7 +298,7 @@ private fun FilterChip(label: String, focusRequester: FocusRequester, onClick: (
             .background(if (isFocused) IptvFocusBg else IptvBackground, RoundedCornerShape(8.dp))
             .border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(8.dp))
             .focusRequester(focusRequester).onFocusChanged { isFocused = it.isFocused }
-            .clickable { onClick() }.padding(horizontal = 14.dp),
+            .tvClickable { onClick() }.padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
         Row(

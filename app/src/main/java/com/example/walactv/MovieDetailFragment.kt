@@ -13,9 +13,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import com.example.walactv.ui.tvClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -453,9 +452,8 @@ private fun ActionButton(
                 if (isPrimary) IptvAccent else IptvSurface,
                 RoundedCornerShape(8.dp)
             )
-            .clickable(onClick = onClick)
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
+            .tvClickable { onClick() }
             .padding(horizontal = 24.dp, vertical = 14.dp)
     ) {
         Icon(
@@ -479,8 +477,7 @@ private fun ScrollToTopButton(onClick: () -> Unit) {
         modifier = Modifier
             .size(48.dp)
             .background(IptvAccent, RoundedCornerShape(24.dp))
-            .clickable(onClick = onClick)
-            .focusable(),
+            .tvClickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(
