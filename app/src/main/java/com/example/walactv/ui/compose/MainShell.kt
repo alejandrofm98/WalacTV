@@ -54,8 +54,6 @@ internal fun ComposeRoot(fragment: ComposeMainFragment) {
                 mandatoryUpdate != null -> MandatoryUpdateScreen(fragment, mandatoryUpdate!!)
                 !isSignedIn             -> LoginScreen(fragment)
                 errorMessage != null    -> ErrorScreen(fragment, errorMessage.orEmpty())
-                contentSyncState == ComposeMainFragment.ContentSyncState.SYNCING ||
-                        contentSyncState == ComposeMainFragment.ContentSyncState.CHECKING -> SyncScreen(fragment)
                 !isLoaded               -> LoadingScreen()
                 else                    -> MainShell(fragment)
             }
