@@ -15,6 +15,8 @@ import com.example.walactv.SearchFragment
 import com.example.walactv.WatchProgressItem
 import com.example.walactv.tmdbDebug
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.walactv.R
@@ -197,11 +199,32 @@ internal fun ComposeMainFragment.loadContinueWatching() {
     }
 }
 
+internal fun ComposeMainFragment.removeContinueWatchingLocally(
+    contentId: String? = null,
+    seriesName: String? = null,
+) {
+    continueWatchingEntries = continueWatchingEntries
+        .filterValues { wp ->
+            if (seriesName != null) wp.seriesName != seriesName
+            else wp.contentId != contentId
+        }
+    continueWatchingSection = continueWatchingSection?.let { section ->
+        val filtered = section.items.filter { item ->
+            if (seriesName != null) item.seriesName != seriesName
+            else item.providerId != contentId
+        }
+        if (filtered.isEmpty()) null else section.copy(items = filtered)
+    }
+    rebuildHomeSections()
+}
+
 internal suspend fun ComposeMainFragment.deleteAllSeriesProgress(seriesName: String) {
     try {
-        continueWatchingEntries
-            .filter { (_, wp) -> wp.seriesName == seriesName }
-            .forEach { (_, wp) -> watchProgressRepo.deleteProgress(wp.contentId) }
+        coroutineScope {
+            continueWatchingEntries
+                .filter { (_, wp) -> wp.seriesName == seriesName }
+                .map { (_, wp) -> async { watchProgressRepo.deleteProgress(wp.contentId) } }
+        }
     } catch (e: Exception) {
         Log.e(TAG, "Error deleting series progress for $seriesName", e)
     }
