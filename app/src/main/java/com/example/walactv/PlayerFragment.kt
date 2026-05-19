@@ -187,6 +187,19 @@ class PlayerFragment : Fragment() {
     private var errorState: PlaybackError? = null
     private var isRetrying: Boolean = false
     private var errorComposeView: ComposeView? = null
+    private val bufferingWatchdog = Runnable { handleBufferingTimeout() }
+    private var bufferingSinceMs: Long = 0
+    private var lastKnownPositionMs: Long = Long.MIN_VALUE
+    private var stuckPositionCount: Int = 0
+    private val positionWatchdog = Runnable { checkPositionStuck() }
+
+    private fun playbackStateName(state: Int) = when (state) {
+        Player.STATE_IDLE -> "IDLE"
+        Player.STATE_BUFFERING -> "BUFFERING"
+        Player.STATE_READY -> "READY"
+        Player.STATE_ENDED -> "ENDED"
+        else -> "UNKNOWN($state)"
+    }
 
 
     private val isVodMode: Boolean
@@ -1098,12 +1111,66 @@ class PlayerFragment : Fragment() {
         return CHANNEL_PROXY_REGEX.containsMatchIn(normalized)
     }
 
+    private fun handleBufferingTimeout() {
+        if (isReleasing || isVodMode || isRetrying) return
+        val elapsed = System.currentTimeMillis() - bufferingSinceMs
+        val stillBuffering = player?.playbackState == Player.STATE_BUFFERING
+        if (stillBuffering) {
+            Log.w(TAG, "Live buffering timeout after ${elapsed}ms. Forcing restart.")
+            Toast.makeText(context, "Timeout buffering ${elapsed/1000}s — reiniciando", Toast.LENGTH_SHORT).show()
+            handlePlaybackError(null)
+        }
+    }
+
+    private fun checkPositionStuck() {
+        if (isReleasing || isVodMode || isRetrying) return
+        val exoPlayer = player ?: return
+        if (exoPlayer.playbackState != Player.STATE_READY || !exoPlayer.isPlaying) {
+            lastKnownPositionMs = Long.MIN_VALUE
+            stuckPositionCount = 0
+            handler.postDelayed(positionWatchdog, POSITION_CHECK_INTERVAL_MS)
+            return
+        }
+        val currentPos = exoPlayer.currentPosition
+        val delta = currentPos - lastKnownPositionMs
+        val isFirstCheck = lastKnownPositionMs == Long.MIN_VALUE
+        Log.d(TAG, "pos check: stuck=$stuckPositionCount/$MAX_STUCK_CHECKS delta=${delta}ms pos=$currentPos last=$lastKnownPositionMs")
+        if (isFirstCheck) {
+            lastKnownPositionMs = currentPos
+            handler.postDelayed(positionWatchdog, POSITION_CHECK_INTERVAL_MS)
+            return
+        }
+        if (delta > 0) {
+            stuckPositionCount = 0
+            lastKnownPositionMs = currentPos
+        } else {
+            stuckPositionCount++
+            val stuckSeconds = (stuckPositionCount * POSITION_CHECK_INTERVAL_MS) / 1000
+            Log.w(TAG, "pos stuck $stuckPositionCount/$MAX_STUCK_CHECKS (${stuckSeconds}s frozen) delta=${delta}ms")
+            if (stuckPositionCount == 1) {
+                Toast.makeText(context, "Canal congelado ${stuckSeconds}s — comprobando...", Toast.LENGTH_SHORT).show()
+            }
+            if (stuckPositionCount >= MAX_STUCK_CHECKS) {
+                Log.w(TAG, "pos stuck limit reached, forcing restart")
+                Toast.makeText(context, "Canal congelado — reiniciando stream", Toast.LENGTH_SHORT).show()
+                stuckPositionCount = 0
+                lastKnownPositionMs = Long.MIN_VALUE
+                handlePlaybackError(null)
+                return
+            }
+        }
+        handler.postDelayed(positionWatchdog, POSITION_CHECK_INTERVAL_MS)
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     //  Playback error handling
     // ──────────────────────────────────────────────────────────────────────
 
     private fun handlePlaybackError(error: PlaybackException? = null) {
         if (isReleasing) return
+
+        val stateName = playbackStateName(player?.playbackState ?: -1)
+        Log.w(TAG, "handlePlaybackError: state=$stateName isPlaying=${player?.isPlaying} retry=$retryCount/$MAX_RETRIES isVod=$isVodMode")
 
         val categorizedError = categorizePlaybackError(
             error = error,
@@ -1146,7 +1213,18 @@ class PlayerFragment : Fragment() {
             retryCount += 1
             isRetrying = true
             showErrorOverlay(categorizedError)
-            Log.d(TAG, "Reintentando reproduccion ($retryCount/$MAX_RETRIES)")
+            val delay = if (!isVodMode) {
+                when (retryCount) {
+                    1 -> 0L
+                    2 -> 500L
+                    3 -> 1_000L
+                    else -> RETRY_DELAY_MS
+                }
+            } else {
+                RETRY_DELAY_MS
+            }
+            Log.w(TAG, "Reintentando reproduccion ($retryCount/$MAX_RETRIES) delay=${delay}ms")
+            Toast.makeText(context, "Reintento $retryCount/$MAX_RETRIES (${delay}ms)", Toast.LENGTH_SHORT).show()
             handler.postDelayed({
                 if (player != null && !isReleasing) {
                     try {
@@ -1162,11 +1240,12 @@ class PlayerFragment : Fragment() {
                         isRetrying = false
                     }
                 }
-            }, RETRY_DELAY_MS)
+            }, delay)
         } else {
             isRetrying = false
             showErrorOverlay(categorizedError)
-            Log.d(TAG, "Agotados reintentos, reiniciando player")
+            Log.w(TAG, "Agotados reintentos, reiniciando player desde cero")
+            Toast.makeText(context, "Reintentos agotados — reinicio completo", Toast.LENGTH_LONG).show()
             handler.postDelayed({
                 if (!isReleasing) {
                     retryCount = 0
@@ -1734,8 +1813,11 @@ class PlayerFragment : Fragment() {
         private var progressRestored = false
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            val stateName = playbackStateName(playbackState)
+            Log.d(TAG, "onPlaybackStateChanged: $stateName | isPlaying=${player?.isPlaying} isVod=$isVodMode")
             when (playbackState) {
                 Player.STATE_READY -> {
+                    handler.removeCallbacks(bufferingWatchdog)
                     retryCount = 0
                     isPlayerInitialized = true
                     isRetrying = false
@@ -1749,28 +1831,86 @@ class PlayerFragment : Fragment() {
                             restoreWatchProgress()
                         }
                     } else {
+                        lastKnownPositionMs = Long.MIN_VALUE
+                        stuckPositionCount = 0
+                        handler.removeCallbacks(positionWatchdog)
+                        handler.postDelayed(positionWatchdog, POSITION_CHECK_INTERVAL_MS)
                         showOverlayTemporarily()
                     }
                 }
-                Player.STATE_BUFFERING -> retryCount = 0
-                else -> Unit
+                Player.STATE_BUFFERING -> {
+                    retryCount = 0
+                    if (!isVodMode) {
+                        handler.removeCallbacks(bufferingWatchdog)
+                        handler.removeCallbacks(positionWatchdog)
+                        lastKnownPositionMs = Long.MIN_VALUE
+                        stuckPositionCount = 0
+                        bufferingSinceMs = System.currentTimeMillis()
+                        handler.postDelayed(bufferingWatchdog, BUFFERING_TIMEOUT_LIVE_MS)
+                    }
+                }
+                else -> {
+                    if (!isVodMode) {
+                        handler.removeCallbacks(positionWatchdog)
+                        lastKnownPositionMs = Long.MIN_VALUE
+                        stuckPositionCount = 0
+                        if (!isReleasing && !isRetrying && playbackState == Player.STATE_ENDED) {
+                            Log.w(TAG, "Live stream ended unexpectedly. Restarting.")
+                            Toast.makeText(context, "Stream terminado — reiniciando", Toast.LENGTH_SHORT).show()
+                            handler.postDelayed({
+                                if (!isReleasing) handlePlaybackError(null)
+                            }, 500L)
+                        } else if (!isReleasing && !isRetrying && playbackState == Player.STATE_IDLE && player != null) {
+                            Log.w(TAG, "Live player went idle unexpectedly. Restarting.")
+                            Toast.makeText(context, "Player inactivo — reiniciando", Toast.LENGTH_SHORT).show()
+                            handler.postDelayed({
+                                if (!isReleasing) handlePlaybackError(null)
+                            }, 1_000L)
+                        }
+                    }
+                }
             }
         }
 
         override fun onTracksChanged(tracks: Tracks) {
+            Log.d(TAG, "onTracksChanged")
             updateTrackButtonStates()
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            Log.e(TAG, "Error de reproduccion: ${error.message}", error)
+            Log.e(TAG, "onPlayerError: ${error.message} errorCode=${error.errorCodeName}", error)
+            if (!isVodMode) {
+                handler.removeCallbacks(positionWatchdog)
+                lastKnownPositionMs = Long.MIN_VALUE
+                stuckPositionCount = 0
+            }
             handlePlaybackError(error)
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (!isVodMode && !isPlaying && player?.playbackState == Player.STATE_READY && !isReleasing) {
-                handler.postDelayed({
-                    if (player != null && !isReleasing) player?.play()
-                }, 1_000)
+            val stateName = playbackStateName(player?.playbackState ?: -1)
+            Log.d(TAG, "onIsPlayingChanged: isPlaying=$isPlaying playbackState=$stateName isVod=$isVodMode")
+            if (isPlaying && !isVodMode) {
+                lastKnownPositionMs = Long.MIN_VALUE
+                stuckPositionCount = 0
+                handler.removeCallbacks(positionWatchdog)
+                handler.postDelayed(positionWatchdog, POSITION_CHECK_INTERVAL_MS)
+            }
+            if (!isVodMode && !isPlaying && !isReleasing) {
+                val state = player?.playbackState
+                if (state == Player.STATE_BUFFERING) {
+                    handler.postDelayed({
+                        if (player != null && !isReleasing && player?.playbackState == Player.STATE_BUFFERING && !player!!.isPlaying) {
+                            Log.w(TAG, "Live stall in buffering state. Forcing restart.")
+                            Toast.makeText(context, "Stall detectado — reiniciando stream", Toast.LENGTH_SHORT).show()
+                            handlePlaybackError(null)
+                        }
+                    }, STALL_RECOVERY_MS)
+                } else if (state == Player.STATE_READY) {
+                    handler.postDelayed({
+                        if (player != null && !isReleasing) player?.play()
+                    }, 1_000)
+                }
             }
         }
     }
@@ -1780,6 +1920,10 @@ class PlayerFragment : Fragment() {
         private const val MAX_RETRIES = 8
         private const val RETRY_DELAY_MS = 2_000L
         private const val FORCE_RESTART_DELAY_MS = 3_000L
+        private const val BUFFERING_TIMEOUT_LIVE_MS = 20_000L
+        private const val STALL_RECOVERY_MS = 8_000L
+        private const val POSITION_CHECK_INTERVAL_MS = 5_000L
+        private const val MAX_STUCK_CHECKS = 4
         private const val OVERLAY_DURATION_MS = 6_000L
         private const val DIRECT_ZAP_DELAY_MS = 1_500L
         private const val VOD_SEEK_INCREMENT_MS = 10_000L
