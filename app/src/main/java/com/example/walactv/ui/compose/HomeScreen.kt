@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
@@ -156,15 +157,11 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         runCatching { focusRequesters.firstOrNull()?.requestFocus() }
     }
 
-    LaunchedEffect(fragment.pendingFocusTrigger, fragment.homeSections) {
+    LaunchedEffect(fragment.contentFocusTrigger) {
+        if (fragment.contentFocusTrigger == 0) return@LaunchedEffect
+        delay(300)
         if (fragment.pendingFocusItem != null) {
-            delay(400)
-            if (fragment.pendingFocusItem != null) {
-                Log.d("HomeContent", "FALLBACK: pendingFocusItem still not null, focusing first card")
-                runCatching { focusRequesters.firstOrNull()?.requestFocus() }
-                fragment.pendingFocusItem = null
-                fragment.suppressEventAutoScroll = false
-            }
+            fragment.pendingFocusTrigger++
         }
     }
 
@@ -269,11 +266,13 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
             item = item, isSeries = isSeries,
             onDismiss = { fragment.deleteContinueWatchingItem = null },
             onConfirm = {
+                val contentId = item.providerId.orEmpty().ifBlank { item.stableId.orEmpty().substringAfterLast(":") }
+                if (isSeries) fragment.removeContinueWatchingLocally(seriesName = item.seriesName ?: item.title)
+                else fragment.removeContinueWatchingLocally(contentId = contentId)
+                fragment.deleteContinueWatchingItem = null
                 fragment.scope.launch {
-                    val contentId = item.providerId.orEmpty().ifBlank { item.stableId.orEmpty().substringAfterLast(":") }
                     if (isSeries) fragment.deleteAllSeriesProgress(item.seriesName ?: item.title)
                     else fragment.watchProgressRepo.deleteProgress(contentId)
-                    fragment.deleteContinueWatchingItem = null
                     fragment.loadContinueWatching()
                 }
             },
@@ -591,7 +590,7 @@ internal fun ContentSection(
     LaunchedEffect(fragment.pendingFocusItem, fragment.pendingFocusTrigger) {
         val target = fragment.pendingFocusItem ?: return@LaunchedEffect
         val targetId = target.stableId
-        Log.d("HomeContent", "=== LaunchedEffect FOCUS RESTORE: section=${section.title} targetId=$targetId ===")
+        Log.d("HomeContent", "=== LaunchedEffect FOCUS RESTORE: section=${section.title} targetId=$targetId items=${section.items.size} ===")
 
         for (attempt in 1..3) {
             val idx = section.items.indexOfFirst { it.stableId == targetId }
@@ -615,6 +614,16 @@ internal fun ContentSection(
                 }
             } else {
                 Log.d("HomeContent", "Item $targetId NOT FOUND in section '${section.title}'")
+                if (sectionIndex == 0 && section.items.isNotEmpty() && focusRequesters.isNotEmpty()) {
+                    Log.d("HomeContent", "First section fallback: focusing first card")
+                    runCatching {
+                        lazyListState.scrollToItem(0)
+                        delay(80)
+                        focusRequesters.first().requestFocus()
+                        fragment.pendingFocusItem = null
+                        fragment.suppressEventAutoScroll = false
+                    }
+                }
                 break
             }
         }
@@ -640,7 +649,7 @@ internal fun ContentSection(
             }
             return@LaunchedEffect
         }
-        if (target.sectionIndex != sectionIndex || target.sectionTitle != section.title) return@LaunchedEffect
+        if (target.sectionTitle != section.title) return@LaunchedEffect
         Log.d("HomeContent", "Rail restore target section=${section.title} itemIndex=${target.itemIndex}")
 
         val targetIndex = target.itemIndex
@@ -1179,33 +1188,8 @@ internal fun ContinueWatchingCard(
     val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
     val cardWidth   = if (isChannelOrEvent) CH_CARD_WIDTH  else VOD_CARD_WIDTH
     val imageHeight = if (isChannelOrEvent) CH_IMAGE_HEIGHT else VOD_IMAGE_HEIGHT
-    val scope = rememberCoroutineScope()
-    var longPressTriggered by remember { mutableStateOf(false) }
-    var longPressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val interactionSource = remember { MutableInteractionSource() }
-
-    LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction: Interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    if (fragment.deleteContinueWatchingItem != null) return@collect
-                    longPressTriggered = false
-                    longPressJob = scope.launch {
-                        delay(800L)
-                        longPressTriggered = true
-                        onDeleteRequest(item)
-                    }
-                }
-                is PressInteraction.Release -> {
-                    longPressJob?.cancel(); longPressJob = null
-                    longPressTriggered = false
-                }
-                is PressInteraction.Cancel -> {
-                    longPressJob?.cancel(); longPressJob = null; longPressTriggered = false
-                }
-            }
-        }
-    }
+    var keyDownMillis by remember { mutableStateOf(0L) }
+    var consumeClick by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -1223,10 +1207,38 @@ internal fun ContinueWatchingCard(
                     onFocused(item)
                 }
             }
-            .tvClickable {
-                if (!longPressTriggered && fragment.deleteContinueWatchingItem == null) {
+            .clickable { if (!consumeClick) fragment.handleCardClick(item, listOf(item)) }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyUp &&
+                    (event.key == Key.Enter || event.key == Key.DirectionCenter) &&
+                    !consumeClick
+                ) {
                     fragment.handleCardClick(item, listOf(item))
-                }
+                    true
+                } else false
+            }
+            .onPreviewKeyEvent { event ->
+                if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
+                    when (event.type) {
+                        KeyEventType.KeyDown -> {
+                            keyDownMillis = event.nativeKeyEvent.downTime
+                            consumeClick = false
+                            false
+                        }
+                        KeyEventType.KeyUp -> {
+                            val elapsed = event.nativeKeyEvent.eventTime - keyDownMillis
+                            if (elapsed >= 800L) {
+                                consumeClick = true
+                                onDeleteRequest(item)
+                                true
+                            } else {
+                                consumeClick = false
+                                false
+                            }
+                        }
+                        else -> false
+                    }
+                } else false
             },
     ) {
         Box(

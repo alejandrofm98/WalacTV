@@ -223,11 +223,17 @@ class ComposeMainFragment : Fragment() {
         Log.d(TAG, "TMDB_RESTORE selected=${selectedHero.tmdbDebug()}")
         pendingFocusItem = selectedHero
         pendingFocusTrigger++
+        if (state.mode != MainMode.Home) {
+            contentFocusTrigger++
+        }
         suppressEventAutoScroll = true
     }
 
     fun restoreFocusAfterPlayer() {
         Log.d(TAG, "restoreFocusAfterPlayer called - pendingFocusTrigger=$pendingFocusTrigger pendingFocusItem=${pendingFocusItem?.stableId}")
+        if (pendingFocusItem != null) {
+            pendingFocusTrigger++
+        }
     }
 
     internal fun rememberHomeFocus(

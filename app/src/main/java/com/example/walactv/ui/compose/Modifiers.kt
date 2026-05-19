@@ -18,3 +18,4 @@ fun Modifier.tvClickable(onClick: () -> Unit): Modifier = this
             true
         } else false
     }
+
