@@ -355,9 +355,9 @@ internal fun ComposeMainFragment.findSeriesMatch(
 }
 
 internal fun buildEpisodeLabel(season: Int?, episode: Int?): String {
-    val s = season?.let { "S%02d".format(it) } ?: ""
-    val e = episode?.let { "E%02d".format(it) } ?: ""
-    return s + e
+    val s = season?.let { "T${it}" } ?: ""
+    val e = episode?.let { "E${it}" } ?: ""
+    return if (s.isNotBlank() && e.isNotBlank()) "$s • $e" else s + e
 }
 
 // ── Filters ────────────────────────────────────────────────────────────────

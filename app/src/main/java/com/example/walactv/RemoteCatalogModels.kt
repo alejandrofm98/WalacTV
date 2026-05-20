@@ -323,7 +323,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         optCleanString("group").ifBlank {
             optCleanString("subtitle")
         }
-    }
+    }.run { cleanGroupText(this) }
     val grupoNormalizado = optCleanString("grupo_normalizado")
         .ifBlank { optCleanString("normalized_group") }
 
@@ -562,6 +562,14 @@ private fun buildRemoteDisplayTitle(kind: ContentKind, normalizedTitle: String, 
     if (kind != ContentKind.CHANNEL) return normalizedTitle
     val display = channelDisplayName.replace(Regex("^\\s*\\d{1,5}\\s+"), "").trim()
     return display.ifBlank { normalizedTitle }
+}
+
+private fun cleanGroupText(group: String): String {
+    if (group.isBlank()) return group
+    return group
+        .replace(Regex("\\s*•\\s*(Reproducir|Ver|Play|Directo|Episodio)\\s*", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("\\s*(Reproducir|Ver|Play|Directo|Episodio)\\s*•\\s*", RegexOption.IGNORE_CASE), "")
+        .trim()
 }
 
 private fun defaultStreamLabel(kind: ContentKind): String {

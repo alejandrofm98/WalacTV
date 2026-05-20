@@ -525,7 +525,12 @@ class M3uCatalogStore(private val context: Context) {
 
     private fun simplifyGroup(group: String): String {
         if (group.isBlank()) return "Sin grupo"
-        return group.replace(MULTIPLE_SPACES_REGEX, " ").trim()
+        val cleaned = group
+            .replace(MULTIPLE_SPACES_REGEX, " ")
+            .replace(Regex("\\s*•\\s*(Reproducir|Ver|Play|Directo|Episodio)\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s*(Reproducir|Ver|Play|Directo|Episodio)\\s*•\\s*", RegexOption.IGNORE_CASE), "")
+            .trim()
+        return cleaned.ifBlank { "Sin grupo" }
     }
 
     private fun normalizeImageUrl(url: String): String {

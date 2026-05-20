@@ -22,6 +22,7 @@ import androidx.leanback.widget.Row
 import androidx.leanback.widget.RowPresenter
 import androidx.media3.common.util.UnstableApi
 import com.bumptech.glide.Glide
+import com.example.walactv.ui.buildEpisodeLabel
 import com.example.walactv.preferredCardImageUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -163,11 +164,7 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
                     else -> resolvedItem.kind.name
                 },
                 overlayTitle = resolvedItem.title,
-                overlayMeta = listOf(
-                    resolvedItem.subtitle,
-                    stream.label,
-                    if (channelStateStore.isFavorite(resolvedItem)) getString(R.string.favorite_enabled) else null,
-                ).filterNotNull().filter(String::isNotBlank).joinToString("  •  ").ifBlank { resolvedItem.description },
+                overlayMeta = if (resolvedItem.kind == ContentKind.SERIES) buildEpisodeLabel(resolvedItem.seasonNumber, resolvedItem.episodeNumber) else resolvedItem.subtitle,
                 contentKind = resolvedItem.kind,
                 onNavigateChannel = ::navigateChannel,
                 onNavigateOption = ::navigateOption,

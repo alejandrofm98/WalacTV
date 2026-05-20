@@ -133,7 +133,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         val playerFragment = PlayerFragment()
         playerFragment.initialize(
             streamUrl = stream.url, overlayNumber = episode.kind.name, overlayTitle = episode.title,
-            overlayMeta = episode.description.ifBlank { stream.label }, contentKind = episode.kind,
+            overlayMeta = if (episode.kind == ContentKind.SERIES) buildEpisodeLabel(episode.seasonNumber, episode.episodeNumber) else episode.subtitle, contentKind = episode.kind,
             onNavigateChannel = { false }, onNavigateOption = { false }, onDirectChannelNumber = { false },
             onToggleFavorite = { false }, onOpenFavorites = { false }, onOpenRecents = { false },
             onNextEpisode = nextEpisodeCallback,
@@ -188,7 +188,7 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
             else -> item.kind.name
         },
         overlayTitle = item.title,
-        overlayMeta = listOf(item.subtitle, stream.label).filter { it.isNotBlank() }.joinToString("  •  ").ifBlank { item.description },
+            overlayMeta = if (item.kind == ContentKind.SERIES) buildEpisodeLabel(item.seasonNumber, item.episodeNumber) else item.subtitle,
         contentKind = item.kind,
         onNavigateChannel = ::navigateChannel,
         onNavigateOption = ::navigateOption,

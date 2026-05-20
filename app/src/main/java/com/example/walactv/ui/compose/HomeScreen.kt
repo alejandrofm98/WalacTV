@@ -1139,29 +1139,6 @@ internal fun MediaCard(
 
             if (item.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
 
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(34.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, IptvBackground.copy(alpha = 0.90f)),
-                        ),
-                    ),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Text(
-                    text = item.resolveDisplayTitle(),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 6.dp),
-                )
-            }
-
             if (isFocused) {
                 Box(
                     modifier = Modifier

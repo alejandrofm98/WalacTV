@@ -13,6 +13,7 @@ import android.widget.ImageView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import com.example.walactv.ui.buildEpisodeLabel
 import com.example.walactv.ui.tvClickable
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -119,7 +120,7 @@ class SeriesDetailFragment : Fragment() {
             streamUrl = stream.url,
             overlayNumber = item.kind.name,
             overlayTitle = episodeToPlay.title,
-            overlayMeta = episodeToPlay.description.ifBlank { stream.label },
+            overlayMeta = buildEpisodeLabel(episodeToPlay.seasonNumber, episodeToPlay.episodeNumber).ifBlank { episodeToPlay.subtitle },
             contentKind = item.kind,
             onNavigateChannel = { false },
             onNavigateOption = { false },
