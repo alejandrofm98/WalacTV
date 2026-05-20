@@ -1134,7 +1134,6 @@ class PlayerFragment : Fragment() {
         val currentPos = exoPlayer.currentPosition
         val delta = currentPos - lastKnownPositionMs
         val isFirstCheck = lastKnownPositionMs == Long.MIN_VALUE
-        Log.d(TAG, "pos check: stuck=$stuckPositionCount/$MAX_STUCK_CHECKS delta=${delta}ms pos=$currentPos last=$lastKnownPositionMs")
         if (isFirstCheck) {
             lastKnownPositionMs = currentPos
             handler.postDelayed(positionWatchdog, POSITION_CHECK_INTERVAL_MS)
@@ -1145,14 +1144,7 @@ class PlayerFragment : Fragment() {
             lastKnownPositionMs = currentPos
         } else {
             stuckPositionCount++
-            val stuckSeconds = (stuckPositionCount * POSITION_CHECK_INTERVAL_MS) / 1000
-            Log.w(TAG, "pos stuck $stuckPositionCount/$MAX_STUCK_CHECKS (${stuckSeconds}s frozen) delta=${delta}ms")
-            if (stuckPositionCount == 1) {
-                Toast.makeText(context, "Canal congelado ${stuckSeconds}s — comprobando...", Toast.LENGTH_SHORT).show()
-            }
             if (stuckPositionCount >= MAX_STUCK_CHECKS) {
-                Log.w(TAG, "pos stuck limit reached, forcing restart")
-                Toast.makeText(context, "Canal congelado — reiniciando stream", Toast.LENGTH_SHORT).show()
                 stuckPositionCount = 0
                 lastKnownPositionMs = Long.MIN_VALUE
                 handlePlaybackError(null)
@@ -1168,9 +1160,6 @@ class PlayerFragment : Fragment() {
 
     private fun handlePlaybackError(error: PlaybackException? = null) {
         if (isReleasing) return
-
-        val stateName = playbackStateName(player?.playbackState ?: -1)
-        Log.w(TAG, "handlePlaybackError: state=$stateName isPlaying=${player?.isPlaying} retry=$retryCount/$MAX_RETRIES isVod=$isVodMode")
 
         val categorizedError = categorizePlaybackError(
             error = error,
@@ -1223,8 +1212,6 @@ class PlayerFragment : Fragment() {
             } else {
                 RETRY_DELAY_MS
             }
-            Log.w(TAG, "Reintentando reproduccion ($retryCount/$MAX_RETRIES) delay=${delay}ms")
-            Toast.makeText(context, "Reintento $retryCount/$MAX_RETRIES (${delay}ms)", Toast.LENGTH_SHORT).show()
             handler.postDelayed({
                 if (player != null && !isReleasing) {
                     try {
@@ -1244,8 +1231,6 @@ class PlayerFragment : Fragment() {
         } else {
             isRetrying = false
             showErrorOverlay(categorizedError)
-            Log.w(TAG, "Agotados reintentos, reiniciando player desde cero")
-            Toast.makeText(context, "Reintentos agotados — reinicio completo", Toast.LENGTH_LONG).show()
             handler.postDelayed({
                 if (!isReleasing) {
                     retryCount = 0
@@ -1855,17 +1840,13 @@ class PlayerFragment : Fragment() {
                         lastKnownPositionMs = Long.MIN_VALUE
                         stuckPositionCount = 0
                         if (!isReleasing && !isRetrying && playbackState == Player.STATE_ENDED) {
-                            Log.w(TAG, "Live stream ended unexpectedly. Restarting.")
-                            Toast.makeText(context, "Stream terminado — reiniciando", Toast.LENGTH_SHORT).show()
                             handler.postDelayed({
                                 if (!isReleasing) handlePlaybackError(null)
-                            }, 500L)
+                            }, 100L)
                         } else if (!isReleasing && !isRetrying && playbackState == Player.STATE_IDLE && player != null) {
-                            Log.w(TAG, "Live player went idle unexpectedly. Restarting.")
-                            Toast.makeText(context, "Player inactivo — reiniciando", Toast.LENGTH_SHORT).show()
                             handler.postDelayed({
                                 if (!isReleasing) handlePlaybackError(null)
-                            }, 1_000L)
+                            }, 200L)
                         }
                     }
                 }
@@ -1901,8 +1882,6 @@ class PlayerFragment : Fragment() {
                 if (state == Player.STATE_BUFFERING) {
                     handler.postDelayed({
                         if (player != null && !isReleasing && player?.playbackState == Player.STATE_BUFFERING && !player!!.isPlaying) {
-                            Log.w(TAG, "Live stall in buffering state. Forcing restart.")
-                            Toast.makeText(context, "Stall detectado — reiniciando stream", Toast.LENGTH_SHORT).show()
                             handlePlaybackError(null)
                         }
                     }, STALL_RECOVERY_MS)
