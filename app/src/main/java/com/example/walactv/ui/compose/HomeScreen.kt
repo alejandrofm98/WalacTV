@@ -415,7 +415,6 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
     val eventCompetitionText = item?.takeIf { it.kind == ContentKind.EVENT }?.eventCompetitionText().orEmpty()
     val eventTimeText = item?.takeIf { it.kind == ContentKind.EVENT }?.badgeText.orEmpty()
         .takeIf { it.isNotBlank() }
-        ?.let { if (it.matches(Regex("\\d{1,2}:\\d{2}.*"))) "Hoy, $it" else it }
     val descriptionText = when {
         item?.kind == ContentKind.EVENT -> item.description.takeIf { it.isNotBlank() && it != item.group }
         else -> item?.description?.takeIf { it.isNotBlank() && it != item.group } ?: item?.overviewEn
