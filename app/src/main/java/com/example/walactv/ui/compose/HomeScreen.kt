@@ -2,11 +2,15 @@ package com.example.walactv.ui
 
 import android.util.Log
 import android.widget.ImageView.ScaleType
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +31,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -56,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -412,77 +418,83 @@ private fun HomeBackdrop(
 
 @Composable
 private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
-    val eventCompetitionText = item?.takeIf { it.kind == ContentKind.EVENT }?.eventCompetitionText().orEmpty()
-    val eventTimeText = item?.takeIf { it.kind == ContentKind.EVENT }?.badgeText.orEmpty()
-        .takeIf { it.isNotBlank() }
-    val descriptionText = when {
-        item?.kind == ContentKind.EVENT -> item.description.takeIf { it.isNotBlank() && it != item.group }
-        else -> item?.description?.takeIf { it.isNotBlank() && it != item.group } ?: item?.overviewEn
-    }
-
-    Box(modifier = modifier) {
-        Column(
+    BoxWithConstraints(modifier = modifier.clipToBounds()) {
+        val titleTopPadding = (maxHeight - 250.dp).coerceAtLeast(44.dp)
+        AnimatedContent(
+            targetState = item,
+            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
             modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 44.dp, end = 44.dp, bottom = 28.dp)
+                .padding(start = 44.dp, end = 44.dp, top = titleTopPadding)
                 .fillMaxWidth(0.48f),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = item?.resolveDisplayTitle().orEmpty().ifBlank { "Inicio" },
-                color = Color.White,
-                fontSize = 42.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 48.sp,
-            )
-
-            if (item?.kind == ContentKind.EVENT) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (eventCompetitionText.isNotBlank()) {
-                        Text(
-                            text = eventCompetitionText,
-                            color = IptvTextAccent,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Black,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    if (!eventTimeText.isNullOrBlank()) {
-                        Text(
-                            text = "|",
-                            color = Color.White.copy(alpha = 0.30f),
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            text = eventTimeText,
-                            color = IptvTextSecondary,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            } else {
-                HomeHeroMeta(item)
+            label = "heroContent",
+        ) { animatedItem ->
+            val eventCompetitionText = animatedItem?.takeIf { it.kind == ContentKind.EVENT }?.eventCompetitionText().orEmpty()
+            val eventTimeText = animatedItem?.takeIf { it.kind == ContentKind.EVENT }?.badgeText.orEmpty()
+                .takeIf { it.isNotBlank() }
+            val descriptionText = when {
+                animatedItem?.kind == ContentKind.EVENT -> animatedItem.description.takeIf { it.isNotBlank() && it != animatedItem.group }
+                else -> animatedItem?.description?.takeIf { it.isNotBlank() && it != animatedItem.group } ?: animatedItem?.overviewEn
             }
 
-            descriptionText?.takeIf { it.isNotBlank() }?.let { text ->
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Text(
-                    text = text,
-                    color = IptvTextSecondary,
-                    fontSize = 15.sp,
-                    lineHeight = 21.sp,
-                    maxLines = if (item?.kind == ContentKind.EVENT) 2 else 4,
+                    text = animatedItem?.resolveDisplayTitle().orEmpty().ifBlank { "Inicio" },
+                    color = Color.White,
+                    fontSize = 42.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    lineHeight = 48.sp,
                 )
+
+                if (animatedItem?.kind == ContentKind.EVENT) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (eventCompetitionText.isNotBlank()) {
+                            Text(
+                                text = eventCompetitionText,
+                                color = IptvTextAccent,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (!eventTimeText.isNullOrBlank()) {
+                            Text(
+                                text = "|",
+                                color = Color.White.copy(alpha = 0.30f),
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = eventTimeText,
+                                color = IptvTextSecondary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                } else {
+                    HomeHeroMeta(animatedItem)
+                }
+
+                descriptionText?.takeIf { it.isNotBlank() }?.let { text ->
+                    Text(
+                        text = text,
+                        color = IptvTextSecondary,
+                        fontSize = 15.sp,
+                        lineHeight = 21.sp,
+                        maxLines = if (animatedItem?.kind == ContentKind.EVENT) 2 else 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -490,48 +502,71 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
 
 @Composable
 private fun HomeHeroMeta(item: CatalogItem?) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (item?.kind == ContentKind.EVENT) {
-            item.badgeText.takeIf { it.isNotBlank() }?.let { HomeHeroMetaText(it) }
+    val genres = item?.genres.orEmpty()
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            item?.voteAverage?.takeIf { it > 0f }?.let { rating ->
+                Row(
+                    modifier = Modifier
+                        .background(Color(0xFFE5B35B), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text("★", color = Color(0xFF101014), fontSize = 13.sp, fontWeight = FontWeight.Black)
+                    Text(
+                        text = String.format(java.util.Locale.US, "%.1f", rating),
+                        color = Color(0xFF101014),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+            }
+            item?.year?.let { HomeHeroMetaText(it.toString()) }
+
+            item?.runtimeMinutes?.takeIf { it > 0 }?.let { mins ->
+                val h = mins / 60
+                val m = mins % 60
+                val runtimeStr = if (h > 0) "${h}h ${m}min" else "${m}min"
+                HomeHeroMetaText(runtimeStr)
+            }
+
+            if (item?.kind == ContentKind.SERIES) {
+                item.totalSeasons?.takeIf { it > 0 }?.let { total ->
+                    HomeHeroMetaText(if (total == 1) "1 temporada" else "$total temporadas")
+                }
+            }
+
+            if (item == null) HomeHeroMetaText("TMDB")
         }
 
-        item?.voteAverage?.takeIf { it > 0f }?.let { rating ->
-            Row(
-                modifier = Modifier
-                    .background(Color(0xFFE5B35B), RoundedCornerShape(999.dp))
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+        if (genres.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("★", color = Color(0xFF101014), fontSize = 13.sp, fontWeight = FontWeight.Black)
-                Text(
-                    text = String.format(java.util.Locale.US, "%.1f", rating),
-                    color = Color(0xFF101014),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Black,
-                )
+                genres.forEach { genre ->
+                    Box(
+                        modifier = Modifier
+                            .background(IptvAccent.copy(alpha = 0.12f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = genre,
+                            color = IptvAccent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
         }
-        item?.year?.let { HomeHeroMetaText(it.toString()) }
-
-        item?.runtimeMinutes?.takeIf { it > 0 }?.let { mins ->
-            val h = mins / 60
-            val m = mins % 60
-            val runtimeStr = if (h > 0) "${h}h ${m}min" else "${m}min"
-            HomeHeroMetaText(runtimeStr)
-        }
-
-        if (item?.kind == ContentKind.SERIES) {
-            item.totalSeasons?.takeIf { it > 0 }?.let { total ->
-                HomeHeroMetaText(if (total == 1) "1 temporada" else "$total temporadas")
-            }
-        }
-
-        item?.genres.orEmpty().take(2).forEach { genre -> HomeHeroMetaText(genre) }
-        if (item == null) HomeHeroMetaText("TMDB")
     }
 }
 
@@ -723,19 +758,32 @@ internal fun ContentSection(
                     Box(
                         modifier = Modifier
                             .background(
-                                if (type == "movies") Color(0xFFE91E63).copy(alpha = 0.15f)
-                                else Color(0xFF2196F3).copy(alpha = 0.15f),
-                                RoundedCornerShape(4.dp)
+                                if (type == "movies") Color(0xFFE91E63).copy(alpha = 0.18f)
+                                else Color(0xFF42A5F5).copy(alpha = 0.18f),
+                                RoundedCornerShape(999.dp)
                             )
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
                     ) {
-                        Text(
-                            text = if (type == "movies") "PELÍCULAS" else "SERIES",
-                            color = if (type == "movies") Color(0xFFE91E63) else Color(0xFF2196F3),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.8.sp,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(
+                                        if (type == "movies") Color(0xFFE91E63) else Color(0xFF42A5F5),
+                                        RoundedCornerShape(999.dp),
+                                    ),
+                            )
+                            Text(
+                                text = if (type == "movies") "PELÍCULAS" else "SERIES",
+                                color = if (type == "movies") Color(0xFFE91E63) else Color(0xFF42A5F5),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp,
+                            )
+                        }
                     }
                 }
             }
@@ -1090,6 +1138,29 @@ internal fun MediaCard(
             }
 
             if (item.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(34.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, IptvBackground.copy(alpha = 0.90f)),
+                        ),
+                    ),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(
+                    text = item.resolveDisplayTitle(),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                )
+            }
 
             if (isFocused) {
                 Box(
