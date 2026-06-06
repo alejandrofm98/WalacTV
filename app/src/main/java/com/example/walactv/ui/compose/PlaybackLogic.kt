@@ -1,17 +1,17 @@
-package com.example.walactv.ui
+@file:SuppressLint("UnsafeOptInUsageError")
 
+package com.example.walactv.ui.compose
+
+import android.annotation.SuppressLint
 import android.util.Log
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.Toast
-import androidx.media3.common.util.UnstableApi
 import com.example.walactv.CatalogItem
 import com.example.walactv.CatalogMemory
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
-import com.example.walactv.isVodContent
 import com.example.walactv.PlayerFragment
-import com.example.walactv.preferredVodPosterUrl
 import com.example.walactv.PreferencesManager
 import com.example.walactv.R
 import com.example.walactv.SeriesDetailFragment
@@ -19,6 +19,7 @@ import com.example.walactv.StreamOption
 import com.example.walactv.WatchProgressItem
 import com.example.walactv.idioma
 import com.example.walactv.normalizeLanguageCode
+import com.example.walactv.preferredVodPosterUrl
 import com.example.walactv.tmdbDebug
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -90,7 +91,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     }
     Log.d(TAG, "TMDB_CW_SERIES card=${cardItem.tmdbDebug()} progressSeries=${progress.seriesName} episode=${episode.tmdbDebug()}")
     val seriesName = episode?.seriesName ?: progress.seriesName ?: cardItem.seriesName ?: cardItem.title
-    if (seriesName.isNullOrBlank()) {
+    if (seriesName.isBlank()) {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la serie", Toast.LENGTH_SHORT).show() }
         return
     }
@@ -161,7 +162,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         playerFragment.initialize(
             streamUrl = stream.url, overlayNumber = targetEpisode.kind.name, overlayTitle = targetEpisode.title,
             overlayMeta = if (targetEpisode.kind == ContentKind.SERIES) buildEpisodeLabel(targetEpisode.seasonNumber, targetEpisode.episodeNumber) else targetEpisode.subtitle, contentKind = targetEpisode.kind,
-            onNavigateChannel = { false }, onNavigateOption = { false }, onDirectChannelNumber = { false },
+            onNavigateChannel = { _ -> }, onNavigateOption = { _ -> }, onDirectChannelNumber = { _ -> false },
             onToggleFavorite = { false }, onOpenFavorites = { false }, onOpenRecents = { false },
             onNextEpisode = nextEpisodeCallback,
             onPreviousEpisode = previousEpisodeCallback,
@@ -179,7 +180,6 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
 
 // ── Core playback ──────────────────────────────────────────────────────────
 
-@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false) {
     if (item.kind == ContentKind.EVENT) {
         scope.launch {
@@ -195,7 +195,6 @@ internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex:
     playResolvedCatalogItem(item, optionIndex, showOptionsOnStart)
 }
 
-@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false) {
     val stream = item.streamOptions.getOrNull(optionIndex) ?: return
     rememberPlaybackReturnState(item)
@@ -328,17 +327,4 @@ internal fun ComposeMainFragment.openRecentChannel(): Boolean {
     return true
 }
 
-internal fun ComposeMainFragment.openGuideOverlay(initialGroup: String?) {
-    val fm = requireActivity().supportFragmentManager
-    val playerFragment = fm.findFragmentByTag("player_fragment") as? PlayerFragment
-    playerFragment?.closeFromHost()
-    playerFragment?.let { fm.beginTransaction().remove(it).commitNow() }
-    requireActivity().findViewById<FrameLayout>(R.id.player_container)?.visibility = View.GONE
-    if (initialGroup != null) guideInitialGroup = initialGroup
-    scope.launch {
-        ensureFiltersLoadedAwait(ContentKind.CHANNEL)
-        currentMode = ComposeMainFragment.MainMode.TV
-        selectedHero = defaultItemForMode(ComposeMainFragment.MainMode.TV)
-        restoreFocusAfterPlayer()
-    }
-}
+

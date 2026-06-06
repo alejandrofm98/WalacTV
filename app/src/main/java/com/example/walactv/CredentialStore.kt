@@ -1,6 +1,7 @@
 package com.example.walactv
 
 import android.content.Context
+import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
@@ -31,17 +32,17 @@ class CredentialStore(context: Context) {
     }
 
     fun save(username: String, password: String) {
-        preferences.edit()
-            .putString(KEY_USERNAME, username)
-            .putString(KEY_PASSWORD, password)
-            .apply()
+        preferences.edit {
+            putString(KEY_USERNAME, username)
+            putString(KEY_PASSWORD, password)
+        }
     }
 
     fun clear() {
-        preferences.edit()
-            .remove(KEY_USERNAME)
-            .remove(KEY_PASSWORD)
-            .apply()
+        preferences.edit {
+            remove(KEY_USERNAME)
+            remove(KEY_PASSWORD)
+        }
     }
 
     companion object {

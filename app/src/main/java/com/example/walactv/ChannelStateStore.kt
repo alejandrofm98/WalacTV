@@ -2,6 +2,7 @@ package com.example.walactv
 
 import android.content.Context
 import android.util.Log
+import androidx.core.content.edit
 
 class ChannelStateStore(context: Context) {
 
@@ -15,8 +16,10 @@ class ChannelStateStore(context: Context) {
             addAll(recentIds().filterNot { it == item.stableId })
         }.take(MAX_RECENTS)
 
-        preferences.edit().putStringSet(KEY_RECENTS, updated.toSet()).apply()
-        preferences.edit().putString(KEY_RECENTS_ORDER, updated.joinToString(SEPARATOR)).apply()
+        preferences.edit {
+            putStringSet(KEY_RECENTS, updated.toSet())
+            putString(KEY_RECENTS_ORDER, updated.joinToString(SEPARATOR))
+        }
     }
 
     fun recentIds(): List<String> {
@@ -40,7 +43,7 @@ class ChannelStateStore(context: Context) {
             true
         }
 
-        preferences.edit().putStringSet(KEY_FAVORITES, current).apply()
+        preferences.edit { putStringSet(KEY_FAVORITES, current) }
         Log.d("ChannelStateStore", "FAV_STORE_TOGGLE: id=${item.stableId} result=$isFavorite size=${current.size}")
         return isFavorite
     }
@@ -55,12 +58,12 @@ class ChannelStateStore(context: Context) {
             current.remove(item.stableId)
         }
 
-        preferences.edit().putStringSet(KEY_FAVORITES, current).apply()
+        preferences.edit { putStringSet(KEY_FAVORITES, current) }
         return isFavorite
     }
 
     fun replaceFavoriteIds(ids: Collection<String>) {
-        preferences.edit().putStringSet(KEY_FAVORITES, ids.filter(String::isNotBlank).toSet()).apply()
+        preferences.edit { putStringSet(KEY_FAVORITES, ids.filter(String::isNotBlank).toSet()) }
     }
 
     fun favoriteIds(): Set<String> {

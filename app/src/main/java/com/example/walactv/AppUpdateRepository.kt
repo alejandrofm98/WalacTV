@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
+import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -20,7 +21,7 @@ class AppUpdateRepository(context: Context) {
         .build()
 
     fun installedVersion(): InstalledAppVersion {
-        val packageInfo = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+        val packageInfo = appContext.packageManager.getPackageInfo(appContext.packageName, 0)!!
         val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             packageInfo.longVersionCode.toInt()
         } else {
@@ -35,14 +36,11 @@ class AppUpdateRepository(context: Context) {
 
     suspend fun fetchRemoteUpdate(): AppUpdateInfo? = withContext(Dispatchers.IO) {
         // Verificar conectividad primero
-        val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-        val isConnected = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val network = connectivityManager.activeNetwork
-            val capabilities = connectivityManager.getNetworkCapabilities(network)
+        val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        val isConnected = run {
+            val network = connectivityManager?.activeNetwork
+            val capabilities = network?.let { connectivityManager?.getNetworkCapabilities(it) }
             capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-        } else {
-            @Suppress("DEPRECATION")
-            connectivityManager.activeNetworkInfo?.isConnected == true
         }
 
         if (!isConnected) {
@@ -95,14 +93,14 @@ class AppUpdateRepository(context: Context) {
     }
 
     fun cacheUpdate(info: AppUpdateInfo) {
-        prefs.edit()
-            .putString(KEY_LATEST_VERSION_NAME, info.latestVersionName)
-            .putInt(KEY_LATEST_VERSION_CODE, info.latestVersionCode)
-            .putInt(KEY_MIN_SUPPORTED_CODE, info.minSupportedCode)
-            .putString(KEY_APK_URL, info.apkUrl)
-            .putString(KEY_CHANGELOG, info.changelog)
-            .putLong(KEY_FETCHED_AT, info.fetchedAtMillis)
-            .apply()
+        prefs.edit {
+            putString(KEY_LATEST_VERSION_NAME, info.latestVersionName)
+            putInt(KEY_LATEST_VERSION_CODE, info.latestVersionCode)
+            putInt(KEY_MIN_SUPPORTED_CODE, info.minSupportedCode)
+            putString(KEY_APK_URL, info.apkUrl)
+            putString(KEY_CHANGELOG, info.changelog)
+            putLong(KEY_FETCHED_AT, info.fetchedAtMillis)
+        }
     }
 
     companion object {

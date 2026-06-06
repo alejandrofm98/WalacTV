@@ -176,33 +176,7 @@ fun buildGroupsQuery(
     return "content_type=$contentType&countries=${URLEncoder.encode(countries, Charsets.UTF_8.name())}"
 }
 
-private fun MutableList<BrowseSection>.addSectionIfNotEmpty(title: String, items: JSONArray?, expectedKind: ContentKind? = null) {
-    val catalogItems = items.toCatalogItems(expectedKind)
-    if (catalogItems.isNotEmpty()) {
-        add(BrowseSection(title, catalogItems))
-    }
-}
 
-private fun MutableList<BrowseSection>.addSeriesSectionIfNotEmpty(title: String, items: JSONArray?, expectedKind: ContentKind? = null) {
-    val catalogItems = items.toCatalogItems(expectedKind)
-        .groupBy { it.seriesName ?: it.title }
-        .map { (seriesName, episodes) ->
-            val firstEpisode = episodes.first()
-            firstEpisode.copy(
-                stableId = "series_group:$seriesName",
-                title = firstEpisode.tmdbTitle ?: seriesName,
-                subtitle = firstEpisode.group,
-                description = firstEpisode.description,
-                streamOptions = emptyList(),
-                seriesName = seriesName,
-                seasonNumber = null,
-                episodeNumber = null,
-            )
-        }
-    if (catalogItems.isNotEmpty()) {
-        add(BrowseSection(title, catalogItems))
-    }
-}
 
 private fun JSONArray?.toCatalogItems(expectedKind: ContentKind? = null): List<CatalogItem> {
     if (this == null) return emptyList()

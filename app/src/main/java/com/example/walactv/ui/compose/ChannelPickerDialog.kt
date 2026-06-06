@@ -1,4 +1,4 @@
-package com.example.walactv.ui
+package com.example.walactv.ui.compose
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
-import android.widget.ImageView.ScaleType
+import android.widget.ImageView.ScaleType.FIT_CENTER
 import com.example.walactv.CatalogFilterOption
 import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
@@ -36,7 +36,9 @@ import com.example.walactv.ui.theme.*
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val ALL_OPTION = "Todos"
 
@@ -54,8 +56,8 @@ internal fun ChannelPickerDialog(
     onChannelSelected: (CatalogItem) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var selectedIndex by remember { mutableStateOf(0) }
-    var activePanel by remember { mutableStateOf(2) }
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    var activePanel by remember { mutableIntStateOf(2) }
 
     val channelListState = rememberLazyListState()
     val groupListState = rememberLazyListState()
@@ -65,9 +67,9 @@ internal fun ChannelPickerDialog(
 
     val loader = remember { PagedContentLoader(fragment.contentCacheManager, fragment.repository, ContentKind.CHANNEL) }
     var displayChannels by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
-    var currentPage by remember { mutableStateOf(0) }
+    var currentPage by remember { mutableIntStateOf(0) }
     var isLoadingPage by remember { mutableStateOf(false) }
-    var totalCount by remember { mutableStateOf(0) }
+    var totalCount by remember { mutableIntStateOf(0) }
     val pageSize = 50
 
     val countryOptions = remember(fragment.channelFilters) {
@@ -119,7 +121,7 @@ internal fun ChannelPickerDialog(
 
     LaunchedEffect(selectedIndex, displayChannels.size) {
         if (selectedIndex in displayChannels.indices) {
-            kotlinx.coroutines.delay(10); channelListState.scrollToItem(selectedIndex)
+            delay(10.milliseconds); channelListState.scrollToItem(selectedIndex)
         }
     }
 
@@ -174,7 +176,7 @@ internal fun ChannelPickerDialog(
                                 .border(if (isSelected) 1.dp else 0.dp, if (isSelected) accentColor.copy(alpha = 0.5f) else Color.Transparent, RoundedCornerShape(8.dp))
                                 .clickable {
                                     onCountryChange(option.value); onGroupChange(ALL_OPTION); onFavoritesChange(false); activePanel = 1
-                                    dialogScope.launch { kotlinx.coroutines.delay(50); runCatching { groupFocusRequester.requestFocus() } }
+                                    dialogScope.launch { delay(50.milliseconds); runCatching { groupFocusRequester.requestFocus() } }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 9.dp)
                         ) {
@@ -208,7 +210,7 @@ internal fun ChannelPickerDialog(
                                 .clickable {
                                     if (option.value == "__favs__") onFavoritesChange(true) else { onFavoritesChange(false); onGroupChange(option.value) }
                                     selectedIndex = 0; activePanel = 2
-                                    dialogScope.launch { kotlinx.coroutines.delay(50); runCatching { listFocusRequester.requestFocus() } }
+                                    dialogScope.launch { delay(50.milliseconds); runCatching { listFocusRequester.requestFocus() } }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 9.dp)
                         ) {
@@ -273,7 +275,7 @@ internal fun ChannelPickerDialog(
                                         Text(num.toString().padStart(3, ' '), color = if (isPlaying) accentColor else IptvTextMuted.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(26.dp), textAlign = TextAlign.End)
                                     } ?: Box(modifier = Modifier.width(26.dp))
                                     Box(modifier = Modifier.size(34.dp).background(Color(0xFF1A1A40).copy(alpha = 0.8f), RoundedCornerShape(6.dp)).clip(RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-                                        if (item.imageUrl.isNotBlank()) RemoteImage(url = item.imageUrl, width = 64, height = 64, scaleType = ScaleType.FIT_CENTER)
+                                        if (item.imageUrl.isNotBlank()) RemoteImage(url = item.imageUrl, width = 64, height = 64, scaleType = FIT_CENTER)
                                         else Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = IptvTextMuted.copy(alpha = 0.4f), modifier = Modifier.size(16.dp))
                                     }
                                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {

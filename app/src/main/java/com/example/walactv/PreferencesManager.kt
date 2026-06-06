@@ -2,6 +2,7 @@ package com.example.walactv
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 
 object PreferencesManager {
     private const val PREFS_NAME = "walactv_prefs"
@@ -17,7 +18,7 @@ object PreferencesManager {
     var preferredLanguage: String?
         get() = normalizePreferredLanguage(prefs?.getString(KEY_PREFERRED_LANGUAGE, null))
         set(value) {
-            prefs?.edit()?.putString(KEY_PREFERRED_LANGUAGE, normalizePreferredLanguage(value))?.apply()
+            prefs?.edit { putString(KEY_PREFERRED_LANGUAGE, normalizePreferredLanguage(value)) }
         }
 
     fun getPreferredLanguageOrDefault(): String {

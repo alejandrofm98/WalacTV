@@ -7,7 +7,6 @@ internal enum class SideRailDestination {
     TV,
     MOVIES,
     SERIES,
-    ANIME,
 }
 
 internal data class SideRailEntry(

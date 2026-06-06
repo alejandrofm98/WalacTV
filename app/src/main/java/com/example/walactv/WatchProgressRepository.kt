@@ -111,18 +111,6 @@ class WatchProgressRepository(context: Context) {
         }
     }
 
-    suspend fun markAsUnwatched(contentId: String): Boolean {
-        return try {
-            val token = getToken()
-            val body = JSONObject()
-            postJson("${BuildConfig.IPTV_BASE_URL}/api/watch-progress/$contentId/mark-unwatched", body, token)
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Error marking as unwatched: $contentId", e)
-            false
-        }
-    }
-
     // ── Token management ────────────────────────────────────────────────────
 
     private suspend fun getToken(): String {

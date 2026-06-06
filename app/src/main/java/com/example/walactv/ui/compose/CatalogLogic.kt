@@ -1,4 +1,4 @@
-package com.example.walactv.ui
+package com.example.walactv.ui.compose
 
 import android.util.Log
 import com.example.walactv.BrowseSection
@@ -10,7 +10,6 @@ import com.example.walactv.ComposeMainFragment.Companion.TAG
 import com.example.walactv.ComposeMainFragment.ContentSyncState
 import com.example.walactv.ContentKind
 import com.example.walactv.HomeCatalog
-import com.example.walactv.PreferencesManager
 import com.example.walactv.SearchFragment
 import com.example.walactv.WatchProgressItem
 import com.example.walactv.tmdbDebug
@@ -141,11 +140,6 @@ internal fun ComposeMainFragment.loadContinueWatching() {
             // Cargamos en paralelo: items en progreso + items vistos
             val inProgressItems = watchProgressRepo.getContinueWatching()
             val watchedItems = watchProgressRepo.getWatchedItems()
-
-            // El entryMap incluye ambas listas
-            val allItems = inProgressItems + watchedItems.filter { watched ->
-                inProgressItems.none { it.contentId == watched.contentId }
-            }
 
             val entryMap = mutableMapOf<String, WatchProgressItem>()
 
@@ -454,14 +448,6 @@ internal fun ComposeMainFragment.defaultItemForMode(
     ComposeMainFragment.MainMode.Settings -> null
 }
 
-internal fun ComposeMainFragment.refreshCatalog() {
-    homeCatalog = null; homeSections = emptyList(); continueWatchingSection = null
-    continueWatchingEntries = emptyMap(); searchableItems = emptyList(); channelLineup = emptyList()
-    activePlaybackLineup = emptyList(); selectedHero = null; isLoaded = false
-    repository.clearHomeMemoryCache()
-    startLoad(forceRefresh = true)
-}
-
 internal fun ComposeMainFragment.openSearch() {
     isRailExpanded = false
     requireActivity().supportFragmentManager.beginTransaction()
@@ -475,13 +461,6 @@ internal fun screenTitle(kind: ContentKind) = when (kind) {
     ContentKind.CHANNEL -> "TV en directo"
     ContentKind.MOVIE   -> "Peliculas"
     ContentKind.SERIES  -> "Series"
-}
-
-internal fun kindLabel(kind: ContentKind) = when (kind) {
-    ContentKind.EVENT   -> "Evento"
-    ContentKind.CHANNEL -> "Canal"
-    ContentKind.MOVIE   -> "Pelicula"
-    ContentKind.SERIES  -> "Serie"
 }
 
 internal fun ComposeMainFragment.findNextEventIndex(items: List<CatalogItem>): Int {
@@ -534,7 +513,6 @@ internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgress
     continueWatchingEntries = newEntryMap
     
     // Crear o actualizar la card en continueWatchingSection
-    val existingCwSection = continueWatchingSection
     val synthetic = buildContinueWatchingItem(progressItem, searchableSnapshot)
     newEntryMap[synthetic.stableId] = progressItem
     

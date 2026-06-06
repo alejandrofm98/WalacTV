@@ -14,7 +14,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import com.example.walactv.ui.tvClickable
+import com.example.walactv.ui.compose.tvClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -35,7 +35,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -405,7 +404,7 @@ private fun RatingBadge(rating: Float, voteCount: Int?) {
             modifier = Modifier.size(16.dp)
         )
         Text(
-            text = String.format("%.1f", rating),
+            text = String.format(java.util.Locale.US, "%.1f", rating),
             color = Color(0xFF1DB954),
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold

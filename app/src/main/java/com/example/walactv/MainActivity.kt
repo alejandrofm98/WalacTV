@@ -1,38 +1,21 @@
 package com.example.walactv
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
-import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
+import androidx.core.view.isVisible
 import androidx.fragment.app.FragmentActivity
 
+@SuppressLint("UnsafeOptInUsageError")
 class MainActivity : FragmentActivity() {
 
-    private var consumeBackKeyUp: Boolean = false
-    private var backConsumedByDispatch: Boolean = false
     private var playerHandledKeyDown: Boolean = false
-
-    private val onPlayerClosed: (() -> Unit)? = {
-        Log.d(TAG, "onPlayerClosed callback fired")
-        if (!isFinishing && !isDestroyed) {
-            (supportFragmentManager
-                .findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
-            )?.let { f ->
-                f.restorePlaybackReturnState()
-                f.restoreFocusAfterPlayer()
-            }
-        }
-    }
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
-            if (backConsumedByDispatch) {
-                Log.v(TAG, "backPressedCallback: skipping, already consumed by dispatchKeyEvent")
-                backConsumedByDispatch = false
-                return
-            }
             Log.v(TAG, "backPressedCallback.handleOnBackPressed()")
             if (handleCentralizedBack()) return
             Log.v(TAG, "backPressedCallback: centralized returned false, delegating to system")
@@ -55,31 +38,10 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    @androidx.media3.common.util.UnstableApi
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
-            when (event.action) {
-                KeyEvent.ACTION_DOWN -> {
-                    Log.v(TAG, "BACK ACTION_DOWN: calling handleCentralizedBack()")
-                    consumeBackKeyUp = handleCentralizedBack()
-                    backConsumedByDispatch = consumeBackKeyUp
-                    Log.v(TAG, "BACK ACTION_DOWN: handled=$consumeBackKeyUp")
-                    if (consumeBackKeyUp) return true
-                    Log.v(TAG, "BACK ACTION_DOWN: NOT handled, falling through")
-                }
-                KeyEvent.ACTION_UP -> {
-                    if (consumeBackKeyUp) {
-                        Log.v(TAG, "BACK ACTION_UP: consuming (was handled on DOWN)")
-                        consumeBackKeyUp = false
-                        return true
-                    }
-                    Log.v(TAG, "BACK ACTION_UP: NOT consumed (consumeBackKeyUp=false)")
-                }
-            }
-        }
-
         val container = findViewById<FrameLayout>(R.id.player_container)
-        if (container != null && container.visibility == View.VISIBLE) {
+        if (container != null && container.isVisible) {
             val composeFragment = supportFragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
             if (composeFragment != null && composeFragment.composeDialogOpen) {
                 Log.d(TAG, "DIALOG_DPAD: keyCode=${event.keyCode} action=${event.action} composeDialogOpen=true -> super.dispatchKeyEvent")
@@ -124,7 +86,7 @@ class MainActivity : FragmentActivity() {
         // ── 1. Player visible → preguntar al fragment primero ────────────────
         val container = findViewById<FrameLayout>(R.id.player_container)
         val playerFragment = fragmentManager.findFragmentByTag("player_fragment") as? PlayerFragment
-        if (container != null && container.visibility == View.VISIBLE &&
+        if (container != null && container.isVisible &&
             playerFragment != null && playerFragment.isVisible
         ) {
             val menuFocused = playerFragment.isOverlayMenuFocused()

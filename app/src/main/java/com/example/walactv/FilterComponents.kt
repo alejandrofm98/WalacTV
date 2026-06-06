@@ -11,7 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import com.example.walactv.ui.tvClickable
+import com.example.walactv.ui.compose.tvClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -49,52 +49,7 @@ import com.example.walactv.ui.theme.*
 internal const val COUNTRY_FILTER_LABEL = "Pais"
 internal const val COUNTRY_FILTER_DIALOG_TITLE = "Selecciona pais"
 
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-fun FilterTopBar(
-    showIdioma: Boolean,
-    selectedIdioma: String,
-    selectedGrupo: String,
-    onIdiomaClicked: () -> Unit,
-    onGrupoClicked: () -> Unit,
-    idiomaFocusRequester: FocusRequester,
-    grupoFocusRequester: FocusRequester,
-    searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
-    searchFocusRequester: FocusRequester,
-    idiomaLabel: String = "Idioma",
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (showIdioma) {
-            FilterTopBarButton(
-                label = "$idiomaLabel: $selectedIdioma",
-                onClick = onIdiomaClicked,
-                focusRequester = idiomaFocusRequester
-            )
-        }
-        FilterTopBarButton(
-            label = "Grupo: $selectedGrupo",
-            onClick = onGrupoClicked,
-            focusRequester = grupoFocusRequester
-        )
 
-        Spacer(modifier = Modifier.weight(1f).focusable(false))
-
-        // ── SearchBar con EditText nativo para soporte real de teclado / IME ──
-        NativeSearchBar(
-            query = searchQuery,
-            onQueryChange = onSearchQueryChange,
-            focusRequester = searchFocusRequester,
-        )
-    }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NativeSearchBar — usa un EditText real para que el IME de Android TV funcione
@@ -108,7 +63,7 @@ fun NativeSearchBar(
     modifier: Modifier = Modifier,
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val interactionSource = remember { MutableInteractionSource() }
 
     // Referencia al EditText nativo para poder manipularlo desde Compose
     var editTextRef by remember { mutableStateOf<EditText?>(null) }
@@ -227,7 +182,7 @@ fun NativeSearchBar(
 @Composable
 fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: FocusRequester) {
     var isFocused by remember { mutableStateOf(false) }
-    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val interactionSource = remember { MutableInteractionSource() }
 
     LaunchedEffect(interactionSource) {
         interactionSource.interactions.collect { interaction ->
@@ -292,26 +247,6 @@ fun FilterTopBarButton(label: String, onClick: () -> Unit, focusRequester: Focus
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SearchBar (legacy Compose-only, se mantiene por compatibilidad pero
-// recomendamos usar NativeSearchBar en FilterTopBar)
-// ─────────────────────────────────────────────────────────────────────────────
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-fun SearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    focusRequester: FocusRequester,
-    modifier: Modifier = Modifier,
-) {
-    NativeSearchBar(
-        query = query,
-        onQueryChange = onQueryChange,
-        focusRequester = focusRequester,
-        modifier = modifier,
-    )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // FilterDialog — sin cambios funcionales, solo limpieza menor
 // ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -326,7 +261,7 @@ fun FilterDialog(
     val filteredOptions = remember(options) { options }
 
     var selectedIndex by remember {
-        mutableStateOf(filteredOptions.indexOfFirst { it.value == selectedOption }.coerceAtLeast(0))
+        mutableIntStateOf(filteredOptions.indexOfFirst { it.value == selectedOption }.coerceAtLeast(0))
     }
 
     val listState = rememberLazyListState()
@@ -441,42 +376,3 @@ fun FilterDialog(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NativeSearchBar — usa un EditText real para que el IME de Android TV funcione
-// ─────────────────────────────────────────────────────────────────────────────
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-fun DialogFilterItem(label: String, selected: Boolean, onClick: () -> Unit) {
-    var isFocused by remember { mutableStateOf(false) }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                when {
-                    isFocused -> IptvFocusBg
-                    selected -> IptvCard
-                    else -> Color.Transparent
-                },
-                RoundedCornerShape(8.dp)
-            )
-            .border(
-                1.dp,
-                when {
-                    isFocused -> IptvFocusBorder
-                    selected -> IptvSurfaceVariant
-                    else -> Color.Transparent
-                },
-                RoundedCornerShape(8.dp)
-            )
-            .onFocusChanged { isFocused = it.isFocused }
-            .tvClickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-    ) {
-        Text(
-            label,
-            color = if (isFocused || selected) IptvTextPrimary else IptvTextMuted,
-            fontSize = 15.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}

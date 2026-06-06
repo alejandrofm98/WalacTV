@@ -9,13 +9,11 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -34,10 +32,6 @@ class IptvRepository(context: Context) {
     @Volatile private var memoryHomeCatalog: HomeCatalog? = null
 
     // ── Credenciales / sesión ─────────────────────────────────────────────────
-
-    fun setPlaylistProgressListener(listener: ((PlaylistLoadProgress) -> Unit)?) {
-        m3uCatalogStore.progressListener = listener
-    }
 
     fun hasStoredCredentials(): Boolean = credentialStore.hasCredentials()
     fun currentUsername(): String = credentialStore.username()
@@ -95,17 +89,6 @@ class IptvRepository(context: Context) {
     }
 
     fun getLastPlaylistUpdateMillis(): Long = m3uCatalogStore.getLastUpdatedMillis()
-
-    fun shouldRefreshPlaylistInBackground(): Boolean = m3uCatalogStore.needsBackgroundRefresh()
-
-    fun hasPlaylistCache(): Boolean = m3uCatalogStore.hasCache()
-
-    fun getPlaylistCacheSizeBytes(): Long = m3uCatalogStore.getCacheSizeBytes()
-
-    suspend fun refreshPlaylistInBackground() {
-        m3uCatalogStore.refreshNow()
-        memoryHomeCatalog = null
-    }
 
     private fun clearAllCaches() {
         memoryHomeCatalog = null
@@ -301,19 +284,6 @@ class IptvRepository(context: Context) {
     }
 
     // ── Búsqueda ──────────────────────────────────────────────────────────────
-
-    suspend fun searchCatalog(query: String): List<CatalogItem> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext emptyList()
-        val token = getAccessToken()
-        val encoded = URLEncoder.encode(query.trim(), Charsets.UTF_8.name())
-        val pass = credentialStore.password()
-        val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
-        val payload = getJsonObject(
-            url = "${BuildConfig.IPTV_BASE_URL}/api/search?q=$encoded&page=1&page_size=60$passParam",
-            token = token,
-        )
-        resolveStreamTemplates(parseRemoteCatalogPage(payload).items).distinctBy(CatalogItem::stableId)
-    }
 
     suspend fun fetchContentItem(kind: ContentKind, itemId: String): CatalogItem? = withContext(Dispatchers.IO) {
         if (itemId.isBlank() || kind == ContentKind.EVENT || kind == ContentKind.CHANNEL) return@withContext null

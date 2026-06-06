@@ -47,20 +47,6 @@ class CatalogModelsTest {
         assertEquals("Drama", item.subgrupo)
     }
 
-    private fun createSeriesItem(title: String): CatalogItem {
-        return CatalogItem(
-            stableId = "series:1",
-            title = title,
-            subtitle = "Subtitle",
-            description = "Desc",
-            imageUrl = "",
-            kind = ContentKind.SERIES,
-            group = "Series",
-            badgeText = "",
-            streamOptions = emptyList()
-        )
-    }
-
     @Test
     fun `extracts series info from English format`() {
         val metadata = parseSeriesMetadata("Breaking Bad S01 E05 - Ozymandias", ContentKind.SERIES)

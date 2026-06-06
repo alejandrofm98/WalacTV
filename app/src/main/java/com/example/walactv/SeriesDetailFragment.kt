@@ -2,7 +2,6 @@
 
 package com.example.walactv
 
-import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -10,17 +9,17 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.ImageView.ScaleType.CENTER_CROP
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import com.example.walactv.ui.buildEpisodeLabel
-import com.example.walactv.ui.tvClickable
+import com.example.walactv.ui.compose.buildEpisodeLabel
+import com.example.walactv.ui.compose.tvClickable
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.runtime.*
@@ -35,9 +34,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -125,9 +122,9 @@ class SeriesDetailFragment : Fragment() {
             overlayTitle = episodeToPlay.title,
             overlayMeta = buildEpisodeLabel(episodeToPlay.seasonNumber, episodeToPlay.episodeNumber).ifBlank { episodeToPlay.subtitle },
             contentKind = item.kind,
-            onNavigateChannel = { false },
-            onNavigateOption = { false },
-            onDirectChannelNumber = { false },
+            onNavigateChannel = { _ -> },
+            onNavigateOption = { _ -> },
+            onDirectChannelNumber = { _ -> false },
             onToggleFavorite = { false },
             onOpenFavorites = { false },
             onOpenRecents = { false },
@@ -208,7 +205,7 @@ fun SeriesDetailScreen(
         uniqueEpisodes.mapNotNull { it.seasonNumber }.distinct().sorted()
     }
 
-    var selectedSeason by remember { mutableStateOf(seasons.firstOrNull() ?: 1) }
+    var selectedSeason by remember { mutableIntStateOf(seasons.firstOrNull() ?: 1) }
     var showSeasonDialog by remember { mutableStateOf(false) }
     val seasonFocusRequester = remember { FocusRequester() }
 
@@ -274,7 +271,7 @@ fun SeriesDetailScreen(
                 if (posterUrl.isNotBlank()) {
                     AndroidView(
                         factory = { ctx ->
-                            ImageView(ctx).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+                            ImageView(ctx).apply { scaleType = CENTER_CROP }
                         },
                         update = { imageView ->
                             Glide.with(imageView).load(posterUrl).override(300, 450).into(imageView)
@@ -391,7 +388,7 @@ fun EpisodeCard(
                 AndroidView(
                     factory = { context ->
                         ImageView(context).apply {
-                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            scaleType = CENTER_CROP
                             imageView = this
                         }
                     },

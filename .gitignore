@@ -21,3 +21,8 @@ docs/superpowers/plans/
 .kotlin/
 .playwright-cli
 /.idea/
+
+# Android Studio inspection reports
+index.html
+script.js
+styles.css

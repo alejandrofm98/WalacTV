@@ -233,32 +233,6 @@ private fun qualityScore(item: CatalogItem): Int {
         ?: 0
 }
 
-fun List<CatalogItem>.uniqueMovies(): List<CatalogItem> {
-    return groupBy { item -> (item.normalizedTitle ?: item.title).lowercase().trim() }
-        .values
-        .map { variants ->
-            if (variants.size == 1) {
-                val single = variants.first()
-                single.copy(title = single.normalizedTitle ?: single.title)
-            } else {
-                val best = variants.maxByOrNull { qualityScore(it) } ?: variants.first()
-                val qualityOptions = variants.flatMap { variant ->
-                    val quality = extractQualityLabel(variant.title) ?: "Ver"
-                    variant.streamOptions.map { it.copy(label = quality) }
-                }.distinctBy { it.url }
-                    .sortedByDescending { QUALITY_ORDER[it.label] ?: 0 }
-                best.copy(
-                    title = best.normalizedTitle ?: best.title,
-                    streamOptions = qualityOptions,
-                    badgeText = variants.mapNotNull { extractQualityLabel(it.title) }
-                        .distinct()
-                        .sortedByDescending { QUALITY_ORDER[it] ?: 0 }
-                        .joinToString(" | "),
-                )
-            }
-        }
-}
-
 data class BrowseSection(
     val title: String,
     val items: List<CatalogItem>,

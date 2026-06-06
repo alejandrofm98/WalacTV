@@ -42,13 +42,14 @@ import androidx.tv.material3.Text as TvText
 import com.example.walactv.PlaybackError
 import com.example.walactv.PlaybackErrorType
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.seconds
 
 @Composable
 fun PlayerErrorOverlay(
     error: PlaybackError,
     isRetrying: Boolean,
-    onAutoAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    onAutoAction: (() -> Unit)? = null,
 ) {
     var visible by remember { mutableStateOf(false) }
 
@@ -58,7 +59,7 @@ fun PlayerErrorOverlay(
 
     LaunchedEffect(visible, onAutoAction) {
         if (visible && onAutoAction != null) {
-            delay(3000)
+            delay(3.seconds)
             onAutoAction()
         }
     }

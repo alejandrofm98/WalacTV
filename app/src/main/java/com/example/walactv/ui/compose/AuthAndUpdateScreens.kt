@@ -1,8 +1,7 @@
-package com.example.walactv.ui
+package com.example.walactv.ui.compose
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -20,11 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.tv.material3.Text
 import com.example.walactv.AppUpdateInfo
 import com.example.walactv.ComposeMainFragment
-import com.example.walactv.InstalledAppVersion
-import com.example.walactv.evaluateAppUpdate
-import com.example.walactv.AppUpdateAvailability
 import com.example.walactv.ui.theme.*
-import kotlinx.coroutines.launch
+
 
 // ── Login screen ───────────────────────────────────────────────────────────
 
@@ -68,59 +64,13 @@ private fun LoginField(value: String, label: String, hidden: Boolean, onValueCha
     }
 }
 
-// ── Sync screen ────────────────────────────────────────────────────────────
 
-@Composable
-internal fun SyncScreen(fragment: ComposeMainFragment) {
-    Column(
-        modifier = Modifier.fillMaxSize().background(IptvBackground).padding(horizontal = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        if (fragment.contentSyncState == ComposeMainFragment.ContentSyncState.CHECKING) {
-            Text("Comprobando actualizaciones...", color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Medium)
-        } else {
-            Text(fragment.currentSyncLabel, color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Medium)
-            if (fragment.currentSyncCount > 0) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("${fragment.currentSyncCount.toLocaleString()} elementos", color = IptvTextSecondary, fontSize = 14.sp)
-            }
-        }
-        Spacer(modifier = Modifier.height(20.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.65f)
-                .height(8.dp)
-                .background(IptvSurfaceVariant, RoundedCornerShape(4.dp)),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fragment.overallSyncProgress.coerceIn(0f, 1f))
-                    .height(8.dp)
-                    .background(IptvAccent, RoundedCornerShape(4.dp)),
-            )
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            "${(fragment.overallSyncProgress * 100).toInt().coerceIn(0, 100)}% completado",
-            color = IptvTextMuted,
-            fontSize = 14.sp,
-        )
-        fragment.contentSyncError?.let {
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(it, color = IptvLive, fontSize = 14.sp)
-        }
-    }
-}
-
-private fun Int.toLocaleString(): String = toString().reversed().chunked(3).joinToString(".").reversed()
 
 // ── Mandatory update screen ────────────────────────────────────────────────
 
 @Composable
 internal fun MandatoryUpdateScreen(fragment: ComposeMainFragment, updateInfo: AppUpdateInfo) {
     val installed = fragment.installedAppVersion
-    val scope = rememberCoroutineScope()
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier.width(700.dp).background(IptvSurface, RoundedCornerShape(12.dp))

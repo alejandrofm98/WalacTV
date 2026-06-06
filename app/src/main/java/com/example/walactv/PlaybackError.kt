@@ -59,7 +59,6 @@ internal fun categorizePlaybackError(
         }
 
         errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
-        errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
         errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
         errorMessage.contains("404") ||
         errorMessage.contains("403") ||
@@ -72,7 +71,6 @@ internal fun categorizePlaybackError(
             )
         }
 
-        errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
         errorMessage.contains("timeout") ||
         errorMessage.contains("buffering") -> {
             PlaybackError(

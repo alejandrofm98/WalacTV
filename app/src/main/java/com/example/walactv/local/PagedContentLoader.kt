@@ -26,7 +26,6 @@ class PagedContentLoader(
     fun getDisplayItems(): List<CatalogItem> = cache.toList()
     fun getTotalCount(): Int = if (isSearchMode) cache.size else totalCount
     fun isPageLoaded(page: Int): Boolean = loadedPages.contains(page)
-    fun getPageSize(): Int = pageSize
     fun isCurrentlyLoading(): Boolean = isLoading
 
     suspend fun loadPage(page: Int, country: String?, group: String?) {

@@ -1,12 +1,9 @@
-package com.example.walactv.ui
+package com.example.walactv.ui.compose
 
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,7 +16,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -27,7 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
-import android.widget.ImageView.ScaleType
+import android.widget.ImageView.ScaleType.FIT_CENTER
 import com.example.walactv.CatalogFilterOption
 import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
@@ -39,7 +35,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val ALL_OPTION = "Todos"
 
@@ -65,8 +61,8 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
         )
     }
     var displayItems by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
-    var totalCount by remember { mutableStateOf(0) }
-    var currentPage by remember { mutableStateOf(0) }
+    var totalCount by remember { mutableIntStateOf(0) }
+    var currentPage by remember { mutableIntStateOf(0) }
     var isLoadingPage by remember { mutableStateOf(false) }
     val pageSize = 50
     var filteredGroupOptions by remember { mutableStateOf<List<CatalogFilterOption>>(emptyList()) }
@@ -124,7 +120,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
         if (fragment.contentFocusTrigger == 0 || displayItemsForGrid.isEmpty()) return@LaunchedEffect
         runCatching {
             lazyGridState.scrollToItem(0)
-            kotlinx.coroutines.delay(80)
+            delay(80.milliseconds)
             itemFocusRequesters.firstOrNull()?.requestFocus()
         }.onSuccess {
             Log.d("MainShellFocus", "guide first item requestFocus success kind=$kind items=${displayItemsForGrid.size}")
@@ -163,7 +159,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
 
     LaunchedEffect(selectedCountry, selectedGroup, searchQuery) {
         if (isEventGuide) {
-            delay(300)
+            delay(300.milliseconds)
             val group = selectedGroup.takeUnless { it == ALL_OPTION }
             val query = searchQuery.takeIf { it.isNotBlank() }?.trim()?.lowercase()
             displayItems = eventItems.filter { item ->
@@ -376,7 +372,7 @@ internal fun EpgChannelCard(
                 url = item.imageUrl,
                 width = 80,
                 height = 80,
-                scaleType = ScaleType.FIT_CENTER
+                scaleType = FIT_CENTER
             )
             else Icon(
                 Icons.Outlined.LiveTv,
@@ -430,8 +426,8 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
         )
     }
     var displayItems by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
-    var totalCount by remember { mutableStateOf(0) }
-    var currentPage by remember { mutableStateOf(0) }
+    var totalCount by remember { mutableIntStateOf(0) }
+    var currentPage by remember { mutableIntStateOf(0) }
     var isLoadingPage by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     val pageSize = 50
@@ -474,7 +470,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
         Log.d("VodGrid", "filter changed for $kind: key=$key, cancelling and reloading")
         loader.clear(); currentPage = 0; isLoadingPage = false
         if (searchQuery.isNotBlank()) {
-            kotlinx.coroutines.delay(300)
+            delay(300.milliseconds)
         }
         lastLoadKey = key
         val country = selectedCountry.takeUnless { it == ALL_OPTION }
@@ -537,7 +533,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
         if (fragment.contentFocusTrigger == 0 || displayItemsForGrid.isEmpty()) return@LaunchedEffect
         runCatching {
             lazyGridState.scrollToItem(0)
-            kotlinx.coroutines.delay(80)
+            delay(80.milliseconds)
             itemFocusRequesters.firstOrNull()?.requestFocus()
         }.onSuccess {
             Log.d("MainShellFocus", "vod first item requestFocus success kind=$kind items=${displayItemsForGrid.size}")

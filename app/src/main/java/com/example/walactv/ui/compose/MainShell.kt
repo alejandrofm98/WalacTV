@@ -1,4 +1,4 @@
-package com.example.walactv.ui
+package com.example.walactv.ui.compose
 
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility

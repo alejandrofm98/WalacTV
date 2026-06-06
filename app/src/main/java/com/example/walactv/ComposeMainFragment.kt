@@ -6,29 +6,31 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.fragment.app.Fragment
 import com.example.walactv.local.ContentCacheManager
-import com.example.walactv.ui.ComposeRoot
-import com.example.walactv.ui.canRequestPackageInstalls
-import com.example.walactv.ui.changeMode
-import com.example.walactv.ui.checkForAppUpdates
-import com.example.walactv.ui.defaultItemForMode
-import com.example.walactv.ui.ensureFiltersLoaded
-import com.example.walactv.ui.handleCompletedUpdateDownload
-import com.example.walactv.ui.restoreCachedUpdateState
-import com.example.walactv.ui.refreshEvents
-import com.example.walactv.ui.startLoad
-import com.example.walactv.ui.startUpdateDownload
+import com.example.walactv.ui.compose.ComposeRoot
+import com.example.walactv.ui.compose.canRequestPackageInstalls
+import com.example.walactv.ui.compose.changeMode
+import com.example.walactv.ui.compose.checkForAppUpdates
+import com.example.walactv.ui.compose.defaultItemForMode
+import com.example.walactv.ui.compose.ensureFiltersLoaded
+import com.example.walactv.ui.compose.handleCompletedUpdateDownload
+import com.example.walactv.ui.compose.restoreCachedUpdateState
+import com.example.walactv.ui.compose.refreshEvents
+import com.example.walactv.ui.compose.startLoad
+import com.example.walactv.ui.compose.startUpdateDownload
 import com.example.walactv.ui.theme.WalacTVTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,11 +66,11 @@ class ComposeMainFragment : Fragment() {
     internal var seriesFilterCountry by mutableStateOf<String?>(null)
     internal var selectedHero by mutableStateOf<CatalogItem?>(null)
     internal var pendingFocusItem by mutableStateOf<CatalogItem?>(null)
-    internal var pendingFocusTrigger by mutableStateOf(0)
+    internal var pendingFocusTrigger by mutableIntStateOf(0)
     internal var lastHomeFocusTarget by mutableStateOf<HomeFocusTarget?>(null)
     internal var pendingHomeFocusTarget by mutableStateOf<HomeFocusTarget?>(null)
-    internal var homeFocusRestoreTrigger by mutableStateOf(0)
-    internal var contentFocusTrigger by mutableStateOf(0)
+    internal var homeFocusRestoreTrigger by mutableIntStateOf(0)
+    internal var contentFocusTrigger by mutableIntStateOf(0)
     internal var contentFocusCanOpenRail by mutableStateOf(false)
     internal var suppressEventAutoScroll by mutableStateOf(false)
     internal var currentMode by mutableStateOf(MainMode.Home)
@@ -94,8 +96,8 @@ class ComposeMainFragment : Fragment() {
     internal var contentSyncState by mutableStateOf(ContentSyncState.IDLE)
     internal var contentSyncError by mutableStateOf<String?>(null)
     internal var currentSyncLabel by mutableStateOf("")
-    internal var currentSyncCount by mutableStateOf(0)
-    internal var overallSyncProgress by mutableStateOf(0f)
+    internal var currentSyncCount by mutableIntStateOf(0)
+    internal var overallSyncProgress by mutableFloatStateOf(0f)
 
     internal var currentItem: CatalogItem? = null
     internal var currentStreamIndex: Int = 0
@@ -153,12 +155,12 @@ class ComposeMainFragment : Fragment() {
     override fun onStart() {
         super.onStart()
         val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            requireContext().registerReceiver(updateDownloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            requireContext().registerReceiver(updateDownloadReceiver, filter)
-        }
+        ContextCompat.registerReceiver(
+            requireContext(),
+            updateDownloadReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     override fun onResume() {
@@ -188,13 +190,6 @@ class ComposeMainFragment : Fragment() {
         Log.d(TAG, "navigateToHome called, currentMode=$currentMode")
         if (currentMode == MainMode.Home) return
         changeMode(MainMode.Home)
-    }
-
-    fun navigateHomeOnBack(): Boolean {
-        Log.d(TAG, "navigateHomeOnBack called, currentMode=$currentMode")
-        if (currentMode == MainMode.Home) return false
-        changeMode(MainMode.Home)
-        return true
     }
 
     fun restorePlaybackReturnState() {
@@ -287,11 +282,7 @@ class ComposeMainFragment : Fragment() {
     companion object {
         internal const val TAG = "ComposeMainFragment"
         internal const val ALL_OPTION = "Todos"
-        internal const val FAVORITES_FILTER = "Favoritos"
-        internal val EVENT_TIME_FORMAT = SimpleDateFormat("HH:mm", Locale.getDefault())
-        internal val REDUNDANT_BADGES = setOf("CINE", "SERIE", "Pelicula", "Serie")
-        private const val COUNTRY_FILTER_LABEL = "País"
-        private const val COUNTRY_FILTER_DIALOG_TITLE = "Selecciona país"
+        internal val EVENT_TIME_FORMAT get() = SimpleDateFormat("HH:mm", Locale.getDefault())
     }
 }
 

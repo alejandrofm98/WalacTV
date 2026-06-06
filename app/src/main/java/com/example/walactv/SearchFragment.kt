@@ -1,14 +1,13 @@
 package com.example.walactv
 
-import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
-import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.toColorInt
 import androidx.leanback.app.SearchSupportFragment
 import androidx.leanback.widget.ArrayObjectAdapter
 import androidx.leanback.widget.HeaderItem
@@ -22,7 +21,7 @@ import androidx.leanback.widget.Row
 import androidx.leanback.widget.RowPresenter
 import androidx.media3.common.util.UnstableApi
 import com.bumptech.glide.Glide
-import com.example.walactv.ui.buildEpisodeLabel
+import com.example.walactv.ui.compose.buildEpisodeLabel
 import com.example.walactv.preferredCardImageUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -279,7 +278,7 @@ private class SearchResultCardPresenter : Presenter() {
             isFocusableInTouchMode = true
             setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT)
             setBackgroundColor(ContextCompat.getColor(context, android.R.color.darker_gray))
-            setInfoAreaBackgroundColor(Color.parseColor("#1E2530"))
+            setInfoAreaBackgroundColor("#1E2530".toColorInt())
         }
         return ViewHolder(cardView)
     }

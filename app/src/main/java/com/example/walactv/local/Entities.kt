@@ -43,17 +43,6 @@ data class SeriesEntity(
     val grupoNormalizado: String
 )
 
-data class ChannelWithFavorite(
-    val id: String,
-    val numero: Int?,
-    val providerId: String,
-    val logo: String,
-    val country: String,
-    val nombreNormalizado: String,
-    val grupoNormalizado: String,
-    val isFavorite: Boolean
-)
-
 private fun buildChannelStreamUrl(providerId: String, username: String, password: String): String {
     return "${BuildConfig.IPTV_BASE_URL}/live/$username/$password/$providerId"
 }
@@ -81,42 +70,4 @@ fun ChannelEntity.toCatalogItem(username: String, password: String): CatalogItem
     )
 }
 
-fun MovieEntity.toCatalogItem(username: String, password: String): CatalogItem {
-    val streamUrl = if (providerId.isNotBlank()) {
-        buildVodStreamUrl(providerId, username, password)
-    } else ""
-    return CatalogItem(
-        stableId = id,
-        providerId = providerId,
-        title = nombre,
-        normalizedTitle = nombreNormalizado,
-        subtitle = "",
-        description = "",
-        imageUrl = logo,
-        kind = ContentKind.MOVIE,
-        group = grupoNormalizado,
-        badgeText = "",
-        streamOptions = if (streamUrl.isNotBlank()) listOf(StreamOption(label = "Ver", url = streamUrl, providerId = providerId)) else emptyList()
-    )
-}
 
-fun SeriesEntity.toCatalogItem(username: String, password: String): CatalogItem {
-    val streamUrl = if (providerId.isNotBlank()) {
-        buildVodStreamUrl(providerId, username, password)
-    } else ""
-    return CatalogItem(
-        stableId = id,
-        providerId = providerId,
-        title = serieName,
-        subtitle = if (temporada > 0 && episodio > 0) "T${temporada}E${episodio}" else grupoNormalizado,
-        description = "",
-        imageUrl = logo,
-        kind = ContentKind.SERIES,
-        group = grupoNormalizado,
-        badgeText = "",
-        seriesName = serieName,
-        seasonNumber = temporada,
-        episodeNumber = episodio,
-        streamOptions = if (streamUrl.isNotBlank()) listOf(StreamOption(label = "Ver", url = streamUrl, providerId = providerId)) else emptyList()
-    )
-}

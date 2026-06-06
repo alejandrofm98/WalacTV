@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.JsonReader
 import android.util.JsonToken
 import android.util.Log
+import androidx.core.content.edit
 import com.example.walactv.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -182,58 +183,6 @@ class ContentCacheManager(private val context: Context) {
         needsSync
     }
 
-    suspend fun needsSyncMovies(token: String): Boolean = withContext(Dispatchers.IO) {
-        val localCount = database.movieDao().getCount()
-        val stats = getMoviesStats(token)
-        val localGenerated = getLocalGeneratedAt("movies")
-        val serverGenerated = stats?.generatedAt ?: ""
-
-        Log.d(TAG, "needsSyncMovies: localCount=$localCount, statsReceived=${stats != null}")
-        Log.d(TAG, "needsSyncMovies: localGenerated='$localGenerated'")
-        Log.d(TAG, "needsSyncMovies: serverGenerated='$serverGenerated' (stats was null: ${stats == null})")
-
-        if (localCount == 0) {
-            Log.d(TAG, "needsSyncMovies: DECISION -> needsSync=true (local DB empty)")
-            return@withContext true
-        }
-
-        if (serverGenerated.isEmpty() && localGenerated.isEmpty()) {
-            Log.d(TAG, "needsSyncMovies: DECISION -> needsSync=false (both generatedAt empty)")
-            return@withContext false
-        }
-
-        val needsSync = shouldSync(localGenerated, serverGenerated)
-        Log.d(TAG, "needsSyncMovies: comparison: '$localGenerated' vs '$serverGenerated' = $needsSync")
-        Log.d(TAG, "needsSyncMovies: DECISION -> needsSync=$needsSync")
-        needsSync
-    }
-
-    suspend fun needsSyncSeries(token: String): Boolean = withContext(Dispatchers.IO) {
-        val localCount = database.seriesDao().getCount()
-        val stats = getSeriesStats(token)
-        val localGenerated = getLocalGeneratedAt("series")
-        val serverGenerated = stats?.generatedAt ?: ""
-
-        Log.d(TAG, "needsSyncSeries: localCount=$localCount, statsReceived=${stats != null}")
-        Log.d(TAG, "needsSyncSeries: localGenerated='$localGenerated'")
-        Log.d(TAG, "needsSyncSeries: serverGenerated='$serverGenerated' (stats was null: ${stats == null})")
-
-        if (localCount == 0) {
-            Log.d(TAG, "needsSyncSeries: DECISION -> needsSync=true (local DB empty)")
-            return@withContext true
-        }
-
-        if (serverGenerated.isEmpty() && localGenerated.isEmpty()) {
-            Log.d(TAG, "needsSyncSeries: DECISION -> needsSync=false (both generatedAt empty)")
-            return@withContext false
-        }
-
-        val needsSync = shouldSync(localGenerated, serverGenerated)
-        Log.d(TAG, "needsSyncSeries: comparison: '$localGenerated' vs '$serverGenerated' = $needsSync")
-        Log.d(TAG, "needsSyncSeries: DECISION -> needsSync=$needsSync")
-        needsSync
-    }
-
     // ── Sync from API (streaming + batch inserts) ──────────────────────
 
     private fun openJsonStream(urlString: String, token: String): Pair<HttpURLConnection, JsonReader>? {
@@ -327,10 +276,10 @@ class ContentCacheManager(private val context: Context) {
                 }
 
                 Log.d(TAG, "syncChannels: generatedAt from JSON='${generatedAt}', totalCount=$totalCount")
-                prefs.edit()
-                    .putString(KEY_CHANNELS_GENERATED_AT, generatedAt ?: "")
-                    .putInt(KEY_CHANNELS_TOTAL, totalCount)
-                    .apply()
+                prefs.edit {
+                    putString(KEY_CHANNELS_GENERATED_AT, generatedAt ?: "")
+                    putInt(KEY_CHANNELS_TOTAL, totalCount)
+                }
                 Log.d(TAG, "syncChannels: saved generatedAt to prefs, verifying: '${prefs.getString(KEY_CHANNELS_GENERATED_AT, "MISSING")}'")
             } catch (e: Exception) {
                 Log.e(TAG, "syncChannels: exception during JSON parsing", e)
@@ -348,156 +297,11 @@ class ContentCacheManager(private val context: Context) {
         }
     }
 
-    suspend fun syncMovies(token: String): Result<Int> = withContext(Dispatchers.IO) {
-        try {
-            Log.d(TAG, "Syncing movies from API")
-            val url = "${BuildConfig.IPTV_BASE_URL}/api/full/movies"
-            var generatedAt: String? = null
-            val batch = mutableListOf<MovieEntity>()
-            var totalCount = 0
-
-            val connection = openJsonStream(url, token)
-                ?: return@withContext Result.failure(Exception("Failed to download movies"))
-
-            val (conn, reader) = connection
-            try {
-                database.movieDao().deleteAll()
-
-                reader.beginObject()
-                while (reader.hasNext()) {
-                    val name = reader.nextName()
-                    when (name) {
-                        "generated_at" -> generatedAt = reader.nextString()
-                        "items" -> {
-                            reader.beginArray()
-                            while (reader.hasNext()) {
-                                batch.add(parseMovieObject(reader))
-                                totalCount++
-                                if (batch.size >= BATCH_SIZE) {
-                                    database.movieDao().insertAll(batch)
-                                    batch.clear()
-                                }
-                            }
-                            reader.endArray()
-                        }
-                        else -> reader.skipValue()
-                    }
-                }
-                reader.endObject()
-
-                if (batch.isNotEmpty()) {
-                    database.movieDao().insertAll(batch)
-                }
-
-                Log.d(TAG, "syncMovies: generatedAt from JSON='${generatedAt}', totalCount=$totalCount")
-                prefs.edit()
-                    .putString(KEY_MOVIES_GENERATED_AT, generatedAt ?: "")
-                    .putInt(KEY_MOVIES_TOTAL, totalCount)
-                    .apply()
-                Log.d(TAG, "syncMovies: saved generatedAt to prefs, verifying: '${prefs.getString(KEY_MOVIES_GENERATED_AT, "MISSING")}'")
-            } finally {
-                try { reader.close() } catch (_: Exception) {}
-                conn.disconnect()
-            }
-
-            Log.d(TAG, "Synced $totalCount movies")
-            Result.success(totalCount)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error syncing movies", e)
-            Result.failure(e)
-        }
-    }
-
-    suspend fun syncSeries(token: String): Result<Int> = withContext(Dispatchers.IO) {
-        try {
-            Log.d(TAG, "Syncing series from API")
-            val url = "${BuildConfig.IPTV_BASE_URL}/api/full/series"
-            var generatedAt: String? = null
-            val batch = mutableListOf<SeriesEntity>()
-            var totalCount = 0
-
-            val connection = openJsonStream(url, token)
-                ?: return@withContext Result.failure(Exception("Failed to download series"))
-
-            val (conn, reader) = connection
-            try {
-                database.seriesDao().deleteAll()
-
-                reader.beginObject()
-                while (reader.hasNext()) {
-                    val name = reader.nextName()
-                    when (name) {
-                        "generated_at" -> generatedAt = reader.nextString()
-                        "items" -> {
-                            reader.beginArray()
-                            while (reader.hasNext()) {
-                                batch.add(parseSeriesObject(reader))
-                                totalCount++
-                                if (batch.size >= BATCH_SIZE) {
-                                    database.seriesDao().insertAll(batch)
-                                    batch.clear()
-                                    Log.d(TAG, "syncSeries: inserted batch, total so far: $totalCount")
-                                }
-                            }
-                            reader.endArray()
-                        }
-                        else -> reader.skipValue()
-                    }
-                }
-                reader.endObject()
-
-                if (batch.isNotEmpty()) {
-                    database.seriesDao().insertAll(batch)
-                }
-
-                Log.d(TAG, "syncSeries: generatedAt from JSON='${generatedAt}', totalCount=$totalCount")
-                prefs.edit()
-                    .putString(KEY_SERIES_GENERATED_AT, generatedAt ?: "")
-                    .putInt(KEY_SERIES_TOTAL, totalCount)
-                    .apply()
-                Log.d(TAG, "syncSeries: saved generatedAt to prefs, verifying: '${prefs.getString(KEY_SERIES_GENERATED_AT, "MISSING")}'")
-            } finally {
-                try { reader.close() } catch (_: Exception) {}
-                conn.disconnect()
-            }
-
-            Log.d(TAG, "Synced $totalCount series")
-            Result.success(totalCount)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error syncing series", e)
-            Result.failure(e)
-        }
-    }
-
     // ── Local queries ──────────────────────────────────────────────────
-
-    suspend fun getAllChannels(): List<ChannelEntity> = withContext(Dispatchers.IO) {
-        val result = database.channelDao().getAllPaged(Int.MAX_VALUE, 0)
-        Log.d(TAG, "getAllChannels: returning ${result.size} entities")
-        result
-    }
 
     suspend fun getChannelsByCountry(country: String): List<ChannelEntity> = withContext(Dispatchers.IO) {
         val result = database.channelDao().getByCountryPaged(country, Int.MAX_VALUE, 0)
         Log.d(TAG, "getChannelsByCountry($country): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getChannelsByGroup(group: String): List<ChannelEntity> = withContext(Dispatchers.IO) {
-        val result = database.channelDao().getByGroupPaged(group, Int.MAX_VALUE, 0)
-        Log.d(TAG, "getChannelsByGroup($group): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getChannelsByCountryAndGroup(country: String, group: String): List<ChannelEntity> = withContext(Dispatchers.IO) {
-        val result = database.channelDao().getByCountryAndGroupPaged(country, group, Int.MAX_VALUE, 0)
-        Log.d(TAG, "getChannelsByCountryAndGroup($country, $group): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun searchChannels(query: String): List<ChannelEntity> = withContext(Dispatchers.IO) {
-        val result = database.channelDao().search(query)
-        Log.d(TAG, "searchChannels($query): returning ${result.size} entities")
         result
     }
 
@@ -510,131 +314,6 @@ class ContentCacheManager(private val context: Context) {
         }
         Log.d(TAG, "searchChannels($query, country=$country, group=$group): returning ${result.size} entities")
         result
-    }
-
-    suspend fun getChannelsByIds(ids: List<String>): List<ChannelEntity> = withContext(Dispatchers.IO) {
-        val result = if (ids.isEmpty()) emptyList<ChannelEntity>()
-        else database.channelDao().getByIds(ids)
-        Log.d(TAG, "getChannelsByIds: returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getChannelsCount(): Int = withContext(Dispatchers.IO) {
-        val count = database.channelDao().getCount()
-        Log.d(TAG, "getChannelsCount: $count")
-        count
-    }
-
-    suspend fun getAllMovies(): List<MovieEntity> = withContext(Dispatchers.IO) {
-        val result = database.movieDao().getAllPaged(Int.MAX_VALUE, 0)
-        Log.d(TAG, "getAllMovies: returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getMoviesByGroup(group: String): List<MovieEntity> = withContext(Dispatchers.IO) {
-        val result = database.movieDao().getByGroupPaged(group, Int.MAX_VALUE, 0)
-        Log.d(TAG, "getMoviesByGroup($group): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getMoviesByCountry(country: String): List<MovieEntity> = withContext(Dispatchers.IO) {
-        val result = database.movieDao().getByCountryPaged(country, Int.MAX_VALUE, 0)
-        Log.d(TAG, "getMoviesByCountry($country): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getMoviesByCountryAndGroup(country: String, group: String): List<MovieEntity> = withContext(Dispatchers.IO) {
-        val result = database.movieDao().getByCountryAndGroupPaged(country, group, Int.MAX_VALUE, 0)
-        Log.d(TAG, "getMoviesByCountryAndGroup($country, $group): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun searchMovies(query: String): List<MovieEntity> = withContext(Dispatchers.IO) {
-        val result = database.movieDao().search(query)
-        Log.d(TAG, "searchMovies($query): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun searchMovies(query: String, country: String?, group: String?): List<MovieEntity> = withContext(Dispatchers.IO) {
-        val result = when {
-            country != null && group != null -> database.movieDao().searchByCountryAndGroup(query, country, group)
-            country != null -> database.movieDao().searchByCountry(query, country)
-            group != null -> database.movieDao().searchByGroup(query, group)
-            else -> database.movieDao().search(query)
-        }
-        Log.d(TAG, "searchMovies($query, country=$country, group=$group): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getMoviesCount(): Int = withContext(Dispatchers.IO) {
-        val count = database.movieDao().getCount()
-        Log.d(TAG, "getMoviesCount: $count")
-        count
-    }
-
-    suspend fun getAllSeries(): List<SeriesEntity> = withContext(Dispatchers.IO) {
-        val result = database.seriesDao().getAllPaged(Int.MAX_VALUE, 0)
-        Log.d(TAG, "getAllSeries: returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getSeriesByGroup(group: String): List<SeriesEntity> = withContext(Dispatchers.IO) {
-        val result = database.seriesDao().getByGroupPaged(group, Int.MAX_VALUE, 0)
-        Log.d(TAG, "getSeriesByGroup($group): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getSeriesByCountry(country: String): List<SeriesEntity> = withContext(Dispatchers.IO) {
-        val result = database.seriesDao().getByCountryPaged(country, Int.MAX_VALUE, 0)
-        Log.d(TAG, "getSeriesByCountry($country): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getSeriesByCountryAndGroup(country: String, group: String): List<SeriesEntity> = withContext(Dispatchers.IO) {
-        val result = database.seriesDao().getByCountryAndGroupPaged(country, group, Int.MAX_VALUE, 0)
-        Log.d(TAG, "getSeriesByCountryAndGroup($country, $group): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun searchSeries(query: String): List<SeriesEntity> = withContext(Dispatchers.IO) {
-        val total = database.seriesDao().getCount()
-        Log.d(TAG, "searchSeries: DB has $total total episodes, searching for '$query'")
-        val allSeries = database.seriesDao().getAllPaged(50000, 0)
-        val uniqueSeries = allSeries.distinctBy { it.serieName }
-        val filtered = uniqueSeries.filter { it.serieName.contains(query, ignoreCase = true) }
-            .sortedBy { it.serieName }
-            .take(100)
-        Log.d(TAG, "searchSeries('$query'): $total episodes -> ${uniqueSeries.size} unique -> ${filtered.size} matches")
-        if (filtered.isNotEmpty()) {
-            Log.d(TAG, "searchSeries: first result serieName='${filtered.first().serieName}'")
-        }
-        filtered
-    }
-
-    suspend fun searchSeries(query: String, country: String?, group: String?): List<SeriesEntity> = withContext(Dispatchers.IO) {
-        val total = database.seriesDao().getCount()
-        Log.d(TAG, "searchSeries: DB has $total total episodes, searching for '$query', country=$country, group=$group")
-        val allSeries = when {
-            country != null && group != null -> database.seriesDao().getByCountryAndGroupPaged(country, group, 50000, 0)
-            country != null -> database.seriesDao().getByCountryPaged(country, 50000, 0)
-            group != null -> database.seriesDao().getByGroupPaged(group, 50000, 0)
-            else -> database.seriesDao().getAllPaged(50000, 0)
-        }
-        val uniqueSeries = allSeries.distinctBy { it.serieName }
-        val filtered = uniqueSeries.filter { it.serieName.contains(query, ignoreCase = true) }
-            .sortedBy { it.serieName }
-            .take(100)
-        Log.d(TAG, "searchSeries('$query', country=$country, group=$group): ${uniqueSeries.size} unique -> ${filtered.size} matches")
-        if (filtered.isNotEmpty()) {
-            Log.d(TAG, "searchSeries: first result serieName='${filtered.first().serieName}'")
-        }
-        filtered
-    }
-
-    suspend fun getSeriesCount(): Int = withContext(Dispatchers.IO) {
-        val count = database.seriesDao().getCount()
-        Log.d(TAG, "getSeriesCount: $count")
-        count
     }
 
     // ── Paged queries (sliding window, max 100 items in memory) ──────────
@@ -662,52 +341,6 @@ class ContentCacheManager(private val context: Context) {
         count
     }
 
-    suspend fun getMoviesPaged(country: String?, group: String?, page: Int, pageSize: Int = 50): List<MovieEntity> = withContext(Dispatchers.IO) {
-        val offset = page * pageSize
-        val result = when {
-            country != null && group != null -> database.movieDao().getByCountryAndGroupPaged(country, group, pageSize, offset)
-            country != null -> database.movieDao().getByCountryPaged(country, pageSize, offset)
-            group != null -> database.movieDao().getByGroupPaged(group, pageSize, offset)
-            else -> database.movieDao().getAllPaged(pageSize, offset)
-        }
-        Log.d(TAG, "getMoviesPaged(page=$page, pageSize=$pageSize, country=$country, group=$group): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getMoviesTotalCount(country: String?, group: String?): Int = withContext(Dispatchers.IO) {
-        val count = when {
-            country != null && group != null -> database.movieDao().getCountByCountryAndGroup(country, group)
-            country != null -> database.movieDao().getCountByCountry(country)
-            group != null -> database.movieDao().getCountByGroup(group)
-            else -> database.movieDao().getCount()
-        }
-        Log.d(TAG, "getMoviesTotalCount(country=$country, group=$group): $count")
-        count
-    }
-
-    suspend fun getSeriesPaged(country: String?, group: String?, page: Int, pageSize: Int = 50): List<SeriesEntity> = withContext(Dispatchers.IO) {
-        val offset = page * pageSize
-        val result = when {
-            country != null && group != null -> database.seriesDao().getByCountryAndGroupPaged(country, group, pageSize, offset)
-            country != null -> database.seriesDao().getByCountryPaged(country, pageSize, offset)
-            group != null -> database.seriesDao().getByGroupPaged(group, pageSize, offset)
-            else -> database.seriesDao().getAllPaged(pageSize, offset)
-        }
-        Log.d(TAG, "getSeriesPaged(page=$page, pageSize=$pageSize, country=$country, group=$group): returning ${result.size} entities")
-        result
-    }
-
-    suspend fun getSeriesTotalCount(country: String?, group: String?): Int = withContext(Dispatchers.IO) {
-        val count = when {
-            country != null && group != null -> database.seriesDao().getCountByCountryAndGroup(country, group)
-            country != null -> database.seriesDao().getCountByCountry(country)
-            group != null -> database.seriesDao().getCountByGroup(group)
-            else -> database.seriesDao().getCount()
-        }
-        Log.d(TAG, "getSeriesTotalCount(country=$country, group=$group): $count")
-        count
-    }
-
     // ── Local filters (derived from cached data) ────────────────────────
 
     suspend fun getLocalChannelFilters(country: String? = null): com.example.walactv.CatalogFilters = withContext(Dispatchers.IO) {
@@ -716,32 +349,6 @@ class ContentCacheManager(private val context: Context) {
             database.channelDao().getDistinctGroupsByCountry(country)
         } else {
             database.channelDao().getDistinctGroups()
-        }
-        com.example.walactv.CatalogFilters(
-            countries = countries.map { com.example.walactv.CatalogFilterOption(it, it) },
-            groups = groups.map { com.example.walactv.CatalogFilterOption(it, it) }
-        )
-    }
-
-    suspend fun getLocalMovieFilters(country: String? = null): com.example.walactv.CatalogFilters = withContext(Dispatchers.IO) {
-        val countries = database.movieDao().getDistinctCountries()
-        val groups = if (country != null) {
-            database.movieDao().getDistinctGroupsByCountry(country)
-        } else {
-            database.movieDao().getDistinctGroups()
-        }
-        com.example.walactv.CatalogFilters(
-            countries = countries.map { com.example.walactv.CatalogFilterOption(it, it) },
-            groups = groups.map { com.example.walactv.CatalogFilterOption(it, it) }
-        )
-    }
-
-    suspend fun getLocalSeriesFilters(country: String? = null): com.example.walactv.CatalogFilters = withContext(Dispatchers.IO) {
-        val countries = database.seriesDao().getDistinctCountries()
-        val groups = if (country != null) {
-            database.seriesDao().getDistinctGroupsByCountry(country)
-        } else {
-            database.seriesDao().getDistinctGroups()
         }
         com.example.walactv.CatalogFilters(
             countries = countries.map { com.example.walactv.CatalogFilterOption(it, it) },

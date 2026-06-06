@@ -1,5 +1,6 @@
-package com.example.walactv.ui
+package com.example.walactv.ui.compose
 
+import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
@@ -7,12 +8,11 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
-import android.util.Log
 import android.widget.Toast
+import androidx.core.net.toUri
 import com.example.walactv.AppUpdateAvailability
 import com.example.walactv.AppUpdateInfo
 import com.example.walactv.ComposeMainFragment
-import com.example.walactv.InstalledAppVersion
 import com.example.walactv.evaluateAppUpdate
 import kotlinx.coroutines.launch
 
@@ -53,12 +53,13 @@ internal fun ComposeMainFragment.checkForAppUpdates(showToast: Boolean = false) 
     }
 }
 
+@SuppressLint("QueryPermissionsNeeded")
 internal fun ComposeMainFragment.startUpdateFlow() {
     val updateInfo = mandatoryUpdate ?: availableUpdate ?: return
     if (!canRequestPackageInstalls()) {
         pendingInstallPermission = true
         updateStatusMessage = "Permite instalar apps desconocidas para continuar"
-        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${requireContext().packageName}"))
+        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${requireContext().packageName}".toUri())
         if (intent.resolveActivity(requireContext().packageManager) != null) {
             runCatching { startActivity(intent) }.onFailure { updateErrorMessage = "No se pudo abrir la configuracion de instalacion" }
         } else {
@@ -75,7 +76,7 @@ internal fun ComposeMainFragment.canRequestPackageInstalls(): Boolean =
 
 internal fun ComposeMainFragment.startUpdateDownload(updateInfo: AppUpdateInfo?) {
     val info = updateInfo ?: return
-    val request = DownloadManager.Request(Uri.parse(info.apkUrl))
+    val request = DownloadManager.Request(info.apkUrl.toUri())
         .setTitle("WalacTV ${info.latestVersionName}")
         .setDescription("Descargando actualizacion")
         .setMimeType("application/vnd.android.package-archive")

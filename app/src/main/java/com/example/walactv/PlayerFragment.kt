@@ -2,7 +2,6 @@ package com.example.walactv
 
 import android.app.AlertDialog
 import android.graphics.Color
-import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +17,8 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.net.toUri
+import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
@@ -40,9 +41,6 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import com.bumptech.glide.Glide
 import com.example.walactv.datasource.StreamWishDataSourceFactory
 import com.example.walactv.ui.PlayerErrorOverlay
@@ -257,7 +255,7 @@ class PlayerFragment : Fragment() {
     }
 
     private fun formatTime(ms: Long): String {
-        if (ms <= 0 || ms == C.TIME_UNSET) return "0:00"
+        if (ms <= 0) return "0:00"
         val totalSeconds = ms / 1000
         val hours = totalSeconds / 3600
         val minutes = (totalSeconds % 3600) / 60
@@ -290,7 +288,7 @@ class PlayerFragment : Fragment() {
         btnChannel = view.findViewById(R.id.btn_channel)
         btnChannelLabel = view.findViewById(R.id.btn_channel_label)
 
-        val overlayLayout = view.findViewById<LinearLayout>(R.id.channel_overlay)
+        val overlayLayout = overlayView
         optionIndicatorView = overlayLayout.findViewById(R.id.channel_option_indicator)
         optionsListLayout = overlayLayout.findViewById(R.id.channel_options_list)
 
@@ -360,7 +358,7 @@ class PlayerFragment : Fragment() {
 
     private fun extractReferer(url: String): String {
         return try {
-            val uri = Uri.parse(url)
+            val uri = url.toUri()
             val host = uri.host ?: return ""
 
             val isStreamWishCdn = host.contains("streamwish") || host.contains("filemoon") ||
@@ -394,7 +392,7 @@ class PlayerFragment : Fragment() {
 
             val dataSourceFactory = if (isStreamWish) {
                 val referer = extractReferer(streamUrl)
-                val origin = "https://${Uri.parse(streamUrl).host}"
+                val origin = "https://${streamUrl.toUri().host}"
                 Log.d(TAG, "StreamWish detected: referer=$referer, origin=$origin")
                 StreamWishDataSourceFactory(
                     userAgent = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.186 Mobile Safari/537.36",
@@ -615,20 +613,6 @@ class PlayerFragment : Fragment() {
         checkAndMarkWatched()
     }
 
-    private fun isLastEpisodeOfSeries(): Boolean {
-        if (allSeriesEpisodes.isEmpty()) return false
-        val lastSeason = allSeriesEpisodes
-            .mapNotNull { it.seasonNumber }
-            .maxOrNull() ?: return false
-        val lastEpisodeInLastSeason = allSeriesEpisodes
-            .filter { it.seasonNumber == lastSeason }
-            .mapNotNull { it.episodeNumber }
-            .maxOrNull() ?: return false
-        val currentSeason = currentSeriesEpisode?.seasonNumber ?: return false
-        val currentEpisode = currentSeriesEpisode?.episodeNumber ?: return false
-        return currentSeason == lastSeason && currentEpisode == lastEpisodeInLastSeason
-    }
-
     // Nueva función — marca como visto si se ha llegado al 90%
     private fun checkAndMarkWatched() {
         if (watchedMarked || contentId.isBlank() || !isVodMode) return
@@ -648,11 +632,6 @@ class PlayerFragment : Fragment() {
                 }
                 ContentKind.SERIES -> {
                     repo.markAsWatched(contentId)
-                    if (isLastEpisodeOfSeries()) {
-                        val seriesKey = currentSeriesEpisode?.seriesName
-                        if (!seriesKey.isNullOrBlank()) {
-                        }
-                    }
                 }
                 else -> Unit
             }
@@ -959,7 +938,7 @@ class PlayerFragment : Fragment() {
     private fun updateOptionIndicator() {
         val total = streamOptionLabels.size
         if (total <= 1) return
-        optionIndicatorView?.text = "${liveOptionIndex + 1} / $total"
+        optionIndicatorView?.text = getString(R.string.option_counter, liveOptionIndex + 1, total)
         optionIndicatorView?.visibility = View.VISIBLE
 
         if (optionsListLayout?.visibility == View.VISIBLE) {
@@ -1043,10 +1022,7 @@ class PlayerFragment : Fragment() {
     }
 
     fun isOverlayMenuFocused(): Boolean =
-        isMenuFocused() || (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE)
-
-    fun isOverlayVisible(): Boolean =
-        ::overlayView.isInitialized && overlayView.visibility == View.VISIBLE
+        isMenuFocused() || (::overlayView.isInitialized && overlayView.isVisible)
 
     private fun hideOverlay() {
         handler.removeCallbacks(hideOverlayRunnable)
@@ -1278,22 +1254,6 @@ class PlayerFragment : Fragment() {
         composeView.setContent { }
     }
 
-    private fun handleRetry() {
-        if (player != null && !isReleasing) {
-            try {
-                player?.let { exoPlayer ->
-                    exoPlayer.stop()
-                    exoPlayer.clearMediaItems()
-                    exoPlayer.setMediaItem(createMediaItem(streamUrl))
-                    exoPlayer.prepare()
-                    exoPlayer.play()
-                }
-            } catch (exception: Exception) {
-                Log.e(TAG, "Error al reintentar reproduccion", exception)
-            }
-        }
-    }
-
     // ──────────────────────────────────────────────────────────────────────
     //  Key handling
     // ──────────────────────────────────────────────────────────────────────
@@ -1499,7 +1459,7 @@ class PlayerFragment : Fragment() {
         )
         val target = customButtonIds
             .mapNotNull { id -> playerView.findViewById<View>(id) }
-            .firstOrNull { it.visibility == View.VISIBLE && it.isEnabled }
+            .firstOrNull { it.isVisible && it.isEnabled }
         Log.v(TAG, "moveFocusToFirstCustomButton: target=${target?.let { describeView(it) }}")
         target?.requestFocus()
         playerView.showController()
@@ -1550,7 +1510,7 @@ class PlayerFragment : Fragment() {
 
             KeyEvent.KEYCODE_DPAD_UP -> {
                 if (isMenuFocused()) return true
-                if (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE) {
+                if (::overlayView.isInitialized && overlayView.isVisible) {
                     handler.removeCallbacks(hideOverlayRunnable)
                     val focusResult = btnGuide?.requestFocus() ?: false
                     Log.v(TAG, "FAV_UP: btnGuide.requestFocus()=$focusResult")
@@ -1569,7 +1529,7 @@ class PlayerFragment : Fragment() {
 
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (isMenuFocused()) return true
-                if (::overlayView.isInitialized && overlayView.visibility == View.VISIBLE) {
+                if (::overlayView.isInitialized && overlayView.isVisible) {
                     handler.removeCallbacks(hideOverlayRunnable)
                     val focusResult = btnGuide?.requestFocus() ?: false
                     Log.v(TAG, "FAV_DOWN: btnGuide.requestFocus()=$focusResult")
@@ -1905,7 +1865,6 @@ class PlayerFragment : Fragment() {
         private const val MAX_STUCK_CHECKS = 4
         private const val OVERLAY_DURATION_MS = 6_000L
         private const val DIRECT_ZAP_DELAY_MS = 1_500L
-        private const val VOD_SEEK_INCREMENT_MS = 10_000L
         private const val VOD_CONTROLLER_TIMEOUT_MS = 5_000
         private const val PROGRESS_SAVE_INTERVAL_MS = 30_000L
         private val CHANNEL_PROXY_REGEX =

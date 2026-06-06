@@ -1,4 +1,4 @@
-package com.example.walactv.ui
+package com.example.walactv.ui.compose
 
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier

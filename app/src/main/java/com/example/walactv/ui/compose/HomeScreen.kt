@@ -1,7 +1,8 @@
-package com.example.walactv.ui
+package com.example.walactv.ui.compose
 
 import android.util.Log
-import android.widget.ImageView.ScaleType
+import android.widget.ImageView.ScaleType.CENTER_CROP
+import android.widget.ImageView.ScaleType.FIT_CENTER
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -18,9 +19,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
-import androidx.compose.foundation.interaction.Interaction
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -36,9 +35,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
+
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,9 +50,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -86,7 +85,6 @@ import com.example.walactv.BrowseSection
 import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
-import com.example.walactv.R
 import com.example.walactv.isVodContent
 import com.example.walactv.preferredCardImageUrl
 import com.example.walactv.preferredVodPosterUrl
@@ -104,6 +102,7 @@ import com.example.walactv.ui.theme.IptvTextMuted
 import com.example.walactv.ui.theme.IptvTextPrimary
 import com.example.walactv.ui.theme.IptvTextSecondary
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -112,13 +111,11 @@ import kotlinx.coroutines.launch
 
 // Cards VOD — solo imagen, sin texto debajo (el título está en el hero)
 internal val VOD_CARD_WIDTH        = 120.dp
-internal val VOD_CARD_WIDTH_NARROW = 108.dp
 private val VOD_IMAGE_HEIGHT       = 180.dp   // ratio 2:3 exact
 private val VOD_TEXT_AREA_HEIGHT = 0.dp     // sin texto para VOD
 
 // Hero inmersivo — ocupa ~55% de la pantalla (el backdrop es fillMaxSize)
 private val HOME_HERO_FRACTION    = 0.56f
-private val HOME_HERO_TEXT_HEIGHT = 230.dp
 
 // Cards canal / evento — mantienen su texto
 private val CH_CARD_WIDTH       = 180.dp
@@ -159,13 +156,13 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
     LaunchedEffect(fragment.homeSections) {
         if (fragment.homeSections.isEmpty()) return@LaunchedEffect
         if (fragment.selectedHero != null || fragment.pendingFocusItem != null) return@LaunchedEffect
-        delay(200)
+        delay(200.milliseconds)
         runCatching { focusRequesters.firstOrNull()?.requestFocus() }
     }
 
     LaunchedEffect(fragment.contentFocusTrigger) {
         if (fragment.contentFocusTrigger == 0) return@LaunchedEffect
-        delay(300)
+        delay(300.milliseconds)
         if (fragment.pendingFocusItem != null) {
             fragment.pendingFocusTrigger++
         }
@@ -318,7 +315,7 @@ private fun HomeBackdrop(
                     url = eventImageUrl,
                     width = 1920,
                     height = 1080,
-                    scaleType = ScaleType.CENTER_CROP,
+                    scaleType = CENTER_CROP,
                     disableCache = true,
                 )
             }
@@ -338,7 +335,7 @@ private fun HomeBackdrop(
                     url = backdropUrl,
                     width = 1920,
                     height = 1080,
-                    scaleType = ScaleType.CENTER_CROP,
+                    scaleType = CENTER_CROP,
                 )
             }
             posterUrl.isNotBlank() -> {
@@ -357,7 +354,7 @@ private fun HomeBackdrop(
                             url = posterUrl,
                             width = 600,
                             height = 900,
-                            scaleType = ScaleType.CENTER_CROP,
+                            scaleType = CENTER_CROP,
                         )
                     }
                 }
@@ -597,22 +594,13 @@ internal fun ContentSection(
 ) {
     val lazyListState = rememberLazyListState()
     var isLoadingMore by remember { mutableStateOf(false) }
-    var rowWidth by remember { mutableStateOf(0) }
+    var rowWidth by remember { mutableIntStateOf(0) }
     val focusRequesters = remember(section.items.size) {
         List(section.items.size) { FocusRequester() }
     }
-    val pilotEventId = remember(section.items) {
-        if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
-            val nextIndex = fragment.findNextEventIndex(section.items)
-            section.items.getOrNull(nextIndex.takeIf { it >= 0 } ?: 0)?.stableId
-        } else {
-            null
-        }
-    }
-
     LaunchedEffect(section.items) {
         if (fragment.suppressEventAutoScroll) {
-            delay(600)
+            delay(600.milliseconds)
             if (!fragment.suppressEventAutoScroll) return@LaunchedEffect
         }
         if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
@@ -632,7 +620,7 @@ internal fun ContentSection(
             if (idx >= 0) {
                 try {
                     lazyListState.scrollToItem(idx)
-                    delay(80L * attempt)
+                    delay((80 * attempt).milliseconds)
                     val fr = focusRequesters.getOrNull(idx)
                     if (fr != null) {
                         fr.requestFocus()
@@ -652,7 +640,7 @@ internal fun ContentSection(
                     Log.d("HomeContent", "First section fallback: focusing first card")
                     runCatching {
                         lazyListState.scrollToItem(0)
-                        delay(80)
+                        delay(80.milliseconds)
                         focusRequesters.first().requestFocus()
                         fragment.pendingFocusItem = null
                         fragment.suppressEventAutoScroll = false
@@ -670,7 +658,7 @@ internal fun ContentSection(
             Log.d("HomeContent", "Rail restore has no target, focusing first card section=${section.title} items=${section.items.size} requesters=${focusRequesters.size}")
             runCatching {
                 lazyListState.scrollToItem(0)
-                delay(80)
+                delay(80.milliseconds)
                 val requester = focusRequesters.firstOrNull()
                 if (requester == null) {
                     Log.w("HomeContent", "Home first card focus skipped: no requester section=${section.title}")
@@ -693,7 +681,7 @@ internal fun ContentSection(
 
         runCatching {
             lazyListState.scrollToItem(targetIndex)
-            delay(80)
+            delay(80.milliseconds)
             focusRequesters.getOrNull(targetIndex)?.requestFocus()
             fragment.pendingHomeFocusTarget = null
         }.onFailure {
@@ -940,7 +928,7 @@ internal fun EventVsCard(
                 url = item.imageUrl,
                 width = 480,
                 height = 300,
-                scaleType = ScaleType.CENTER_CROP,
+                scaleType = CENTER_CROP,
                 disableCache = true,
             )
         } else {
@@ -1040,25 +1028,6 @@ internal fun EventVsCard(
     }
 }
 
-// ── HomeEventPilotCard — se mantiene para compatibilidad pero usa EventVsCard internamente ──
-
-@Composable
-private fun HomeEventPilotCard(
-    item: CatalogItem,
-    modifier: Modifier = Modifier,
-    onFocused: () -> Unit,
-    onClick: () -> Unit,
-) {
-    EventVsCard(
-        item = item,
-        modifier = modifier,
-        isLive = item.badgeText.matches(Regex("\\d{1,2}:\\d{2}.*")) ||
-                item.badgeText.contains("LIVE", ignoreCase = true),
-        onFocused = onFocused,
-        onClick = onClick,
-    )
-}
-
 // ── Media card ─────────────────────────────────────────────────────────────
 
 @Composable
@@ -1074,7 +1043,6 @@ internal fun MediaCard(
     val isVod = item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES
     val isChannel = item.kind == ContentKind.CHANNEL
     val isEvent = item.kind == ContentKind.EVENT
-    val isChannelOrEvent = isChannel || isEvent
     val cardWidth = when {
         isEvent -> EVENT_CARD_WIDTH
         isChannel -> CH_CARD_WIDTH
@@ -1109,7 +1077,7 @@ internal fun MediaCard(
 
     if (isVod) {
         Box(
-            modifier = baseModifier.then(if (isVod && narrowCard) Modifier else Modifier.background(IptvSurfaceVariant)),
+            modifier = baseModifier.then(if (narrowCard) Modifier else Modifier.background(IptvSurfaceVariant)),
             contentAlignment = Alignment.Center,
         ) {
             val cardImgUrl = item.preferredCardImageUrl()
@@ -1119,7 +1087,7 @@ internal fun MediaCard(
                     url = cardImgUrl,
                     width = 300,
                     height = 450,
-                    scaleType = ScaleType.CENTER_CROP,
+                    scaleType = CENTER_CROP,
                 )
             } else {
                 PlaceholderIcon(kind = item.kind)
@@ -1162,7 +1130,7 @@ internal fun MediaCard(
                     item.kind == ContentKind.EVENT -> EventSportPlaceholder(item)
                     item.preferredCardImageUrl().isNotBlank() -> RemoteImage(
                         url = item.preferredCardImageUrl(), width = 300, height = 200,
-                        scaleType = ScaleType.FIT_CENTER,
+                        scaleType = FIT_CENTER,
                     )
                     else -> PlaceholderIcon(kind = item.kind)
                 }
@@ -1235,7 +1203,7 @@ internal fun ContinueWatchingCard(
     val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
     val cardWidth   = if (isChannelOrEvent) CH_CARD_WIDTH  else VOD_CARD_WIDTH
     val imageHeight = if (isChannelOrEvent) CH_IMAGE_HEIGHT else VOD_IMAGE_HEIGHT
-    var keyDownMillis by remember { mutableStateOf(0L) }
+    var keyDownMillis by remember { mutableLongStateOf(0L) }
     var consumeClick by remember { mutableStateOf(false) }
 
     Column(
@@ -1299,7 +1267,7 @@ internal fun ContinueWatchingCard(
             val imageUrl = item.preferredCardImageUrl()
             if (imageUrl.isNotBlank()) RemoteImage(
                 url = imageUrl, width = 300, height = 450,
-                scaleType = if (isChannelOrEvent) ScaleType.FIT_CENTER else ScaleType.CENTER_CROP,
+                scaleType = if (isChannelOrEvent) FIT_CENTER else CENTER_CROP,
             )
             else PlaceholderIcon(kind = item.kind)
 
@@ -1383,10 +1351,10 @@ internal fun DeleteConfirmationOverlay(
         "¿Quieres eliminar \"${item.title}\" de tu historial de reproducción?"
 
     val focusRequester = remember { FocusRequester() }
-    var selectedButton by remember { mutableStateOf(0) }
+    var selectedButton by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(focusRequester) {
-        delay(50)
+        delay(50.milliseconds)
         try { focusRequester.requestFocus() } catch (_: Exception) {}
     }
 

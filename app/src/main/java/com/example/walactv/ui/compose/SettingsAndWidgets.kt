@@ -1,4 +1,4 @@
-package com.example.walactv.ui
+package com.example.walactv.ui.compose
 
 import android.graphics.Color as AndroidColor
 import android.graphics.drawable.Drawable
@@ -227,7 +227,7 @@ internal fun RemoteImage(
             } else {
                 requestBuilder.override(width, height).dontTransform()
             }
-            request.listener(object : RequestListener<Drawable> {
+            val requestWithListener = request.listener(object : RequestListener<Drawable> {
                 override fun onLoadFailed(
                     e: GlideException?,
                     model: Any?,
@@ -252,12 +252,14 @@ internal fun RemoteImage(
                     return false
                 }
             })
-            if (disableCache) {
-                request
+            val finalRequest = if (disableCache) {
+                requestWithListener
                     .skipMemoryCache(true)
                     .diskCacheStrategy(DiskCacheStrategy.NONE)
+            } else {
+                requestWithListener
             }
-            request.into(iv)
+            finalRequest.into(iv)
         },
         onRelease = { iv -> runCatching { Glide.with(iv.context.applicationContext).clear(iv) }.onFailure { Log.w("RemoteImage", "Could not clear image", it) } },
         modifier = if (adjustViewBounds) Modifier.fillMaxHeight() else Modifier.fillMaxSize(),
@@ -273,11 +275,11 @@ internal fun FilterTopBar(
     selectedGrupo: String,
     onIdiomaClicked: () -> Unit,
     onGrupoClicked: () -> Unit,
-    idiomaFocusRequester: androidx.compose.ui.focus.FocusRequester,
-    grupoFocusRequester: androidx.compose.ui.focus.FocusRequester,
+    idiomaFocusRequester: FocusRequester,
+    grupoFocusRequester: FocusRequester,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    searchFocusRequester: androidx.compose.ui.focus.FocusRequester,
+    searchFocusRequester: FocusRequester,
     idiomaLabel: String = "País",
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {

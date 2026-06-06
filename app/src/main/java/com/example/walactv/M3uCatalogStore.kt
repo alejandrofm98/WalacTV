@@ -2,6 +2,7 @@ package com.example.walactv
 
 import android.content.Context
 import android.util.Log
+import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
@@ -20,37 +21,6 @@ class M3uCatalogStore(private val context: Context) {
     private val credentialStore = CredentialStore(context)
     private val providerHttpBaseUrl = BuildConfig.IPTV_BASE_URL.removePrefix("https://").removePrefix("http://")
     var progressListener: ((PlaylistLoadProgress) -> Unit)? = null
-
-    suspend fun getCatalog(forceRefresh: Boolean = false): M3uCatalogSnapshot = withContext(Dispatchers.IO) {
-        reportProgress(PlaylistLoadStage.CHECKING_CACHE, "Comprobando cache de la lista", 0)
-        if (!forceRefresh) {
-            fullMemorySnapshot?.let {
-                Log.d(TAG, "Usando snapshot M3U en memoria")
-                reportProgress(PlaylistLoadStage.READY, "Lista cargada desde memoria", 100)
-                return@withContext it
-            }
-
-            loadPersistedSnapshot(fullSnapshotFile)?.let {
-                Log.d(TAG, "Usando snapshot M3U persistido")
-                fullMemorySnapshot = it
-                reportProgress(PlaylistLoadStage.READY, "Lista cargada desde cache guardada", 100)
-                return@withContext it
-            }
-        }
-
-        ensureCacheReady(forceRefresh)
-        Log.d(TAG, "Usando playlist M3U desde cache local: ${cacheFile.absolutePath}")
-        loadFromCache().also {
-            fullMemorySnapshot = it
-            persistSnapshot(fullSnapshotFile, it)
-            reportProgress(
-                PlaylistLoadStage.READY,
-                "Lista completa lista",
-                100,
-                detail = buildSnapshotDetail(it),
-            )
-        }
-    }
 
     suspend fun refreshNow(): M3uCatalogSnapshot = withContext(Dispatchers.IO) {
         Log.d(TAG, "Refrescando playlist M3U ahora")
@@ -72,7 +42,7 @@ class M3uCatalogStore(private val context: Context) {
         fullMemorySnapshot = null
         cacheFile.delete()
         deletePersistedSnapshots()
-        preferences.edit().remove(KEY_LAST_UPDATED).apply()
+        preferences.edit { remove(KEY_LAST_UPDATED) }
     }
 
     fun getLastUpdatedMillis(): Long = preferences.getLong(KEY_LAST_UPDATED, 0L)
@@ -602,7 +572,7 @@ class M3uCatalogStore(private val context: Context) {
     }
 
     private fun saveLastUpdated(value: Long) {
-        preferences.edit().putLong(KEY_LAST_UPDATED, value).apply()
+        preferences.edit { putLong(KEY_LAST_UPDATED, value) }
     }
 
     private val preferences by lazy {

@@ -57,6 +57,7 @@ class StreamWishDataSource(
 
     private fun stripFakeHeader() {
         var totalRead = 0
+        // Guard: buffer is MAX_SKIP_BYTES; early exit at TS_PACKET_SIZE*2 under normal conditions
         while (totalRead < MAX_SKIP_BYTES) {
             val bytesRead = upstream.read(
                 prefetchBuffer,

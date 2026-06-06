@@ -570,7 +570,7 @@ private fun renderInlineMarkdown(text: String): AnnotatedString {
 
 private fun Modifier.drawVerticalAccentLine(): Modifier = this.drawBehind {
     drawLine(
-        color = androidx.compose.ui.graphics.Color(0xFF00C3FF).copy(alpha = 0.5f),
+        color = Color(0xFF00C3FF).copy(alpha = 0.5f),
         start = androidx.compose.ui.geometry.Offset(0f, 0f),
         end = androidx.compose.ui.geometry.Offset(0f, size.height),
         strokeWidth = 3.dp.toPx(),
