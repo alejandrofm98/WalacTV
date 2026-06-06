@@ -232,7 +232,11 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
         } else null,
         overlayLogoUrl = item.preferredVodPosterUrl(),
         isFavorite = channelStateStore.isFavorite(favoriteTarget),
-        contentId = item.providerId ?: item.stableId,
+        contentId = if (item.kind == ContentKind.SERIES) {
+            item.seriesKey ?: item.providerId ?: item.stableId
+        } else {
+            item.providerId ?: item.stableId
+        },
         onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
         onProgressSaved = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
             { progressItem -> upsertContinueWatchingEntry(progressItem) }

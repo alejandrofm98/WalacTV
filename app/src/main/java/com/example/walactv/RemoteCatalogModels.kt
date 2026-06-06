@@ -418,6 +418,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         languageLabel = normalized.languageLabel?.takeIf { it.isNotBlank() },
         normalizedGroup = grupoNormalizado.ifBlank { null },
         seriesName = normalized.seriesName?.takeIf { it.isNotBlank() },
+        seriesKey = optCleanString("series_key").ifBlank { null },
         seasonNumber = optCleanString("temporada").toIntOrNull()
             ?: optInt("season_number").takeIf { has("season_number") },
         episodeNumber = optCleanString("episodio").toIntOrNull()

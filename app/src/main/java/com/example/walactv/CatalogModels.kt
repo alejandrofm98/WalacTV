@@ -32,6 +32,7 @@ data class CatalogItem(
     val normalizedTitle: String? = null,
     val normalizedGroup: String? = null,
     val seriesName: String? = null,
+    val seriesKey: String? = null,
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
     val streamOptions: List<StreamOption> = emptyList(),

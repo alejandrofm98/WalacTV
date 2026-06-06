@@ -115,6 +115,9 @@ class SeriesDetailFragment : Fragment() {
             null
         }
 
+        val seriesContentId = episodeToPlay.seriesKey ?: episodeToPlay.providerId ?: episodeToPlay.stableId
+        Log.d(TAG, "SERIES_CONTENT_ID seriesKey=${episodeToPlay.seriesKey} providerId=${episodeToPlay.providerId} stableId=${episodeToPlay.stableId} -> $seriesContentId")
+
         val playerFragment = PlayerFragment()
         playerFragment.initialize(
             streamUrl = stream.url,
@@ -132,7 +135,7 @@ class SeriesDetailFragment : Fragment() {
             onPreviousEpisode = previousEpisodeCallback,
             allSeriesEpisodes = allEpisodesForSeries,
             currentEpisode = episodeToPlay,
-            contentId = episodeToPlay.providerId ?: episodeToPlay.stableId,
+            contentId = seriesContentId,
             onPlayerClosed = {
                 view?.requestFocus()
             },
