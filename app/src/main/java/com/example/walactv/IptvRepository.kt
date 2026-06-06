@@ -345,7 +345,12 @@ class IptvRepository(context: Context) {
             do {
                 val url = "${BuildConfig.IPTV_BASE_URL}/api/series/$encoded/episodes?page=$page&page_size=100$passParam"
                 Log.d(TAG, "loadSeriesEpisodes: fetching page $page, url=$url")
-                val payload = getJsonObject(url = url, token = token)
+                val payload = try {
+                    getJsonObject(url = url, token = token)
+                } catch (e: Exception) {
+                    Log.e(TAG, "loadSeriesEpisodes: HTTP error for '$seriesName' page $page: ${e.message}")
+                    break
+                }
                 val parsed = parseRemoteCatalogPage(payload, expectedKind = ContentKind.SERIES)
                 Log.d(TAG, "loadSeriesEpisodes: page $page returned ${parsed.items.size} items, hasNext=${parsed.hasNext}")
                 items += parsed.items

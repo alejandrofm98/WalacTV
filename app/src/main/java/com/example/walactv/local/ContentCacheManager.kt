@@ -13,6 +13,10 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.util.zip.GZIPInputStream
 
 class ContentCacheManager(private val context: Context) {
@@ -122,6 +126,27 @@ class ContentCacheManager(private val context: Context) {
 
     // ── Sync check ─────────────────────────────────────────────────────
 
+    private fun shouldSync(localGenerated: String, serverGenerated: String): Boolean {
+        if (serverGenerated.isEmpty()) return false
+        if (localGenerated.isEmpty()) return true
+        val local = parseTimestamp(localGenerated) ?: return localGenerated != serverGenerated
+        val server = parseTimestamp(serverGenerated) ?: return localGenerated != serverGenerated
+        return server.isAfter(local)
+    }
+
+    private fun parseTimestamp(ts: String): Instant? {
+        return try {
+            OffsetDateTime.parse(ts).toInstant()
+        } catch (e: Exception) {
+            try {
+                LocalDateTime.parse(ts).toInstant(ZoneOffset.UTC)
+            } catch (e2: Exception) {
+                Log.w(TAG, "parseTimestamp: failed to parse '$ts'", e2)
+                null
+            }
+        }
+    }
+
     fun getLocalGeneratedAt(type: String): String {
         return when (type) {
             "channels" -> prefs.getString(KEY_CHANNELS_GENERATED_AT, "") ?: ""
@@ -151,8 +176,8 @@ class ContentCacheManager(private val context: Context) {
             return@withContext false
         }
 
-        val needsSync = localGenerated != serverGenerated
-        Log.d(TAG, "needsSyncChannels: comparison: '$localGenerated' != '$serverGenerated' = $needsSync")
+        val needsSync = shouldSync(localGenerated, serverGenerated)
+        Log.d(TAG, "needsSyncChannels: comparison: '$localGenerated' vs '$serverGenerated' = $needsSync")
         Log.d(TAG, "needsSyncChannels: DECISION -> needsSync=$needsSync")
         needsSync
     }
@@ -177,8 +202,8 @@ class ContentCacheManager(private val context: Context) {
             return@withContext false
         }
 
-        val needsSync = localGenerated != serverGenerated
-        Log.d(TAG, "needsSyncMovies: comparison: '$localGenerated' != '$serverGenerated' = $needsSync")
+        val needsSync = shouldSync(localGenerated, serverGenerated)
+        Log.d(TAG, "needsSyncMovies: comparison: '$localGenerated' vs '$serverGenerated' = $needsSync")
         Log.d(TAG, "needsSyncMovies: DECISION -> needsSync=$needsSync")
         needsSync
     }
@@ -203,8 +228,8 @@ class ContentCacheManager(private val context: Context) {
             return@withContext false
         }
 
-        val needsSync = localGenerated != serverGenerated
-        Log.d(TAG, "needsSyncSeries: comparison: '$localGenerated' != '$serverGenerated' = $needsSync")
+        val needsSync = shouldSync(localGenerated, serverGenerated)
+        Log.d(TAG, "needsSyncSeries: comparison: '$localGenerated' vs '$serverGenerated' = $needsSync")
         Log.d(TAG, "needsSyncSeries: DECISION -> needsSync=$needsSync")
         needsSync
     }

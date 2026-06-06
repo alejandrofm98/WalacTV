@@ -60,7 +60,12 @@ internal fun ComposeMainFragment.openContinueWatchingItem(cardItem: CatalogItem,
 }
 
 private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: CatalogItem, progress: WatchProgressItem) {
-    val item = repository.fetchContentItem(ContentKind.MOVIE, progress.contentId)
+    val item = try {
+        repository.fetchContentItem(ContentKind.MOVIE, progress.contentId)
+    } catch (e: Exception) {
+        Log.e(TAG, "Error fetching movie ${progress.contentId}", e)
+        null
+    }
     if (item == null) {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la pelicula", Toast.LENGTH_SHORT).show() }
         return
@@ -77,14 +82,30 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     cardItem: CatalogItem,
     progress: WatchProgressItem,
 ) {
-    val episode = repository.fetchContentItem(ContentKind.SERIES, progress.contentId)
+    val episode = try {
+        repository.fetchContentItem(ContentKind.SERIES, progress.contentId)
+    } catch (e: Exception) {
+        Log.w(TAG, "fetchContentItem failed for ${progress.contentId}, falling back to progress data", e)
+        null
+    }
     Log.d(TAG, "TMDB_CW_SERIES card=${cardItem.tmdbDebug()} progressSeries=${progress.seriesName} episode=${episode.tmdbDebug()}")
-    if (episode == null) {
+    val seriesName = episode?.seriesName ?: progress.seriesName ?: cardItem.seriesName ?: cardItem.title
+    if (seriesName.isNullOrBlank()) {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la serie", Toast.LENGTH_SHORT).show() }
         return
     }
-    val seriesName = episode.seriesName ?: progress.seriesName ?: cardItem.seriesName ?: cardItem.title
-    val allEpisodes = repository.loadSeriesEpisodes(seriesName)
+    val allEpisodes = try {
+        repository.loadSeriesEpisodes(seriesName)
+    } catch (e: Exception) {
+        Log.e(TAG, "loadSeriesEpisodes failed for '$seriesName'", e)
+        emptyList()
+    }
+    if (allEpisodes.isEmpty()) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(requireContext(), "No se pudieron cargar los episodios", Toast.LENGTH_SHORT).show()
+        }
+        return
+    }
     val logicalEpisodes = allEpisodes
         .groupBy { Triple(it.seriesName, it.seasonNumber, it.episodeNumber) }
         .values
@@ -94,14 +115,21 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         }
         .sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
 
+    val targetEpisode = logicalEpisodes.firstOrNull {
+        it.seasonNumber == progress.seasonNumber && it.episodeNumber == progress.episodeNumber
+    } ?: logicalEpisodes.firstOrNull()
+    if (targetEpisode == null) {
+        withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se encontró el episodio", Toast.LENGTH_SHORT).show() }
+        return
+    }
+
     val currentIndex = logicalEpisodes.indexOfFirst {
-        it.seriesName == episode.seriesName && it.seasonNumber == episode.seasonNumber && it.episodeNumber == episode.episodeNumber
+        it.seriesName == targetEpisode.seriesName && it.seasonNumber == targetEpisode.seasonNumber && it.episodeNumber == targetEpisode.episodeNumber
     }
 
     val nextEpisodeCallback: (() -> Unit)? = if (currentIndex >= 0 && currentIndex < logicalEpisodes.lastIndex) {
         {
             openContinueWatchingItem(cardItem, progress.copy(
-                contentId = logicalEpisodes[currentIndex + 1].providerId ?: logicalEpisodes[currentIndex + 1].stableId,
                 seasonNumber = logicalEpisodes[currentIndex + 1].seasonNumber,
                 episodeNumber = logicalEpisodes[currentIndex + 1].episodeNumber,
                 seriesName = logicalEpisodes[currentIndex + 1].seriesName,
@@ -114,7 +142,6 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     val previousEpisodeCallback: (() -> Unit)? = if (currentIndex > 0) {
         {
             openContinueWatchingItem(cardItem, progress.copy(
-                contentId = logicalEpisodes[currentIndex - 1].providerId ?: logicalEpisodes[currentIndex - 1].stableId,
                 seasonNumber = logicalEpisodes[currentIndex - 1].seasonNumber,
                 episodeNumber = logicalEpisodes[currentIndex - 1].episodeNumber,
                 seriesName = logicalEpisodes[currentIndex - 1].seriesName,
@@ -124,7 +151,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         }
     } else null
 
-    val stream = episode.streamOptions.firstOrNull() ?: run {
+    val stream = targetEpisode.streamOptions.firstOrNull() ?: run {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No hay streams disponibles", Toast.LENGTH_SHORT).show() }
         return
     }
@@ -132,14 +159,14 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     withContext(Dispatchers.Main) {
         val playerFragment = PlayerFragment()
         playerFragment.initialize(
-            streamUrl = stream.url, overlayNumber = episode.kind.name, overlayTitle = episode.title,
-            overlayMeta = if (episode.kind == ContentKind.SERIES) buildEpisodeLabel(episode.seasonNumber, episode.episodeNumber) else episode.subtitle, contentKind = episode.kind,
+            streamUrl = stream.url, overlayNumber = targetEpisode.kind.name, overlayTitle = targetEpisode.title,
+            overlayMeta = if (targetEpisode.kind == ContentKind.SERIES) buildEpisodeLabel(targetEpisode.seasonNumber, targetEpisode.episodeNumber) else targetEpisode.subtitle, contentKind = targetEpisode.kind,
             onNavigateChannel = { false }, onNavigateOption = { false }, onDirectChannelNumber = { false },
             onToggleFavorite = { false }, onOpenFavorites = { false }, onOpenRecents = { false },
             onNextEpisode = nextEpisodeCallback,
             onPreviousEpisode = previousEpisodeCallback,
-            allSeriesEpisodes = allEpisodes, currentEpisode = episode,
-            overlayLogoUrl = episode.preferredVodPosterUrl(), contentId = episode.providerId ?: progress.contentId,
+            allSeriesEpisodes = allEpisodes, currentEpisode = targetEpisode,
+            overlayLogoUrl = targetEpisode.preferredVodPosterUrl(), contentId = progress.contentId,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
         )
