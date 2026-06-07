@@ -18,6 +18,7 @@ local.properties
 .superpowers/
 replace_vod_grid.py
 docs/superpowers/plans/
+docs/
 .kotlin/
 .playwright-cli
 /.idea/
