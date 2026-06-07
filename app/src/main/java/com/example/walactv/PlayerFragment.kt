@@ -1617,17 +1617,7 @@ class PlayerFragment : Fragment() {
                 true
             }
 
-            KeyEvent.KEYCODE_BACK -> {
-                Log.v(TAG, "FAV_BACK_FRAG: isMenuFocused=${isMenuFocused()}")
-                if (isMenuFocused()) {
-                    playerView.requestFocus()
-                    hideOverlay()
-                    true
-                } else {
-                    releasePlayer()
-                    true
-                }
-            }
+            KeyEvent.KEYCODE_BACK -> false
 
             else -> false
         }
