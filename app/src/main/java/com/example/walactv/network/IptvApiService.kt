@@ -70,7 +70,7 @@ interface IptvApiService {
         @Path("name") name: String,
         @Query("page") page: Int = 1,
         @Query("page_size") pageSize: Int = 100,
-    ): Response<List<CatalogItemResponse>>
+    ): Response<SeriesEpisodesResponse>
 
     // Search
     @GET("api/search")

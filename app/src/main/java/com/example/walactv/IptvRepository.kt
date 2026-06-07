@@ -312,7 +312,17 @@ class IptvRepository @Inject constructor(context: Context) {
                     Log.e(TAG, "loadSeriesEpisodes: HTTP ${response.code()} for '$seriesName' page $page")
                     break
                 }
-                val dtos = response.body().orEmpty()
+                val body = response.body()
+                val dtos = if (body != null) {
+                    body.items.ifEmpty { body.episodes }
+                } else {
+                    emptyList()
+                }
+                if (body == null) {
+                    Log.e(TAG, "loadSeriesEpisodes: null body for '$seriesName' page $page")
+                } else if (dtos.isEmpty()) {
+                    Log.d(TAG, "loadSeriesEpisodes: empty episodes for '$seriesName' page $page (total=${body.totalEpisodes})")
+                }
                 val parsed = dtos.map { it.toCatalogItem(ContentKind.SERIES) }
                 Log.d(TAG, "loadSeriesEpisodes: page $page returned ${parsed.size} items")
                 items += parsed
@@ -519,7 +529,7 @@ class IptvRepository @Inject constructor(context: Context) {
                 else -> ContentKind.CHANNEL
             }
         }
-        val rawId = (id?.toString() ?: channelId?.toString()).orEmpty()
+        val rawId = (id?.toString() ?: episodeId?.toString() ?: channelId?.toString()).orEmpty()
         val providerIdStr = providerId?.toString()?.takeIf { it.isNotBlank() }
         val stableIdValue = providerIdStr ?: rawId
         val stableId = if (kind == ContentKind.EVENT) stableIdValue else "${kind.name.lowercase()}:$stableIdValue"
@@ -601,13 +611,23 @@ class IptvRepository @Inject constructor(context: Context) {
             seriesKey = null,
             seasonNumber = this@toCatalogItem.seasonNumber,
             episodeNumber = this@toCatalogItem.episodeNumber,
-            streamOptions = listOfNotNull(
-                streamUrl.orEmpty().takeIf { it.isNotBlank() }?.let {
-                    StreamOption(
-                        label = "Directo",
-                        url = it,
-                    )
-                },
+            streamOptions = (
+                listOfNotNull(
+                    streamUrl.orEmpty().takeIf { it.isNotBlank() }?.let {
+                        StreamOption(
+                            label = "Directo",
+                            url = it,
+                        )
+                    },
+                ) +
+                    streams.orEmpty().mapNotNull { s ->
+                        s.url.takeIf { !it.isNullOrBlank() }?.let {
+                            StreamOption(
+                                label = s.label ?: "Ver",
+                                url = it,
+                            )
+                        }
+                    }
             ),
             overviewEn = overviewEn?.takeIf { it.isNotBlank() },
             voteAverage = (voteAverage ?: rating)?.toFloat(),

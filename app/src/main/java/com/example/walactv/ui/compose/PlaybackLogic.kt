@@ -73,7 +73,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: Cata
     }
     withContext(Dispatchers.Main) {
         activePlaybackLineup = emptyList()
-        playResolvedCatalogItem(item, 0)
+        playResolvedCatalogItem(item, 0, positionMs = progress.positionMs)
         // Sobrescribir con cardItem CW para que vuelva a la card correcta
         rememberPlaybackReturnState(cardItem)
     }
@@ -130,24 +130,30 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
 
     val nextEpisodeCallback: (() -> Unit)? = if (currentIndex >= 0 && currentIndex < logicalEpisodes.lastIndex) {
         {
+            val nextEp = logicalEpisodes[currentIndex + 1]
             openContinueWatchingItem(cardItem, progress.copy(
-                seasonNumber = logicalEpisodes[currentIndex + 1].seasonNumber,
-                episodeNumber = logicalEpisodes[currentIndex + 1].episodeNumber,
-                seriesName = logicalEpisodes[currentIndex + 1].seriesName,
-                title = logicalEpisodes[currentIndex + 1].title,
-                imageUrl = logicalEpisodes[currentIndex + 1].imageUrl,
+                contentId = nextEp.providerId ?: nextEp.stableId,
+                positionMs = 0,
+                seasonNumber = nextEp.seasonNumber,
+                episodeNumber = nextEp.episodeNumber,
+                seriesName = nextEp.seriesName,
+                title = nextEp.title,
+                imageUrl = nextEp.imageUrl,
             ))
         }
     } else null
 
     val previousEpisodeCallback: (() -> Unit)? = if (currentIndex > 0) {
         {
+            val prevEp = logicalEpisodes[currentIndex - 1]
             openContinueWatchingItem(cardItem, progress.copy(
-                seasonNumber = logicalEpisodes[currentIndex - 1].seasonNumber,
-                episodeNumber = logicalEpisodes[currentIndex - 1].episodeNumber,
-                seriesName = logicalEpisodes[currentIndex - 1].seriesName,
-                title = logicalEpisodes[currentIndex - 1].title,
-                imageUrl = logicalEpisodes[currentIndex - 1].imageUrl,
+                contentId = prevEp.providerId ?: prevEp.stableId,
+                positionMs = 0,
+                seasonNumber = prevEp.seasonNumber,
+                episodeNumber = prevEp.episodeNumber,
+                seriesName = prevEp.seriesName,
+                title = prevEp.title,
+                imageUrl = prevEp.imageUrl,
             ))
         }
     } else null
@@ -167,7 +173,8 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
             onNextEpisode = nextEpisodeCallback,
             onPreviousEpisode = previousEpisodeCallback,
             allSeriesEpisodes = allEpisodes, currentEpisode = targetEpisode,
-            overlayLogoUrl = targetEpisode.preferredVodPosterUrl(), contentId = progress.contentId,
+            overlayLogoUrl = targetEpisode.preferredVodPosterUrl(), contentId = targetEpisode.providerId ?: targetEpisode.stableId,
+            positionMs = progress.positionMs,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
         )
@@ -195,7 +202,7 @@ internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex:
     playResolvedCatalogItem(item, optionIndex, showOptionsOnStart)
 }
 
-internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false) {
+internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false, positionMs: Long = 0) {
     val stream = item.streamOptions.getOrNull(optionIndex) ?: return
     rememberPlaybackReturnState(item)
     currentItem = item
@@ -236,6 +243,7 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
         } else {
             item.providerId ?: item.stableId
         },
+        positionMs = positionMs,
         onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
         onProgressSaved = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
             { progressItem -> upsertContinueWatchingEntry(progressItem) }

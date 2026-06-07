@@ -14,6 +14,7 @@ data class CatalogPageResponse(
 
 data class CatalogItemDto(
     val id: Any? = null,
+    @SerializedName("episode_id") val episodeId: Any? = null,
     @SerializedName("channel_id") val channelId: Any? = null,
     @SerializedName("provider_id") val providerId: Any? = null,
     val nombre: String? = null,
@@ -52,7 +53,7 @@ data class CatalogItemDto(
     @SerializedName("season_number") val seasonNumber: Int? = null,
     @SerializedName("episode_number") val episodeNumber: Int? = null,
     @SerializedName("serie_name") val serieName: String? = null,
-    val streams: List<StreamDto>? = null,
+    @SerializedName("stream_options") val streams: List<StreamDto>? = null,
     @SerializedName("stream_url") val streamUrl: String? = null,
     val country: String? = null,
     @SerializedName("channel_number") val channelNumber: Int? = null,

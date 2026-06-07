@@ -76,6 +76,7 @@ class PlayerFragment : Fragment() {
     private var overlayLogoUrl: String = ""
     private var isFavorite: Boolean = false
     private var contentId: String = ""
+    private var _positionMs: Long = 0
     private var onPlayerClosed: (() -> Unit)? = null
     private var onProgressSaved: ((WatchProgressItem) -> Unit)? = null
     private var customHeaders: Map<String, String> = emptyMap()
@@ -108,6 +109,7 @@ class PlayerFragment : Fragment() {
         overlayLogoUrl: String = "",
         isFavorite: Boolean = false,
         contentId: String = "",
+        positionMs: Long = 0,
         onPlayerClosed: (() -> Unit)? = null,
         onProgressSaved: ((WatchProgressItem) -> Unit)? = null,
         customHeaders: Map<String, String> = emptyMap(),
@@ -139,6 +141,7 @@ class PlayerFragment : Fragment() {
         this.isFavorite = isFavorite
         this.isFavoriteState = isFavorite
         this.contentId = contentId
+        this._positionMs = positionMs
         this.onPlayerClosed = onPlayerClosed
         this.onProgressSaved = onProgressSaved
         this.customHeaders = customHeaders
@@ -473,6 +476,10 @@ class PlayerFragment : Fragment() {
                     exoPlayer.addListener(PlayerListener())
                     exoPlayer.setMediaItem(createMediaItem(streamUrl))
                     exoPlayer.prepare()
+                    if (_positionMs > 0L) {
+                        Log.d(TAG, "Seeking to saved position: ${_positionMs}ms for $contentId")
+                        exoPlayer.seekTo(_positionMs)
+                    }
                     exoPlayer.playWhenReady = true
                 }
 
