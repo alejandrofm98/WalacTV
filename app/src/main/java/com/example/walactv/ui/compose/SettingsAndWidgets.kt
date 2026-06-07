@@ -1,7 +1,5 @@
 package com.example.walactv.ui.compose
 
-import android.graphics.Color as AndroidColor
-import android.graphics.drawable.Drawable
 import android.util.Log
 import android.widget.ImageView
 import android.widget.Toast
@@ -24,21 +22,20 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import com.example.walactv.NativeSearchBar
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
-import com.bumptech.glide.Glide
-import com.bumptech.glide.load.DataSource
-import com.bumptech.glide.load.engine.DiskCacheStrategy
-import com.bumptech.glide.load.engine.GlideException
-import com.bumptech.glide.request.RequestListener
-import com.bumptech.glide.request.target.Target
+import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.walactv.AppUpdateAvailability
 import com.example.walactv.CatalogFilterOption
 import com.example.walactv.ChangelogDialog
@@ -210,58 +207,26 @@ internal fun RemoteImage(
     disableCache: Boolean = false,
     adjustViewBounds: Boolean = false,
 ) {
-    AndroidView(
-        factory = { context ->
-            ImageView(context).apply {
-                this.scaleType = scaleType
-                setBackgroundColor(AndroidColor.TRANSPARENT)
-                if (adjustViewBounds) this.adjustViewBounds = true
-            }
-        },
-        update = { iv ->
-            iv.scaleType = scaleType
-            if (adjustViewBounds) iv.adjustViewBounds = true
-            val requestBuilder = Glide.with(iv.context.applicationContext).load(url)
-            val request = if (adjustViewBounds) {
-                requestBuilder
-            } else {
-                requestBuilder.override(width, height).dontTransform()
-            }
-            val requestWithListener = request.listener(object : RequestListener<Drawable> {
-                override fun onLoadFailed(
-                    e: GlideException?,
-                    model: Any?,
-                    target: Target<Drawable>,
-                    isFirstResource: Boolean,
-                ): Boolean {
-                    Log.w(
-                        "RemoteImage",
-                        "load failed url=${url.take(240)} model=$model size=${width}x$height error=${e?.message}",
-                        e,
-                    )
-                    return false
-                }
+    val contentScale = when (scaleType) {
+        ImageView.ScaleType.CENTER_CROP -> ContentScale.Crop
+        ImageView.ScaleType.FIT_CENTER -> ContentScale.Fit
+        ImageView.ScaleType.CENTER_INSIDE -> ContentScale.Fit
+        else -> ContentScale.Crop
+    }
 
-                override fun onResourceReady(
-                    resource: Drawable,
-                    model: Any,
-                    target: Target<Drawable>?,
-                    dataSource: DataSource,
-                    isFirstResource: Boolean,
-                ): Boolean {
-                    return false
+    AsyncImage(
+        model = ImageRequest.Builder(LocalContext.current)
+            .data(url)
+            .crossfade(true)
+            .apply {
+                if (disableCache) {
+                    memoryCachePolicy(CachePolicy.DISABLED)
+                    diskCachePolicy(CachePolicy.DISABLED)
                 }
-            })
-            val finalRequest = if (disableCache) {
-                requestWithListener
-                    .skipMemoryCache(true)
-                    .diskCacheStrategy(DiskCacheStrategy.NONE)
-            } else {
-                requestWithListener
             }
-            finalRequest.into(iv)
-        },
-        onRelease = { iv -> runCatching { Glide.with(iv.context.applicationContext).clear(iv) }.onFailure { Log.w("RemoteImage", "Could not clear image", it) } },
+            .build(),
+        contentDescription = null,
+        contentScale = contentScale,
         modifier = if (adjustViewBounds) Modifier.fillMaxHeight() else Modifier.fillMaxSize(),
     )
 }
@@ -280,6 +245,7 @@ internal fun FilterTopBar(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     searchFocusRequester: FocusRequester,
+    onSearchImeDismissed: () -> Unit = {},
     idiomaLabel: String = "País",
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -288,7 +254,7 @@ internal fun FilterTopBar(
         }
         FilterChip(label = "Grupo: $selectedGrupo", focusRequester = grupoFocusRequester, onClick = onGrupoClicked)
         Spacer(Modifier.weight(1f))
-        SearchBar(query = searchQuery, onQueryChange = onSearchQueryChange, focusRequester = searchFocusRequester)
+        SearchBar(query = searchQuery, onQueryChange = onSearchQueryChange, focusRequester = searchFocusRequester, onImeDismissed = onSearchImeDismissed)
     }
 }
 
@@ -318,39 +284,16 @@ private fun FilterChip(label: String, focusRequester: FocusRequester, onClick: (
     }
 }
 
-@Composable
-private fun SearchBar(query: String, onQueryChange: (String) -> Unit, focusRequester: FocusRequester) {
-    var isFocused by remember { mutableStateOf(false) }
-    Box(
-        modifier = Modifier.width(260.dp).height(40.dp)
-            .background(if (isFocused) IptvFocusBg else IptvBackground, RoundedCornerShape(8.dp))
-            .border(if (isFocused) 2.dp else 1.dp, if (isFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(8.dp))
-            .focusRequester(focusRequester).onFocusChanged { isFocused = it.isFocused }
-            .padding(horizontal = 14.dp),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Search,
-                contentDescription = "Buscar",
-                tint = IptvTextMuted,
-                modifier = Modifier.size(16.dp)
-            )
-            BasicTextField(
-                value = query, onValueChange = onQueryChange, singleLine = true,
-                textStyle = TextStyle(color = IptvTextPrimary, fontSize = 14.sp),
-                modifier = Modifier.fillMaxWidth(),
-                decorationBox = { inner ->
-                    if (query.isEmpty()) Text("Buscar...", color = IptvTextMuted, fontSize = 14.sp)
-                    inner()
-                },
-            )
-        }
+    @Composable
+    private fun SearchBar(query: String, onQueryChange: (String) -> Unit, focusRequester: FocusRequester, onImeDismissed: () -> Unit = {}) {
+        NativeSearchBar(
+            query = query,
+            onQueryChange = onQueryChange,
+            focusRequester = focusRequester,
+            onImeDismissed = onImeDismissed,
+            modifier = Modifier.width(260.dp),
+        )
     }
-}
 
 // ── Filter dialog ──────────────────────────────────────────────────────────
 
@@ -371,7 +314,7 @@ internal fun FilterDialog(
         ) {
             Text(title, color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(options) { option ->
+                items(options, key = { it.value }) { option ->
                     var isFocused by remember { mutableStateOf(false) }
                     val isSelected = option.value == selectedOption
                     Row(

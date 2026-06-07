@@ -2,55 +2,63 @@ package com.example.walactv
 
 import android.content.Context
 import android.util.Log
+import com.example.walactv.network.AuthInterceptor
+import com.example.walactv.network.IptvApiService
+import com.example.walactv.network.dto.CatalogItemDto
+import com.example.walactv.network.dto.CalendarEventDto
+import com.example.walactv.network.dto.CanalResueltoDto
+import com.example.walactv.network.dto.FilterOptionsResponse
+import com.example.walactv.network.dto.HomeCatalogResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URLEncoder
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class IptvRepository(context: Context) {
+@Singleton
+class IptvRepository @Inject constructor(context: Context) {
 
     private val appContext = context.applicationContext
     private val m3uCatalogStore = M3uCatalogStore(appContext)
-    private val credentialStore = CredentialStore(appContext)
-    private var accessToken: String? = null
+
+    private val appComponent = (appContext as WalacApp).appComponent
+    private val apiService: IptvApiService = appComponent.apiService
+    private val authInterceptor: AuthInterceptor = appComponent.authInterceptor
 
     // ── Caches ────────────────────────────────────────────────────────────────
 
-    /** Clave: "<KIND>|<country>" — country vacío = sin filtro de país */
     private val filterCache = mutableMapOf<String, CatalogFilters>()
 
     @Volatile private var memoryHomeCatalog: HomeCatalog? = null
 
-    // ── Credenciales / sesión ─────────────────────────────────────────────────
+    // ── Credenciales / sesion ─────────────────────────────────────────────────
 
-    fun hasStoredCredentials(): Boolean = credentialStore.hasCredentials()
-    fun currentUsername(): String = credentialStore.username()
-    fun currentPassword(): String = credentialStore.password()
+    fun hasStoredCredentials(): Boolean = CredentialStore.hasCredentials()
+    fun currentUsername(): String = CredentialStore.username()
+    fun currentPassword(): String = CredentialStore.password()
 
     suspend fun signIn(username: String, password: String) {
         val user = username.trim()
         val pass = password.trim()
-        require(user.isNotBlank() && pass.isNotBlank()) { "Introduce usuario y contraseña" }
+        require(user.isNotBlank() && pass.isNotBlank()) { "Introduce usuario y contrasena" }
         require(isBaseUrlConfigured()) { "Falta configurar walactv.iptvBaseUrl en local.properties" }
 
         Log.d(TAG, "Intentando login en ${BuildConfig.IPTV_BASE_URL} con usuario ${maskUsername(user)}")
         try {
-            val response = postForm(
-                url = "${BuildConfig.IPTV_BASE_URL}/api/auth/login",
-                body = buildFormBody("username" to user, "password" to pass),
-            )
-            accessToken = response.getString("access_token")
-            credentialStore.save(user, pass)
+            val response = apiService.login(user, pass)
+            if (!response.isSuccessful) {
+                throw IllegalStateException("HTTP ${response.code()}: ${response.errorBody()?.string()}")
+            }
+            val token = response.body()?.access_token
+                ?: response.body()?.token
+                ?: response.body()?.access
+                ?: throw IllegalStateException("Respuesta de login sin access_token")
+            authInterceptor.token = token
+            CredentialStore.save(user, pass)
             clearAllCaches()
             m3uCatalogStore.clearAllCache()
             Log.d(TAG, "Login correcto para ${maskUsername(user)}")
@@ -61,8 +69,8 @@ class IptvRepository(context: Context) {
     }
 
     fun signOut() {
-        accessToken = null
-        credentialStore.clear()
+        authInterceptor.token = null
+        CredentialStore.clear()
         clearAllCaches()
         m3uCatalogStore.clearAllCache()
     }
@@ -103,10 +111,10 @@ class IptvRepository(context: Context) {
 
             coroutineScope {
                 val eventsDeferred = async {
-                    safeSectionLoad("eventos") { fetchEventSections(getAccessToken()) }
+                    safeSectionLoad("eventos") { fetchEventSections() }
                 }
                 val remoteDeferred = async {
-                    runCatching { fetchRemoteHomeCatalog(getAccessToken()) }
+                    runCatching { fetchRemoteHomeCatalog() }
                         .onFailure { Log.e(TAG, "Fallo cargando home remota", it) }
                         .getOrDefault(HomeCatalog(emptyList(), emptyList(), null))
                 }
@@ -125,7 +133,7 @@ class IptvRepository(context: Context) {
         }
 
     suspend fun loadEventsOnly(): HomeCatalog = withContext(Dispatchers.IO) {
-        val sections = safeSectionLoad("eventos") { fetchEventSections(getAccessToken()) }
+        val sections = safeSectionLoad("eventos") { fetchEventSections() }
         val resolved = sections.map { s -> s.copy(items = resolveStreamTemplates(s.items)) }
         HomeCatalog(
             sections = resolved,
@@ -140,7 +148,6 @@ class IptvRepository(context: Context) {
             return@withContext
         }
 
-        val token = getAccessToken()
         val favoriteId = item.providerId
             ?.takeIf { it.isNotBlank() }
             ?: item.stableId.substringAfter("channel:", item.stableId)
@@ -149,18 +156,9 @@ class IptvRepository(context: Context) {
         Log.d(TAG, "FAV_API: START id=${item.stableId} providerId=$favoriteId favorite=$isFavorite")
         try {
             if (isFavorite) {
-                requestJson(
-                    method = "POST",
-                    url = "${BuildConfig.IPTV_BASE_URL}/api/channel-favorites",
-                    token = token,
-                    body = JSONObject().put("channel_provider_id", favoriteId),
-                )
+                apiService.addFavorite(favoriteId)
             } else {
-                requestJson(
-                    method = "DELETE",
-                    url = "${BuildConfig.IPTV_BASE_URL}/api/channel-favorites/${encodePathSegment(favoriteId)}",
-                    token = token,
-                )
+                apiService.removeFavorite(favoriteId)
             }
             Log.d(TAG, "FAV_API: OK id=${item.stableId} favorite=$isFavorite")
         } catch (e: Exception) {
@@ -171,15 +169,6 @@ class IptvRepository(context: Context) {
 
     // ── Filtros ───────────────────────────────────────────────────────────────
 
-    /**
-     * Carga los filtros disponibles para un tipo de contenido.
-     *
-     * - Primera llamada (sin [country]): obtiene países Y todos los grupos.
-     * - Llamada tras seleccionar país ([country] != null): refresca solo los grupos
-     *   para ese país y devuelve los mismos países ya cacheados.
-     *
-     * Los resultados se cachean con clave "<KIND>|<country>".
-     */
     suspend fun loadCatalogFilters(
         kind: ContentKind,
         country: String? = null,
@@ -190,41 +179,40 @@ class IptvRepository(context: Context) {
         filterCache[cacheKey]?.let { return@withContext it }
 
         val contentType = kind.toApiType()
-        val token = getAccessToken()
 
         val countries: List<CatalogFilterOption>
         val countriesForGroupQuery: String
 
         if (country == null) {
-            // Primera carga: traemos países y construimos la query con todos ellos
-            val payload = getJsonObject(
-                url = "${BuildConfig.IPTV_BASE_URL}/api/content/countries?content_type=$contentType",
-                token = token,
-            )
-            countries = parseRemoteFilterOptions(payload, "countries")
+            val response = apiService.getCountries(contentType)
+            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+            val payload = response.body() ?: FilterOptionsResponse()
+            countries = payload.countries.map { CatalogFilterOption(value = it.value, label = it.label) }
             countriesForGroupQuery = countries.joinToString(",", transform = CatalogFilterOption::value)
         } else {
-            // El usuario seleccionó un país: reutilizamos los países ya cacheados
             val baseKey = "${kind.name}|"
             countries = filterCache[baseKey]?.countries ?: run {
-                val payload = getJsonObject(
-                    url = "${BuildConfig.IPTV_BASE_URL}/api/content/countries?content_type=$contentType",
-                    token = token,
-                )
-                parseRemoteFilterOptions(payload, "countries")
+                val response = apiService.getCountries(contentType)
+                if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+                val payload = response.body() ?: FilterOptionsResponse()
+                payload.countries.map { CatalogFilterOption(value = it.value, label = it.label) }
             }
             countriesForGroupQuery = country
         }
 
-        val groupsPayload = getJsonObject(
-            url = buildGroupsUrl(contentType, countriesForGroupQuery),
-            token = token,
-        )
+        val groupsResponse = if (countriesForGroupQuery.isNotBlank()) {
+            apiService.getGroups(contentType, countriesForGroupQuery)
+        } else {
+            apiService.getGroups(contentType)
+        }
+        if (!groupsResponse.isSuccessful) throw IllegalStateException("HTTP ${groupsResponse.code()}")
+        val groupsPayload = groupsResponse.body() ?: FilterOptionsResponse()
+
         val groups = if (kind == ContentKind.CHANNEL) {
             listOf(CatalogFilterOption(FAVORITES_FILTER_VALUE, FAVORITES_FILTER_LABEL)) +
-                parseRemoteFilterOptions(groupsPayload, "groups")
+                groupsPayload.groups.map { CatalogFilterOption(value = it.value, label = it.label) }
         } else {
-            parseRemoteFilterOptions(groupsPayload, "groups")
+            groupsPayload.groups.map { CatalogFilterOption(value = it.value, label = it.label) }
         }
 
         CatalogFilters(countries = countries, groups = groups)
@@ -233,12 +221,6 @@ class IptvRepository(context: Context) {
 
     // ── Contenido paginado ────────────────────────────────────────────────────
 
-    /**
-     * Carga una página de contenido.
-     *
-     * Úsalo para la carga inicial (page=1) y para la paginación lazy cuando el
-     * usuario llega al final de la lista (page=N).  Tamaño de página fijo: 50.
-     */
     suspend fun loadCatalogPage(
         kind: ContentKind,
         page: Int,
@@ -250,51 +232,61 @@ class IptvRepository(context: Context) {
             return@withContext RemoteCatalogPage(emptyList(), 0, page, 0, 0, false, false)
         }
 
-        val token = getAccessToken()
         if (kind == ContentKind.CHANNEL && group == FAVORITES_FILTER_VALUE) {
-            val payload = getJsonObject(
-                url = "${BuildConfig.IPTV_BASE_URL}/api/channel-favorites",
-                token = token,
-            )
-            val parsed = parseRemoteCatalogPage(payload, expectedKind = ContentKind.CHANNEL)
-            return@withContext parsed.copy(
-                items = resolveStreamTemplates(parsed.items).distinctBy(CatalogItem::stableId),
+            val response = apiService.getFavorites()
+            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+            val items = response.body().orEmpty().map { it.toCatalogItem(ContentKind.CHANNEL) }
+            val resolved = resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
+            return@withContext RemoteCatalogPage(
+                items = resolved,
+                total = resolved.size,
                 page = 1,
-                pageSize = parsed.items.size,
+                pageSize = resolved.size,
                 pages = 1,
                 hasNext = false,
                 hasPrev = false,
             )
         }
 
-        val url = buildContentUrl(kind.toApiType(), page, country, group, search)
-        val payload = getJsonObject(url = url, token = token)
-        val parsed = parseRemoteCatalogPage(payload, expectedKind = kind)
-        parsed.copy(items = resolveStreamTemplates(parsed.items).distinctBy(CatalogItem::stableId))
+        val response = apiService.getCatalogPage(
+            contentType = kind.toApiType(),
+            country = country?.takeIf { it.isNotBlank() },
+            group = group?.takeIf { it.isNotBlank() },
+            search = search?.takeIf { it.isNotBlank() },
+            page = page,
+            pageSize = PAGE_SIZE,
+        )
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+        val payload = response.body() ?: throw IllegalStateException("Empty response body")
+        val items = payload.items.map { it.toCatalogItem(kind) }
+        val resolved = resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
+        RemoteCatalogPage(
+            items = resolved,
+            total = payload.total,
+            page = payload.page,
+            pageSize = payload.pageSize,
+            pages = payload.pages,
+            hasNext = payload.hasNext,
+            hasPrev = payload.hasPrev,
+        )
     }
 
     suspend fun loadFavoriteChannels(): List<CatalogItem> = withContext(Dispatchers.IO) {
-        val token = getAccessToken()
-        val payload = getJsonObject(
-            url = "${BuildConfig.IPTV_BASE_URL}/api/channel-favorites",
-            token = token,
-        )
-        val parsed = parseRemoteCatalogPage(payload, expectedKind = ContentKind.CHANNEL)
-        resolveStreamTemplates(parsed.items).distinctBy(CatalogItem::stableId)
+        val response = apiService.getFavorites()
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+        val items = response.body().orEmpty().map { it.toCatalogItem(ContentKind.CHANNEL) }
+        resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
     }
 
-    // ── Búsqueda ──────────────────────────────────────────────────────────────
+    // ── Busqueda ──────────────────────────────────────────────────────────────
 
     suspend fun fetchContentItem(kind: ContentKind, itemId: String): CatalogItem? = withContext(Dispatchers.IO) {
         if (itemId.isBlank() || kind == ContentKind.EVENT || kind == ContentKind.CHANNEL) return@withContext null
-        val token = getAccessToken()
-        val pass = credentialStore.password()
-        val passParam = if (pass.isNotBlank()) "?password=${URLEncoder.encode(pass, UTF8)}" else ""
-        val payload = getJsonObject(
-            url = "${BuildConfig.IPTV_BASE_URL}/api/content/${kind.toApiType()}/$itemId$passParam",
-            token = token,
-        )
-        resolveStreamTemplates(listOf(parseRemoteCatalogItem(payload, expectedKind = kind))).firstOrNull()
+        val response = apiService.getContentItem(kind.toApiType(), itemId)
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+        val dto = response.body() ?: return@withContext null
+        val item = dto.toCatalogItem(kind)
+        resolveStreamTemplates(listOf(item)).firstOrNull()
     }
 
     // ── Series / episodios ────────────────────────────────────────────────────
@@ -306,26 +298,26 @@ class IptvRepository(context: Context) {
                 return@withContext emptyList()
             }
             Log.d(TAG, "loadSeriesEpisodes: loading episodes for '$seriesName'")
-            val token = getAccessToken()
-            val encoded = encodePathSegment(seriesName)
-            val pass = credentialStore.password()
-            val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
             val items = mutableListOf<CatalogItem>()
             var page = 1
             do {
-                val url = "${BuildConfig.IPTV_BASE_URL}/api/series/$encoded/episodes?page=$page&page_size=100$passParam"
-                Log.d(TAG, "loadSeriesEpisodes: fetching page $page, url=$url")
-                val payload = try {
-                    getJsonObject(url = url, token = token)
+                Log.d(TAG, "loadSeriesEpisodes: fetching page $page")
+                val response = try {
+                    apiService.getSeriesEpisodes(seriesName, page, 100)
                 } catch (e: Exception) {
                     Log.e(TAG, "loadSeriesEpisodes: HTTP error for '$seriesName' page $page: ${e.message}")
                     break
                 }
-                val parsed = parseRemoteCatalogPage(payload, expectedKind = ContentKind.SERIES)
-                Log.d(TAG, "loadSeriesEpisodes: page $page returned ${parsed.items.size} items, hasNext=${parsed.hasNext}")
-                items += parsed.items
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "loadSeriesEpisodes: HTTP ${response.code()} for '$seriesName' page $page")
+                    break
+                }
+                val dtos = response.body().orEmpty()
+                val parsed = dtos.map { it.toCatalogItem(ContentKind.SERIES) }
+                Log.d(TAG, "loadSeriesEpisodes: page $page returned ${parsed.size} items")
+                items += parsed
                 page++
-                if (!parsed.hasNext) break
+                if (parsed.size < 100) break
             } while (true)
             val resolved = resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
             Log.d(TAG, "loadSeriesEpisodes: total ${resolved.size} episodes after deduplication")
@@ -340,30 +332,34 @@ class IptvRepository(context: Context) {
         page: Int,
         pageSize: Int = 12,
         year: Int? = null,
-        sectionTitle: String? = null  // Título de sección del home para paginación consistente
+        sectionTitle: String? = null,
     ): Pair<List<CatalogItem>, Boolean> =
         withContext(Dispatchers.IO) {
             val startTime = System.currentTimeMillis()
-            val token = getAccessToken()
             val country = PreferencesManager.getPreferredLanguageOrDefault()
-            val pass = credentialStore.password()
-            val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
             val effectiveGroup = if (year != null || sectionTitle != null) null else group
-            val groupParam = effectiveGroup?.let { "&group=${URLEncoder.encode(it, UTF8)}" } ?: ""
-            val yearParam = if (year != null) "&year=$year" else ""
-            val sectionParam = sectionTitle?.let { "&section_title=${URLEncoder.encode(it, UTF8)}" } ?: ""
-            val url = "${BuildConfig.IPTV_BASE_URL}/api/content?content_type=$contentType$groupParam&country=${URLEncoder.encode(country, UTF8)}&page=$page&page_size=$pageSize$yearParam$passParam$sectionParam"
+
             Log.d(TAG, "loadContentPage: loading $contentType group=$effectiveGroup year=$year sectionTitle=$sectionTitle page=$page")
-            val payload = getJsonObject(url, token)
+            val response = apiService.getCatalogPage(
+                contentType = contentType,
+                country = country?.takeIf { it.isNotBlank() },
+                group = effectiveGroup?.takeIf { it.isNotBlank() },
+                year = year,
+                section = sectionTitle,
+                page = page,
+                pageSize = pageSize,
+            )
+            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+            val payload = response.body() ?: throw IllegalStateException("Empty response body")
             val expectedKind = when (contentType) {
                 "movies" -> ContentKind.MOVIE
                 "series" -> ContentKind.SERIES
                 else -> null
             }
-            val parsed = parseRemoteCatalogPage(payload, expectedKind)
-            val items = resolveStreamTemplates(parsed.items)
-            Log.d(TAG, "loadContentPage: loaded ${items.size} items in ${System.currentTimeMillis() - startTime}ms, hasNext=${parsed.hasNext}")
-            Pair(items, parsed.hasNext)
+            val items = payload.items.map { it.toCatalogItem(expectedKind) }
+            val resolved = resolveStreamTemplates(items)
+            Log.d(TAG, "loadContentPage: loaded ${resolved.size} items in ${System.currentTimeMillis() - startTime}ms, hasNext=${payload.hasNext}")
+            Pair(resolved, payload.hasNext)
         }
 
     // ── Eventos ───────────────────────────────────────────────────────────────
@@ -376,38 +372,30 @@ class IptvRepository(context: Context) {
         }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Implementación privada
+    // Implementacion privada
     // ══════════════════════════════════════════════════════════════════════════
 
-    private suspend fun fetchRemoteHomeCatalog(token: String): HomeCatalog {
+    private suspend fun fetchRemoteHomeCatalog(): HomeCatalog {
         val country = PreferencesManager.getPreferredLanguageOrDefault()
-        val encoded = URLEncoder.encode(country, Charsets.UTF_8.name())
-        val pass = credentialStore.password()
-        val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
-
-        val payload = getJsonObject(
-            url = "${BuildConfig.IPTV_BASE_URL}/api/home?country=$encoded$passParam",
-            token = token,
-        )
-
-        return resolveStreamTemplates(parseRemoteHomeCatalog(payload))
+        val response = apiService.getHomeCatalog(country)
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+        val payload = response.body() ?: throw IllegalStateException("Empty response body")
+        return resolveStreamTemplates(mapHomeCatalogResponse(payload))
     }
 
-    private suspend fun fetchEventSections(token: String): List<BrowseSection> {
+    private suspend fun fetchEventSections(): List<BrowseSection> {
         val today = DATE_FORMATTER.format(Date())
-        val pass = credentialStore.password()
-        val passParam = if (pass.isNotBlank()) "&password=${URLEncoder.encode(pass, UTF8)}" else ""
-        val cacheBust = System.currentTimeMillis()
-        val url = "${BuildConfig.IPTV_BASE_URL}/api/calendar/$today?client=android&_=$cacheBust$passParam"
-        Log.d(TAG, "fetchEventSections: requesting $url")
-        val payload = getJsonObject(url, token)
-        Log.d(TAG, "fetchEventSections: response keys = ${payload.keys().asSequence().toList()}")
-        val eventsArray = payload.optJSONArray("eventos") ?: JSONArray()
-        Log.d(TAG, "fetchEventSections: eventos count = ${eventsArray.length()}")
-        if (eventsArray.length() == 0) return emptyList()
+        Log.d(TAG, "fetchEventSections: requesting calendar for $today")
+        val response = apiService.getCalendarEvents(
+            date = today,
+            password = CredentialStore.password().ifBlank { null },
+            client = "android",
+        )
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+        val payload = response.body() ?: throw IllegalStateException("Empty response body")
+        Log.d(TAG, "fetchEventSections: eventos=${payload.eventos.size}")
 
-        val items = (0 until eventsArray.length())
-            .mapNotNull { i -> parseCalendarEvent(eventsArray.getJSONObject(i)) }
+        val items = payload.eventos.mapNotNull { mapCalendarEvent(it) }
 
         if (items.isEmpty()) return emptyList()
 
@@ -416,65 +404,75 @@ class IptvRepository(context: Context) {
         }
     }
 
-    private fun parseCalendarEvent(obj: JSONObject): CatalogItem? {
-        val resolvedChannels = obj.optJSONArray("canales_resueltos") ?: JSONArray()
-        val channelRefs = (0 until resolvedChannels.length()).mapNotNull { i ->
-            val ch = resolvedChannels.getJSONObject(i)
-            val id = ch.optString("channel_id").ifBlank { return@mapNotNull null }
-            ChannelRef(
-                channelId = id,
-                displayName = ch.optString("display_name"),
-                quality = ch.optString("quality"),
-                logoUrl = normalizeImageUrl(ch.optString("logo")),
-                streamUrl = ch.optString("stream_url").takeUnless { it == "null" }.orEmpty(),
-                providerId = ch.optString("provider_id").takeUnless { it.isBlank() },
-            )
+    private fun mapCalendarEvent(dto: CalendarEventDto): CatalogItem? {
+        val user = CredentialStore.username()
+        val pass = CredentialStore.password()
+
+        val streamOptions = dto.canalesResueltos
+            .filter { !it.channelId.isNullOrBlank() || !it.providerId.isNullOrBlank() }
+            .distinctBy { it.channelId }
+            .map { canal ->
+                val url = if (!canal.streamUrl.isNullOrBlank()) {
+                    canal.streamUrl
+                } else {
+                    val streamId = canal.providerId?.takeIf { it.isNotBlank() } ?: canal.channelId
+                    "${BuildConfig.IPTV_BASE_URL}/live/$user/$pass/$streamId"
+                }
+                StreamOption(
+                    label = canal.sourceName ?: canal.displayName.orEmpty(),
+                    url = url,
+                    providerId = canal.providerId,
+                )
+            }
+
+        if (streamOptions.isEmpty()) return null
+
+        val title = dto.equipos?.takeIf { it.isNotBlank() } ?: dto.competicion.orEmpty()
+        val group = dto.competicion?.takeIf { it.isNotBlank() }.orEmpty()
+        val subtitle = buildString {
+            append(dto.categoria.orEmpty())
+            if (!dto.subtituloCompeticion.isNullOrBlank()) {
+                if (isNotEmpty()) append(" | ")
+                append(dto.subtituloCompeticion)
+            }
         }
-
-        val options = channelRefs.mapNotNull { ch ->
-            val url = ch.streamUrl.ifBlank { buildChannelUrl(ch.channelId) }
-            if (url.isBlank()) null
-            else StreamOption(
-                label = listOf(ch.displayName, ch.quality).filter(String::isNotBlank).joinToString(" · "),
-                url = url,
-                providerId = ch.providerId,
-            )
-        }.distinctBy(StreamOption::url)
-
-        if (options.isEmpty()) return null
-
-        val eventImageUrl = normalizeImageUrl(obj.optString("imagen_evento"))
-        val channelNames = channelRefs
-            .map { it.displayName.trim() }
-            .filter(String::isNotBlank)
-            .distinctBy { it.lowercase() }
-        val competitionSubtitle = listOf(
-            obj.optString("competicion"),
-            obj.optString("subtitulo_competicion"),
-        ).filter(String::isNotBlank).joinToString(" | ")
+        val badgeText = dto.hora?.takeIf { it.isNotBlank() }.orEmpty()
+        val imageUrl = dto.imagenEvento?.takeIf { it.isNotBlank() }.orEmpty()
+        val channelNames = dto.canalesOriginal.joinToString(" | ")
+        val stableId = dto.id ?: "event_${dto.hora}_${dto.equipos}"
 
         return CatalogItem(
-            stableId = obj.optString("id"),
-            title = obj.optString("equipos"),
-            subtitle = listOf(obj.optString("hora"), competitionSubtitle)
-                .filter(String::isNotBlank).joinToString("  •  "),
-            description = channelNames.joinToString(" · "),
-            imageUrl = eventImageUrl.ifBlank { channelRefs.firstOrNull()?.logoUrl.orEmpty() }
-                .let(::withEventImageCacheBust),
+            stableId = stableId,
+            providerId = dto.id,
+            title = title,
+            subtitle = subtitle,
+            description = channelNames.ifBlank { "" },
+            imageUrl = imageUrl,
             kind = ContentKind.EVENT,
-            group = obj.optString("categoria").ifBlank { "Agenda" },
-            badgeText = obj.optString("hora"),
-            streamOptions = options,
+            group = group,
+            badgeText = badgeText,
+            streamOptions = streamOptions,
         )
     }
 
-    private fun withEventImageCacheBust(url: String): String {
-        if (url.isBlank()) return url
-        val separator = if (url.contains("?")) "&" else "?"
-        return "$url${separator}_=${System.currentTimeMillis()}"
+    private fun mapHomeCatalogResponse(response: HomeCatalogResponse): HomeCatalog {
+        val allSections = response.sections + response.movieSections + response.seriesSections
+        val sections = allSections.map { section ->
+            val items = section.items.map { it.toCatalogItem(null) }
+            BrowseSection(
+                title = section.title.orEmpty(),
+                items = items,
+                contentType = section.contentType,
+                groupName = section.groupName,
+                hasNextPage = section.hasNext,
+            )
+        }
+
+        val searchableItems = sections.flatMap(BrowseSection::items).distinctBy(CatalogItem::stableId)
+        return HomeCatalog(sections = sections, searchableItems = searchableItems, favoriteItems = null)
     }
 
-    // ── Resolución de streams ─────────────────────────────────────────────────
+    // ── Resolucion de streams ─────────────────────────────────────────────────
 
     private fun resolveStreamTemplates(catalog: HomeCatalog): HomeCatalog = HomeCatalog(
         sections = catalog.sections.map { s -> s.copy(items = resolveStreamTemplates(s.items)) },
@@ -483,8 +481,8 @@ class IptvRepository(context: Context) {
     )
 
     private fun resolveStreamTemplates(items: List<CatalogItem>): List<CatalogItem> {
-        val user = credentialStore.username()
-        val pass = credentialStore.password()
+        val user = CredentialStore.username()
+        val pass = CredentialStore.password()
         return items.map { item ->
             item.copy(streamOptions = item.streamOptions.map { opt ->
                 opt.copy(url = resolveStreamTemplate(opt.url, user, pass))
@@ -498,31 +496,6 @@ class IptvRepository(context: Context) {
         return "${BuildConfig.IPTV_BASE_URL}/live/${c.username}/${c.password}/$channelId"
     }
 
-    // ── Construcción de URLs ──────────────────────────────────────────────────
-
-    private fun buildContentUrl(
-        contentType: String,
-        page: Int,
-        country: String?,
-        group: String?,
-        search: String?,
-    ): String = buildString {
-        val pass = credentialStore.password()
-        append("${BuildConfig.IPTV_BASE_URL}/api/content")
-        append("?content_type=$contentType")
-        append("&page=$page")
-        append("&page_size=$PAGE_SIZE")
-        country?.takeIf(String::isNotBlank)?.let { append("&country=${URLEncoder.encode(it, UTF8)}") }
-        group?.takeIf(String::isNotBlank)?.let { append("&group=${URLEncoder.encode(it, UTF8)}") }
-        search?.takeIf(String::isNotBlank)?.let { append("&search=${URLEncoder.encode(it, UTF8)}") }
-        if (pass.isNotBlank()) append("&password=${URLEncoder.encode(pass, UTF8)}")
-    }
-
-    private fun buildGroupsUrl(contentType: String, countries: String): String = buildString {
-        append("${BuildConfig.IPTV_BASE_URL}/api/content/groups?content_type=$contentType")
-        if (countries.isNotBlank()) append("&countries=${URLEncoder.encode(countries, UTF8)}")
-    }
-
     // ── Helpers de ContentKind ────────────────────────────────────────────────
 
     private fun ContentKind.toApiType(): String = when (this) {
@@ -532,157 +505,169 @@ class IptvRepository(context: Context) {
         ContentKind.EVENT   -> error("Los eventos no tienen tipo API")
     }
 
-    // ── Sesión / token ────────────────────────────────────────────────────────
+    // ── DTO -> Domain mapping ─────────────────────────────────────────────────
+
+    private fun CatalogItemDto.toCatalogItem(expectedKind: ContentKind? = null): CatalogItem {
+        val type = (type ?: contentType ?: mediaType).orEmpty().trim().lowercase()
+        val kind = when {
+            type.isBlank() && expectedKind != null -> expectedKind
+            else -> when (type) {
+                "channel", "channels", "live" -> ContentKind.CHANNEL
+                "event" -> ContentKind.EVENT
+                "movie", "movies", "vod" -> ContentKind.MOVIE
+                "series", "serie", "series_group" -> ContentKind.SERIES
+                else -> ContentKind.CHANNEL
+            }
+        }
+        val rawId = (id?.toString() ?: channelId?.toString()).orEmpty()
+        val providerIdStr = providerId?.toString()?.takeIf { it.isNotBlank() }
+        val stableIdValue = providerIdStr ?: rawId
+        val stableId = if (kind == ContentKind.EVENT) stableIdValue else "${kind.name.lowercase()}:$stableIdValue"
+
+        val rawTitle = listOf(nombre, title, name, displayName, channelName)
+            .firstOrNull { !it.isNullOrBlank() }.orEmpty()
+
+        val rawGroup = listOf(grupo, group, subtitle)
+            .firstOrNull { !it.isNullOrBlank() }.orEmpty()
+
+        val normalized = parseNormalizedMetadata(
+            kind = kind,
+            groupTitle = rawGroup,
+            tvgName = rawTitle.replace(Regex("^\\s*\\d{1,5}\\s+"), "").trim(),
+            displayName = rawTitle.replace(Regex("^\\s*\\d{1,5}\\s+"), "").trim(),
+            walacLanguage = country.orEmpty(),
+            walacNameNormalized = "",
+            walacGroupNormalized = "",
+            walacSeriesNameNormalized = serieName.orEmpty(),
+        )
+
+        val descriptionVal = listOf(
+            overview,
+            this.description,
+            subtitle,
+        ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
+
+        val backdropPathVal = tmdbBackdropPath
+            ?: backdrop
+            ?: backdropUrl
+            .takeUnless { it.isNullOrBlank() }.orEmpty()
+        val backdropUrlVal = buildTmdbImageUrl(backdropPathVal, "w1280")
+
+        val tmdbPosterPathVal = (tmdbPosterPath ?: "")
+            .takeIf { it.isNotBlank() && isTmdbImagePath(it) }.orEmpty()
+        val tmdbPosterUrlVal = buildTmdbImageUrl(tmdbPosterPathVal, "w500")
+
+        val releaseDateVal = releaseDate?.takeIf { it.isNotBlank() }
+        val parsedYear = releaseDateVal?.takeIf { it.length >= 4 }?.substring(0, 4)?.toIntOrNull()
+            ?: this@toCatalogItem.year
+
+        val rawImageUrl = listOf(
+            logo, logoUrl, image, imageUrl, poster, posterUrl, backdrop, backdropUrl,
+        ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
+        val imageUrlVal = normalizeRemoteImageUrl(rawImageUrl).ifBlank { tmdbPosterUrlVal.orEmpty() }
+
+        val channelDisplayName = displayName ?: channelName
+        val inferredChannelNumber = Regex("^\\s*(\\d{1,5})\\s+")
+            .find(rawTitle)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+
+        val tmdbTitleVal = listOfNotNull(tmdbTitle, tmdbName)
+            .firstOrNull { it.isNotBlank() }.orEmpty()
+
+        return CatalogItem(
+            stableId = stableId,
+            providerId = providerIdStr,
+            title = tmdbTitleVal.ifBlank {
+                if (kind == ContentKind.CHANNEL) {
+                    channelDisplayName?.replace(Regex("^\\s*\\d{1,5}\\s+"), "")?.trim()
+                        .orEmpty().ifBlank { normalized.displayTitle }
+                } else {
+                    normalized.displayTitle
+                }
+            },
+            normalizedTitle = null,
+            subtitle = normalized.groupTitle.ifBlank { rawGroup },
+            description = descriptionVal.ifBlank { normalized.groupTitle.ifBlank { rawGroup } },
+            imageUrl = imageUrlVal,
+            kind = kind,
+            group = normalized.groupTitle.ifBlank { rawGroup },
+            badgeText = badgeText ?: badge.orEmpty(),
+            channelNumber = channelNumber ?: inferredChannelNumber,
+            languageLabel = normalized.languageLabel?.takeIf { it.isNotBlank() },
+            normalizedGroup = null,
+            seriesName = normalized.seriesName?.takeIf { it.isNotBlank() },
+            seriesKey = null,
+            seasonNumber = this@toCatalogItem.seasonNumber,
+            episodeNumber = this@toCatalogItem.episodeNumber,
+            streamOptions = listOfNotNull(
+                streamUrl.orEmpty().takeIf { it.isNotBlank() }?.let {
+                    StreamOption(
+                        label = "Directo",
+                        url = it,
+                    )
+                },
+            ),
+            overviewEn = overviewEn?.takeIf { it.isNotBlank() },
+            voteAverage = (voteAverage ?: rating)?.toFloat(),
+            voteCount = null,
+            runtimeMinutes = runtimeMinutes,
+            genres = genres.orEmpty(),
+            backdropUrl = backdropUrlVal,
+            tmdbPosterUrl = tmdbPosterUrlVal,
+            tagline = null,
+            releaseDate = releaseDateVal,
+            year = parsedYear,
+            tmdbTitle = tmdbTitleVal.ifBlank { null },
+            totalSeasons = totalSeasons,
+        )
+    }
+
+    private fun isTmdbImagePath(path: String): Boolean {
+        if (path.isBlank()) return false
+        if (path.startsWith("http://image.tmdb.org") || path.startsWith("https://image.tmdb.org")) return true
+        return path.trimStart('/').isNotBlank() && !path.trimStart('/').contains("/")
+    }
+
+    private fun normalizeRemoteImageUrl(url: String): String {
+        if (url.isBlank() || url == "null") return ""
+        val trimmedUrl = url.trim()
+        val normalizedBaseUrl = BuildConfig.IPTV_BASE_URL.trimEnd('/')
+        val normalizedUrl = when {
+            trimmedUrl.startsWith("//") -> "https:$trimmedUrl"
+            trimmedUrl.startsWith("/") -> "$normalizedBaseUrl$trimmedUrl"
+            trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://") -> trimmedUrl
+            else -> "$normalizedBaseUrl/$trimmedUrl"
+        }
+        return normalizedUrl
+            .replace("http://${BuildConfig.IPTV_BASE_URL.removePrefix("https://").removePrefix("http://")}", BuildConfig.IPTV_BASE_URL)
+            .replace("http://image.tmdb.org", "https://image.tmdb.org")
+    }
+
+    // ── Sesion / token ────────────────────────────────────────────────────────
 
     suspend fun getAccessToken(): String {
-        accessToken?.let { return it }
+        authInterceptor.token?.let { return it }
         val c = requireCredentials()
-        val response = postForm(
-            url = "${BuildConfig.IPTV_BASE_URL}/api/auth/login",
-            body = buildFormBody("username" to c.username, "password" to c.password),
-        )
-        return response.getString("access_token").also { accessToken = it }
+        val response = apiService.login(c.username, c.password)
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}: ${response.errorBody()?.string()}")
+        val token = response.body()?.access_token
+            ?: response.body()?.token
+            ?: response.body()?.access
+            ?: throw IllegalStateException("Respuesta de login sin access_token")
+        authInterceptor.token = token
+        return token
     }
 
     private fun requireCredentials(): StoredCredentials {
-        val user = credentialStore.username()
-        val pass = credentialStore.password()
-        check(user.isNotBlank() && pass.isNotBlank()) { "No hay sesión iniciada" }
+        val user = CredentialStore.username()
+        val pass = CredentialStore.password()
+        check(user.isNotBlank() && pass.isNotBlank()) { "No hay sesion iniciada" }
         return StoredCredentials(user, pass)
     }
 
-    // ── HTTP ──────────────────────────────────────────────────────────────────
-
-    private suspend fun getJsonObject(url: String, token: String? = null): JSONObject =
-        withContext(Dispatchers.IO) {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "GET"
-                conn.instanceFollowRedirects = true
-                conn.useCaches = false
-                conn.connectTimeout = 20_000
-                conn.readTimeout = 20_000
-                conn.setRequestProperty("Accept", "application/json")
-                conn.setRequestProperty("Cache-Control", "no-cache")
-                conn.setRequestProperty("Pragma", "no-cache")
-                conn.setRequestProperty("User-Agent", USER_AGENT)
-                token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
-
-                val status = conn.responseCode
-                val body = (if (status in 200..299) conn.inputStream else conn.errorStream ?: conn.inputStream)
-                    .bufferedReader().use(BufferedReader::readText)
-                if (status !in 200..299) throw IllegalStateException("HTTP $status: $body")
-                JSONObject(body).also { json -> logApiPayload(url, status, body, json) }
-            } finally {
-                conn.disconnect()
-            }
-        }
-
-    private fun logApiPayload(url: String, status: Int, body: String, json: JSONObject) {
-        val path = runCatching { URL(url).path }.getOrDefault(url)
-        val shouldLog = path.startsWith("/api/home") ||
-            path.startsWith("/api/content") ||
-            path.startsWith("/api/search") ||
-            body.contains("colores", ignoreCase = true)
-        if (!shouldLog) return
-
-        Log.d(
-            TAG,
-            "TMDB_API status=$status url=${sanitizeDebugUrl(url)} bodyChars=${body.length} " +
-                "rootKeys=${json.keys().asSequence().joinToString(",")} containsColores=${body.contains("colores", ignoreCase = true)} " +
-                "snippet=${body.debugSnippetAround("colores")}",
-        )
-    }
-
-    private fun sanitizeDebugUrl(url: String): String {
-        return url.replace(Regex("([?&]password=)[^&]*", RegexOption.IGNORE_CASE), "$1***")
-    }
-
-    private fun String.debugSnippetAround(term: String): String {
-        val index = indexOf(term, ignoreCase = true)
-        if (index < 0) return take(240)
-        val start = (index - 220).coerceAtLeast(0)
-        val end = (index + 420).coerceAtMost(length)
-        return substring(start, end)
-    }
-
-    private suspend fun postForm(url: String, body: String): JSONObject =
-        withContext(Dispatchers.IO) {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "POST"
-                conn.instanceFollowRedirects = true
-                conn.connectTimeout = 20_000
-                conn.readTimeout = 20_000
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                conn.setRequestProperty("Accept", "application/json")
-                conn.setRequestProperty("User-Agent", USER_AGENT)
-                conn.outputStream.use { it.write(body.toByteArray()) }
-
-                val status = conn.responseCode
-                val response = (if (status in 200..299) conn.inputStream else conn.errorStream ?: conn.inputStream)
-                    .bufferedReader().use(BufferedReader::readText)
-                if (status !in 200..299) throw IllegalStateException("HTTP $status: $response")
-                JSONObject(response)
-            } finally {
-                conn.disconnect()
-            }
-        }
-
-    private suspend fun requestJson(
-        method: String,
-        url: String,
-        token: String,
-        body: JSONObject? = null,
-    ): JSONObject = withContext(Dispatchers.IO) {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        try {
-            conn.requestMethod = method
-            conn.instanceFollowRedirects = true
-            conn.connectTimeout = 20_000
-            conn.readTimeout = 20_000
-            if (body != null) conn.doOutput = true
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("User-Agent", USER_AGENT)
-            conn.setRequestProperty("Authorization", "Bearer $token")
-            if (body != null) conn.setRequestProperty("Content-Type", "application/json")
-
-            if (body != null) {
-                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
-                    writer.write(body.toString())
-                }
-            }
-
-            val status = conn.responseCode
-            val body = (if (status in 200..299) conn.inputStream else conn.errorStream ?: conn.inputStream)
-                .bufferedReader().use(BufferedReader::readText)
-            if (status !in 200..299) throw IllegalStateException("HTTP $status: $body")
-            body.takeIf { it.isNotBlank() }?.let(::JSONObject) ?: JSONObject()
-        } finally {
-            conn.disconnect()
-        }
-    }
-
     // ── Utilidades ────────────────────────────────────────────────────────────
-
-    private fun buildFormBody(vararg pairs: Pair<String, String>): String =
-        pairs.joinToString("&") { (k, v) ->
-            "${URLEncoder.encode(k, UTF8)}=${URLEncoder.encode(v, UTF8)}"
-        }
-
-    private fun encodePathSegment(value: String): String =
-        URLEncoder.encode(value, UTF8).replace("+", "%20")
-
-    private fun normalizeImageUrl(url: String): String {
-        if (url.isBlank() || url == "null") return ""
-        return url
-            .replace(
-                "http://${BuildConfig.IPTV_BASE_URL.removePrefix("https://").removePrefix("http://")}",
-                BuildConfig.IPTV_BASE_URL,
-            )
-            .replace("http://image.tmdb.org", "https://image.tmdb.org")
-    }
 
     private fun isBaseUrlConfigured(): Boolean {
         val base = BuildConfig.IPTV_BASE_URL.trim()
@@ -697,11 +682,11 @@ class IptvRepository(context: Context) {
             msg.contains("timeout", ignoreCase = true) ->
                 "El servidor IPTV ha tardado demasiado en responder"
             msg.contains("HTTP 401", ignoreCase = true) || msg.contains("HTTP 403", ignoreCase = true) ->
-                "Usuario o contraseña incorrectos"
+                "Usuario o contrasena incorrectos"
             msg.contains("HTTP 404", ignoreCase = true) ->
                 "La ruta de login no existe en el servidor configurado"
             msg.isNotBlank() -> msg
-            else -> "No se pudo iniciar sesión"
+            else -> "No se pudo iniciar sesion"
         }
     }
 
@@ -713,19 +698,10 @@ class IptvRepository(context: Context) {
         block: suspend () -> List<BrowseSection>,
     ): List<BrowseSection> =
         runCatching { block() }
-            .onFailure { Log.e(TAG, "Fallo cargando sección $name", it) }
+            .onFailure { Log.e(TAG, "Fallo cargando seccion $name", it) }
             .getOrDefault(emptyList())
 
     // ── Modelos privados ──────────────────────────────────────────────────────
-
-    private data class ChannelRef(
-        val channelId: String,
-        val displayName: String,
-        val quality: String,
-        val logoUrl: String,
-        val streamUrl: String,
-        val providerId: String? = null,
-    )
 
     private data class StoredCredentials(val username: String, val password: String)
 
@@ -733,9 +709,7 @@ class IptvRepository(context: Context) {
 
     companion object {
         private const val TAG = "IptvRepository"
-        private const val USER_AGENT = "WalacTV AndroidTV"
         private const val PAGE_SIZE = 50
-        private const val UTF8 = "UTF-8"
         const val FAVORITES_FILTER_VALUE = "Favorites"
         const val FAVORITES_FILTER_LABEL = "Favoritos"
         private val DATE_FORMATTER = SimpleDateFormat("yyyy-MM-dd", Locale.US)

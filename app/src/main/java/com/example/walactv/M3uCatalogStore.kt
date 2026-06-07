@@ -18,7 +18,6 @@ import java.util.Locale
 
 class M3uCatalogStore(private val context: Context) {
 
-    private val credentialStore = CredentialStore(context)
     private val providerHttpBaseUrl = BuildConfig.IPTV_BASE_URL.removePrefix("https://").removePrefix("http://")
     var progressListener: ((PlaylistLoadProgress) -> Unit)? = null
 
@@ -537,8 +536,8 @@ class M3uCatalogStore(private val context: Context) {
     }
 
     private fun currentCredentials(): StoredCredentials {
-        val username = credentialStore.username()
-        val password = credentialStore.password()
+        val username = CredentialStore.username()
+        val password = CredentialStore.password()
         check(username.isNotBlank() && password.isNotBlank()) {
             "No hay credenciales guardadas"
         }

@@ -260,7 +260,7 @@ internal fun ChannelPickerDialog(
                         }
                     } else {
                         LazyColumn(state = channelListState, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            items(displayChannels.size) { index ->
+                            items(displayChannels.size, key = { displayChannels[it].stableId }) { index ->
                                 val item = displayChannels[index]
                                 val isHighlighted = index == selectedIndex
                                 val isPlaying = fragment.currentItem?.stableId == item.stableId

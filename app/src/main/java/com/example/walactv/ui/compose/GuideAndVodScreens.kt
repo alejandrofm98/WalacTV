@@ -66,6 +66,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
     var isLoadingPage by remember { mutableStateOf(false) }
     val pageSize = 50
     var filteredGroupOptions by remember { mutableStateOf<List<CatalogFilterOption>>(emptyList()) }
+    var forceFocusFirstItem by remember { mutableStateOf(false) }
 
     val countryOptions = remember(kind, fragment.channelFilters) {
         if (isEventGuide) listOf(CatalogFilterOption(ALL_OPTION, "Todos"))
@@ -113,11 +114,14 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
         else displayItems.sortedBy { it.channelNumber ?: Int.MAX_VALUE }
     }
     val itemFocusRequesters = remember(displayItemsForGrid.size) {
+        Log.d("FocusTrace", "itemFocusRequesters RECREATED size=${displayItemsForGrid.size} kind=$kind")
         List(displayItemsForGrid.size) { FocusRequester() }
     }
 
     LaunchedEffect(fragment.contentFocusTrigger, displayItemsForGrid) {
         if (fragment.contentFocusTrigger == 0 || displayItemsForGrid.isEmpty()) return@LaunchedEffect
+        if (searchQuery.isNotBlank()) return@LaunchedEffect
+        if (forceFocusFirstItem) return@LaunchedEffect
         runCatching {
             lazyGridState.scrollToItem(0)
             delay(80.milliseconds)
@@ -127,6 +131,12 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
         }.onFailure {
             Log.w("MainShellFocus", "guide first item requestFocus failed kind=$kind: ${it.message}")
         }
+    }
+
+    LaunchedEffect(fragment.searchBackTrigger) {
+        if (fragment.searchBackTrigger == 0) return@LaunchedEffect
+        Log.d("FocusTrace", "searchBackTrigger fired for $kind -> forceFocus")
+        forceFocusFirstItem = true
     }
 
     LaunchedEffect(displayItemsForGrid, fragment.currentItem) {
@@ -168,6 +178,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
             }
             return@LaunchedEffect
         }
+        if (searchQuery.isNotBlank()) delay(300.milliseconds)
         val key = "$selectedCountry|$selectedGroup|$searchQuery"
         if (key == lastLoadKey) return@LaunchedEffect
         Log.d("GuideContent", "filter changed for $kind: key=$key, clearing and reloading")
@@ -217,7 +228,18 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
                 displayItems = loader.getDisplayItems(); currentPage = nextPage; isLoadingPage =
                 false
                 Log.d("GuideContent", "page $nextPage loaded for $kind: cache.size=${displayItems.size}")
-            }
+        }
+    }
+
+    LaunchedEffect(forceFocusFirstItem, displayItemsForGrid) {
+        Log.d("FocusTrace", "forceFocusFirstItem effect: force=$forceFocusFirstItem items=${displayItemsForGrid.size} kind=$kind")
+        if (!forceFocusFirstItem || displayItemsForGrid.isEmpty()) return@LaunchedEffect
+        Log.d("FocusTrace", "forceFocusFirstItem EXECUTING -> scrollToItem(0) + requestFocus kind=$kind")
+        lazyGridState.scrollToItem(0)
+        delay(50.milliseconds)
+        itemFocusRequesters.firstOrNull()?.requestFocus()
+        forceFocusFirstItem = false
+        Log.d("FocusTrace", "forceFocusFirstItem DONE kind=$kind")
     }
 
     Column(
@@ -243,6 +265,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
             searchQuery = searchQuery,
             onSearchQueryChange = { searchQuery = it },
             searchFocusRequester = remember { FocusRequester() },
+            onSearchImeDismissed = { Log.d("FocusTrace", "onSearchImeDismissed CALLED kind=$kind"); forceFocusFirstItem = true },
             idiomaLabel = "País",
         )
         if (displayItemsForGrid.isEmpty() && !isLoadingPage) {
@@ -262,7 +285,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(displayItemsForGrid.size) { index ->
+                items(displayItemsForGrid.size, key = { displayItemsForGrid[it].stableId }) { index ->
                     val item = displayItemsForGrid[index]
                     if (isEventGuide) {
                         val isLive = item.badgeText.matches(Regex("\\d{1,2}:\\d{2}.*")) ||
@@ -273,6 +296,7 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
                             modifier = Modifier.focusRequester(itemFocusRequesters[index]),
                             isLive = isLive,
                             useFixedWidth = false,
+                            channelLineup = fragment.channelLineup,
                             onFocused = {
                                 fragment.contentFocusCanOpenRail = index % gridColumns == 0
                                 fragment.selectedHero = item
@@ -445,6 +469,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
         }
     }
     var groupOptions by remember { mutableStateOf<List<CatalogFilterOption>>(emptyList()) }
+    var forceFocusFirstItem by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedCountry, currentFilters) {
         val country = selectedCountry.takeUnless { it == ALL_OPTION }
@@ -526,11 +551,31 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
 
     val displayItemsForGrid = remember(displayItems) { displayItems }
     val itemFocusRequesters = remember(displayItemsForGrid.size) {
+        Log.d("FocusTrace", "itemFocusRequesters RECREATED size=${displayItemsForGrid.size} kind=$kind")
         List(displayItemsForGrid.size) { FocusRequester() }
+    }
+    val cwLookup = remember(displayItemsForGrid, fragment.continueWatchingEntries) {
+        displayItemsForGrid.associateWith { item ->
+            fragment.continueWatchingEntries[item.stableId]
+                ?: fragment.continueWatchingEntries[item.providerId.orEmpty()]
+                ?: item.providerId?.substringAfterLast(":")
+                    ?.let { fragment.continueWatchingEntries["movie:$it"]
+                        ?: fragment.continueWatchingEntries["series:$it"] }
+                ?: run {
+                    val titleKey = when (item.kind) {
+                        ContentKind.SERIES -> item.seriesName?.trim()?.lowercase()
+                        ContentKind.MOVIE  -> (item.normalizedTitle ?: item.title).trim().lowercase()
+                        else -> null
+                    }
+                    titleKey?.let { fragment.continueWatchingEntries["title:$it"] }
+                }
+        }
     }
 
     LaunchedEffect(fragment.contentFocusTrigger, displayItemsForGrid) {
         if (fragment.contentFocusTrigger == 0 || displayItemsForGrid.isEmpty()) return@LaunchedEffect
+        if (searchQuery.isNotBlank()) return@LaunchedEffect
+        if (forceFocusFirstItem) return@LaunchedEffect
         runCatching {
             lazyGridState.scrollToItem(0)
             delay(80.milliseconds)
@@ -540,6 +585,23 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
         }.onFailure {
             Log.w("MainShellFocus", "vod first item requestFocus failed kind=$kind: ${it.message}")
         }
+    }
+
+    LaunchedEffect(fragment.searchBackTrigger) {
+        if (fragment.searchBackTrigger == 0) return@LaunchedEffect
+        Log.d("FocusTrace", "searchBackTrigger fired for $kind -> forceFocus")
+        forceFocusFirstItem = true
+    }
+
+    LaunchedEffect(forceFocusFirstItem, displayItemsForGrid) {
+        Log.d("FocusTrace", "forceFocusFirstItem effect: force=$forceFocusFirstItem items=${displayItemsForGrid.size} kind=$kind")
+        if (!forceFocusFirstItem || displayItemsForGrid.isEmpty()) return@LaunchedEffect
+        Log.d("FocusTrace", "forceFocusFirstItem EXECUTING -> scrollToItem(0) + requestFocus kind=$kind")
+        lazyGridState.scrollToItem(0)
+        delay(50.milliseconds)
+        itemFocusRequesters.firstOrNull()?.requestFocus()
+        forceFocusFirstItem = false
+        Log.d("FocusTrace", "forceFocusFirstItem DONE kind=$kind")
     }
 
     Column(
@@ -562,6 +624,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
             searchQuery = searchQuery,
             onSearchQueryChange = { searchQuery = it },
             searchFocusRequester = remember { FocusRequester() },
+            onSearchImeDismissed = { Log.d("FocusTrace", "onSearchImeDismissed CALLED kind=$kind"); forceFocusFirstItem = true },
             idiomaLabel = "Idioma",
         )
         if (loadError != null && displayItemsForGrid.isEmpty() && !isLoadingPage) {
@@ -590,24 +653,8 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                itemsIndexed(displayItemsForGrid) { index, item ->
-                    val wp = fragment.continueWatchingEntries[item.stableId]
-                        ?: fragment.continueWatchingEntries[item.providerId.orEmpty()]
-                        ?: item.providerId?.substringAfterLast(":")
-                            ?.let { bareId ->
-                                fragment.continueWatchingEntries["movie:$bareId"]
-                                    ?: fragment.continueWatchingEntries["series:$bareId"]
-                            }
-                        ?: run {
-                            val titleKey = when (item.kind) {
-                                ContentKind.SERIES -> item.seriesName?.trim()?.lowercase()
-                                ContentKind.MOVIE -> (item.normalizedTitle ?: item.title).trim()
-                                    .lowercase()
-
-                                else -> null
-                            }
-                            titleKey?.let { fragment.continueWatchingEntries["title:$it"] }
-                        }
+                itemsIndexed(displayItemsForGrid, key = { _, item -> item.stableId }) { index, item ->
+                    val wp = cwLookup[item]
                     val itemWithWatched =
                         if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES)
                             item.copy(isWatched = wp?.isWatched == true) else item

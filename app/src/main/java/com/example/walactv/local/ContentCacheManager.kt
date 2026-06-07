@@ -19,8 +19,11 @@ import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.zip.GZIPInputStream
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class ContentCacheManager(private val context: Context) {
+@Singleton
+class ContentCacheManager @Inject constructor(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val database = ContentDatabase.getDatabase(context)
@@ -231,8 +234,6 @@ class ContentCacheManager(private val context: Context) {
 
             val (conn, reader) = connection
             try {
-                database.channelDao().deleteAll()
-
                 reader.beginObject()
                 var fieldCount = 0
                 while (reader.hasNext()) {
@@ -254,10 +255,6 @@ class ContentCacheManager(private val context: Context) {
                                 if (itemCount % 10000 == 0) {
                                     Log.d(TAG, "syncChannels: read $itemCount items so far")
                                 }
-                                if (batch.size >= BATCH_SIZE) {
-                                    database.channelDao().insertAll(batch)
-                                    batch.clear()
-                                }
                             }
                             reader.endArray()
                             Log.d(TAG, "syncChannels: finished items array, total=$totalCount")
@@ -271,9 +268,7 @@ class ContentCacheManager(private val context: Context) {
                 reader.endObject()
                 Log.d(TAG, "syncChannels: finished parsing root object, fieldCount=$fieldCount, totalCount=$totalCount, generatedAt='$generatedAt'")
 
-                if (batch.isNotEmpty()) {
-                    database.channelDao().insertAll(batch)
-                }
+                database.channelDao().replaceAll(batch)
 
                 Log.d(TAG, "syncChannels: generatedAt from JSON='${generatedAt}', totalCount=$totalCount")
                 prefs.edit {

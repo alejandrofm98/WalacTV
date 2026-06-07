@@ -3,8 +3,11 @@ package com.example.walactv
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class ChannelStateStore(context: Context) {
+@Singleton
+class ChannelStateStore @Inject constructor(context: Context) {
 
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 

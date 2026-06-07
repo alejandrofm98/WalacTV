@@ -81,6 +81,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
+import com.example.walactv.BuildConfig
 import com.example.walactv.BrowseSection
 import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
@@ -598,6 +599,24 @@ internal fun ContentSection(
     val focusRequesters = remember(section.items.size) {
         List(section.items.size) { FocusRequester() }
     }
+    // Memoize the continue-watching lookup to avoid recomputing per card
+    val cwLookup = remember(section.items, fragment.continueWatchingEntries) {
+        section.items.associateWith { item ->
+            fragment.continueWatchingEntries[item.stableId]
+                ?: fragment.continueWatchingEntries[item.providerId.orEmpty()]
+                ?: item.providerId?.substringAfterLast(":")
+                    ?.let { fragment.continueWatchingEntries["movie:$it"]
+                        ?: fragment.continueWatchingEntries["series:$it"] }
+                ?: run {
+                    val titleKey = when (item.kind) {
+                        ContentKind.SERIES -> item.seriesName?.trim()?.lowercase()
+                        ContentKind.MOVIE  -> (item.normalizedTitle ?: item.title).trim().lowercase()
+                        else -> null
+                    }
+                    titleKey?.let { fragment.continueWatchingEntries["title:$it"] }
+                }
+        }
+    }
     LaunchedEffect(section.items) {
         if (fragment.suppressEventAutoScroll) {
             delay(600.milliseconds)
@@ -712,14 +731,14 @@ internal fun ContentSection(
             .padding(horizontal = 32.dp)
             .padding(top = if (isEventSection) 8.dp else 16.dp, bottom = if (isEventSection) 6.dp else 16.dp)
             .onFocusChanged { state ->
-                Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
+                if (BuildConfig.DEBUG) Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
             }
     } else {
         Modifier
             .focusRequester(selfFocusRequester)
             .padding(horizontal = 32.dp)
             .onFocusChanged { state ->
-                Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
+                if (BuildConfig.DEBUG) Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
             }
     }
 
@@ -787,26 +806,14 @@ internal fun ContentSection(
                 modifier = Modifier
                     .onSizeChanged { rowWidth = it.width }
                     .onFocusChanged { state ->
-                        Log.d("FOCUS", "LazyRow '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
+                        if (BuildConfig.DEBUG) Log.d("FOCUS", "LazyRow '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
                     },
             ) {
-                itemsIndexed(section.items) { index, item ->
+                itemsIndexed(section.items, key = { _, item -> item.stableId }) { index, item ->
                     val cardModifier = Modifier.focusRequester(focusRequesters[index])
 
                     if (section.title == "Continuar viendo") {
-                        val wp = fragment.continueWatchingEntries[item.stableId]
-                            ?: fragment.continueWatchingEntries[item.providerId.orEmpty()]
-                            ?: item.providerId?.substringAfterLast(":")
-                                ?.let { fragment.continueWatchingEntries["movie:$it"]
-                                    ?: fragment.continueWatchingEntries["series:$it"] }
-                            ?: run {
-                                val titleKey = when (item.kind) {
-                                    ContentKind.SERIES -> item.seriesName?.trim()?.lowercase()
-                                    ContentKind.MOVIE  -> (item.normalizedTitle ?: item.title).trim().lowercase()
-                                    else -> null
-                                }
-                                titleKey?.let { fragment.continueWatchingEntries["title:$it"] }
-                            }
+                        val wp = cwLookup[item]
                         ContinueWatchingCard(
                             fragment = fragment,
                             item = item,
@@ -821,19 +828,7 @@ internal fun ContentSection(
                             onDeleteRequest = { fragment.deleteContinueWatchingItem = it },
                         )
                     } else {
-                        val wp = fragment.continueWatchingEntries[item.stableId]
-                            ?: fragment.continueWatchingEntries[item.providerId.orEmpty()]
-                            ?: item.providerId?.substringAfterLast(":")
-                                ?.let { fragment.continueWatchingEntries["movie:$it"]
-                                    ?: fragment.continueWatchingEntries["series:$it"] }
-                            ?: run {
-                                val titleKey = when (item.kind) {
-                                    ContentKind.SERIES -> item.seriesName?.trim()?.lowercase()
-                                    ContentKind.MOVIE  -> (item.normalizedTitle ?: item.title).trim().lowercase()
-                                    else -> null
-                                }
-                                titleKey?.let { fragment.continueWatchingEntries["title:$it"] }
-                            }
+                        val wp = cwLookup[item]
                         val itemWithWatched = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES)
                             item.copy(isWatched = wp?.isWatched == true) else item
 
@@ -846,6 +841,7 @@ internal fun ContentSection(
                                 item = item,
                                 modifier = cardModifier,
                                 isLive = isLive,
+                                channelLineup = fragment.channelLineup,
                                 onFocused = {
                                     fragment.rememberHomeFocus(sectionIndex, section.title, item, index)
                                     onFocused(item)
@@ -878,6 +874,7 @@ internal fun EventVsCard(
     modifier: Modifier = Modifier,
     isLive: Boolean = false,
     useFixedWidth: Boolean = true,
+    channelLineup: List<CatalogItem> = emptyList(),
     onFocused: () -> Unit,
     onClick: () -> Unit,
 ) {
@@ -923,9 +920,19 @@ internal fun EventVsCard(
             }
             .tvClickable { onClick() },
     ) {
-        if (item.imageUrl.isNotBlank()) {
+        val displayImageUrl = remember(item.imageUrl, item.description, channelLineup) {
+            if (item.imageUrl.isNotBlank()) return@remember item.imageUrl
+            val channelNames = item.description.split("|").map { it.trim() }.filter { it.isNotBlank() }
+            channelNames.firstNotNullOfOrNull { name ->
+                channelLineup.firstOrNull { channel ->
+                    channel.title.contains(name, ignoreCase = true) ||
+                    channel.group.contains(name, ignoreCase = true)
+                }?.preferredCardImageUrl()?.takeIf { it.isNotBlank() }
+            }.orEmpty()
+        }
+        if (displayImageUrl.isNotBlank()) {
             RemoteImage(
-                url = item.imageUrl,
+                url = displayImageUrl,
                 width = 480,
                 height = 300,
                 scaleType = CENTER_CROP,

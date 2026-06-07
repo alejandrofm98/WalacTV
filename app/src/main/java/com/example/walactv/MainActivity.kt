@@ -83,6 +83,19 @@ class MainActivity : FragmentActivity() {
         val fragmentManager = supportFragmentManager
         Log.d(TAG, "handleCentralizedBack: START backStackCount=${fragmentManager.backStackEntryCount}")
 
+        // ── 0. IME abierto (search) → cerrar sin navegar ─────────────────────
+        val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        val accepting = imm.isAcceptingText()
+        val isActive = imm.isActive
+        val focusClass = currentFocus?.javaClass?.simpleName
+        Log.d(TAG, "handleCentralizedBack: IME check: isAcceptingText=$accepting isActive=$isActive currentFocus=$focusClass")
+        if (accepting) {
+            imm.hideSoftInputFromWindow(currentFocus?.windowToken, 0)
+            val composeFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
+            composeFragment?.onSearchBackPressed()
+            return true
+        }
+
         // ── 1. Player visible → preguntar al fragment primero ────────────────
         val container = findViewById<FrameLayout>(R.id.player_container)
         val playerFragment = fragmentManager.findFragmentByTag("player_fragment") as? PlayerFragment

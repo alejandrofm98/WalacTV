@@ -215,7 +215,7 @@ class PlayerFragment : Fragment() {
         playerView = view.findViewById(R.id.playerView)
 
         if (isVodMode) {
-            watchProgressRepo = WatchProgressRepository(requireContext())
+            watchProgressRepo = (requireActivity().application as WalacApp).appComponent.watchProgressRepository
             setupVodMode()
         } else {
             setupLiveMode(view)

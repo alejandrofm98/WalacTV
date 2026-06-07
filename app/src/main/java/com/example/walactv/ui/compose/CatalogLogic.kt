@@ -20,196 +20,38 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.walactv.R
 
-// ── Content loading ────────────────────────────────────────────────────────
+// ── Content loading (delegates to ViewModel) ────────────────────────────────
 
 internal fun ComposeMainFragment.startLoad(forceRefresh: Boolean = false) {
-    if (homeCatalog != null && !forceRefresh) {
-        refreshEvents()
-        return
-    }
-
-    scope.launch {
-        errorMessage = null
-        contentSyncState = ContentSyncState.CHECKING
-        Log.d(TAG, "startLoad: beginning content sync (forceRefresh=$forceRefresh)")
-
-        val token = runCatching { repository.getAccessToken() }.getOrNull() ?: ""
-
-        val needsChannels = contentCacheManager.needsSyncChannels(token)
-
-        if (!needsChannels) {
-            contentSyncState = ContentSyncState.READY
-            loadChannelFilters()
-        } else {
-            contentSyncState = ContentSyncState.SYNCING
-            currentSyncLabel = ""
-            currentSyncCount = 0
-            overallSyncProgress = 0f
-
-            val results = mutableListOf<Result<*>>()
-            val totalSteps = 1
-
-            currentSyncLabel = "Sincronizando canales"
-            val r = contentCacheManager.syncChannels(token)
-            results.add(r)
-            overallSyncProgress = 1f / totalSteps
-            currentSyncCount = r.getOrNull() as? Int ?: 0
-
-            if (results.any { it.isFailure }) {
-                contentSyncState = ContentSyncState.ERROR
-                contentSyncError = "Error al sincronizar contenido"
-            } else {
-                currentSyncLabel = "Sincronización completada"
-                currentSyncCount = 0
-                overallSyncProgress = 1f
-                contentSyncState = ContentSyncState.READY
-                loadChannelFilters()
-            }
-        }
-
-        runCatching { repository.loadHomeCatalog(forceRefresh = forceRefresh) }
-            .onSuccess { catalog ->
-                homeCatalog = catalog
-                updateStateFromCatalog(catalog)
-                isLoaded = true
-            }
-            .onFailure {
-                if (!isLoaded) errorMessage = it.message ?: "Error al cargar la aplicacion"
-            }
-    }
+    viewModel.startLoad(forceRefresh)
 }
 
 internal fun ComposeMainFragment.refreshEvents() {
     if (!isSignedIn) return
-    scope.launch {
-        runCatching { repository.loadEventsOnly() }
-            .onSuccess { catalog ->
-                val eventSections = catalog.sections
-                repository.updateHomeEventsCache(eventSections)
-                homeCatalog = homeCatalog?.let { current ->
-                    val nonEventSections = current.sections.filterNot { section ->
-                        section.items.any { it.kind == ContentKind.EVENT }
-                    }
-                    current.copy(
-                        sections = eventSections + nonEventSections,
-                        searchableItems = (eventSections.flatMap(BrowseSection::items) + current.searchableItems.filterNot { it.kind == ContentKind.EVENT })
-                            .distinctBy(CatalogItem::stableId),
-                    )
-                } ?: catalog
-                updateStateFromCatalog(homeCatalog ?: catalog)
-            }
-            .onFailure { Log.w(TAG, "No se pudieron refrescar eventos", it) }
-    }
+    viewModel.refreshEvents()
 }
 
 internal fun ComposeMainFragment.loadChannelFilters() {
-    scope.launch {
-        runCatching { channelFilters = contentCacheManager.getLocalChannelFilters() }
-            .onFailure { Log.e(TAG, "Error loading local channel filters", it) }
-    }
+    viewModel.loadChannelFilters()
 }
 
 internal fun ComposeMainFragment.updateStateFromCatalog(catalog: HomeCatalog) {
-    catalog.favoriteItems?.let { favorites ->
-        channelStateStore.replaceFavoriteIds(favorites.map(CatalogItem::stableId))
-    }
-    searchableItems = catalog.searchableItems
-    CatalogMemory.searchableItems = searchableItems
-    channelLineup = searchableItems.filter { it.kind == ContentKind.CHANNEL }
-    rebuildHomeSections()
-
-    if (selectedHero == null || searchableItems.none { it.stableId == selectedHero?.stableId }) {
-        selectedHero = defaultItemForMode(currentMode)
-    }
-    loadContinueWatching()
+    viewModel.updateStateFromCatalog(catalog)
 }
 
 internal fun ComposeMainFragment.rebuildHomeSections() {
-    val baseSections = homeCatalog?.sections.orEmpty()
-    homeSections = continueWatchingSection?.let { cw ->
-        if (baseSections.isEmpty()) listOf(cw)
-        else listOf(baseSections.first()) + cw + baseSections.drop(1)
-    } ?: baseSections
+    viewModel.rebuildHomeSections()
 }
 
 internal fun ComposeMainFragment.loadContinueWatching() {
-    val requestVersion = ++continueWatchingRequestVersion
-    val searchableSnapshot = searchableItems
-    scope.launch {
-        try {
-            // Cargamos en paralelo: items en progreso + items vistos
-            val inProgressItems = watchProgressRepo.getContinueWatching()
-            val watchedItems = watchProgressRepo.getWatchedItems()
-
-            val entryMap = mutableMapOf<String, WatchProgressItem>()
-
-            // Indexamos todos (en progreso + vistos) para el lookup del badge
-            (inProgressItems + watchedItems).forEach { wp ->
-                val prefix = if (wp.contentType == "series") "series" else "movie"
-                entryMap[wp.contentId] = wp
-                entryMap["$prefix:${wp.contentId}"] = wp
-                val bareId = wp.contentId.substringAfterLast(":")
-                entryMap["$prefix:$bareId"] = wp
-                val normalizedKey = when (wp.contentType) {
-                    "series" -> wp.seriesName?.trim()?.lowercase()
-                    else -> wp.normalizedTitle.trim().lowercase()
-                        .ifBlank { wp.title.trim().lowercase() }
-                }
-                if (!normalizedKey.isNullOrBlank()) {
-                    entryMap["title:$normalizedKey"] = wp
-                }
-            }
-
-            if (requestVersion != continueWatchingRequestVersion) return@launch
-            continueWatchingEntries = entryMap
-
-            // La sección "Continuar viendo" solo muestra los que están en progreso
-            val dedupedItems = inProgressItems
-                .groupBy { wp ->
-                    if (wp.contentType == "series" && wp.seriesName != null)
-                        "series:${wp.seriesName}"
-                    else
-                        "movie:${wp.contentId}"
-                }
-                .map { (_, entries) -> entries.maxByOrNull { it.lastWatchedAt }!! }
-                .sortedByDescending { it.lastWatchedAt }
-
-            if (dedupedItems.isNotEmpty()) {
-                val catalogItems = dedupedItems.map { wp ->
-                    buildContinueWatchingItem(wp, searchableSnapshot).also { synthetic ->
-                        entryMap[synthetic.stableId] = wp
-                    }
-                }
-                continueWatchingSection = BrowseSection("Continuar viendo", catalogItems)
-            } else {
-                continueWatchingSection = null
-            }
-
-            rebuildHomeSections()
-
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not load continue watching[$requestVersion]: ${e.message}", e)
-        }
-    }
+    viewModel.loadContinueWatching()
 }
 
 internal fun ComposeMainFragment.removeContinueWatchingLocally(
     contentId: String? = null,
     seriesName: String? = null,
 ) {
-    continueWatchingEntries = continueWatchingEntries
-        .filterValues { wp ->
-            if (seriesName != null) wp.seriesName != seriesName
-            else wp.contentId != contentId
-        }
-    continueWatchingSection = continueWatchingSection?.let { section ->
-        val filtered = section.items.filter { item ->
-            if (seriesName != null) item.seriesName != seriesName
-            else item.providerId != contentId
-        }
-        if (filtered.isEmpty()) null else section.copy(items = filtered)
-    }
-    rebuildHomeSections()
+    viewModel.removeContinueWatchingLocally(contentId, seriesName)
 }
 
 internal suspend fun ComposeMainFragment.deleteAllSeriesProgress(seriesName: String) {
@@ -310,7 +152,7 @@ private fun WatchProgressItem.toCatalogItemFallback(
     )
 }
 
-private fun buildTmdbImageUrl(path: String?, size: String): String? {
+internal fun buildTmdbImageUrl(path: String?, size: String): String? {
     val cleanPath = path.cleanDisplayText()
     if (cleanPath.isBlank()) return null
     if (cleanPath.startsWith("http://") || cleanPath.startsWith("https://")) return cleanPath
@@ -354,30 +196,19 @@ internal fun buildEpisodeLabel(season: Int?, episode: Int?): String {
     return if (s.isNotBlank() && e.isNotBlank()) "$s • $e" else s + e
 }
 
-// ── Filters ────────────────────────────────────────────────────────────────
+// ── Filters (delegates to ViewModel) ────────────────────────────────────────
 
 internal fun ComposeMainFragment.ensureFiltersLoaded(kind: ContentKind, country: String? = null) {
-    scope.launch {
-        runCatching { repository.loadCatalogFilters(kind, country) }
-            .onSuccess { filters ->
-                when (kind) {
-                    ContentKind.CHANNEL -> { channelFilters = filters; channelFilterCountry = country }
-                    ContentKind.MOVIE   -> { movieFilters = filters; movieFilterCountry = country }
-                    ContentKind.SERIES  -> { seriesFilters = filters; seriesFilterCountry = country }
-                    ContentKind.EVENT   -> Unit
-                }
-            }
-            .onFailure { Log.e(TAG, "No se pudieron cargar filtros para $kind", it) }
-    }
+    viewModel.ensureFiltersLoaded(kind, country)
 }
 
 internal suspend fun ComposeMainFragment.ensureFiltersLoadedAwait(kind: ContentKind, country: String? = null) {
     runCatching { withContext(Dispatchers.IO) { repository.loadCatalogFilters(kind, country) } }
         .onSuccess { filters ->
             when (kind) {
-                ContentKind.CHANNEL -> { channelFilters = filters; channelFilterCountry = country }
-                ContentKind.MOVIE   -> { movieFilters = filters; movieFilterCountry = country }
-                ContentKind.SERIES  -> { seriesFilters = filters; seriesFilterCountry = country }
+                ContentKind.CHANNEL -> { viewModel._channelFilters.value = filters; viewModel._channelFilterCountry.value = country }
+                ContentKind.MOVIE   -> { viewModel._movieFilters.value = filters; viewModel._movieFilterCountry.value = country }
+                ContentKind.SERIES  -> { viewModel._seriesFilters.value = filters; viewModel._seriesFilterCountry.value = country }
                 ContentKind.EVENT   -> Unit
             }
         }
@@ -390,7 +221,7 @@ internal fun ComposeMainFragment.performSignIn() {
     loginError = null
     isSigningIn = true
     scope.launch {
-        runCatching { withContext(Dispatchers.IO) { repository.signIn(loginUsername, loginPassword) } }
+        viewModel.signIn(loginUsername, loginPassword)
             .onSuccess { resetCatalogState(); isSignedIn = true; isSigningIn = false; startLoad() }
             .onFailure { isSigningIn = false; loginError = it.message ?: "No se pudo iniciar sesion" }
     }
@@ -403,15 +234,11 @@ internal fun ComposeMainFragment.performSignOut() {
 }
 
 internal fun ComposeMainFragment.resetCatalogState() {
-    homeCatalog = null; homeSections = emptyList(); continueWatchingSection = null
-    continueWatchingEntries = emptyMap(); searchableItems = emptyList(); channelLineup = emptyList()
-    selectedHero = null; isLoaded = false; errorMessage = null; currentItem = null
-    currentStreamIndex = 0; activePlaybackLineup = emptyList()
+    viewModel.resetCatalogState()
+    currentItem = null
+    currentStreamIndex = 0
+    activePlaybackLineup = emptyList()
     currentMode = ComposeMainFragment.MainMode.Home
-    channelFilters = CatalogFilters(); movieFilters = CatalogFilters(); seriesFilters = CatalogFilters()
-    channelFilterCountry = null; movieFilterCountry = null; seriesFilterCountry = null
-    contentSyncState = ContentSyncState.IDLE; contentSyncError = null
-    currentSyncLabel = ""; currentSyncCount = 0; overallSyncProgress = 0f
 }
 
 // ── Mode / navigation helpers ──────────────────────────────────────────────

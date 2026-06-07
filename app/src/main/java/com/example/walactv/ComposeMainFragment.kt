@@ -28,25 +28,28 @@ import com.example.walactv.ui.compose.defaultItemForMode
 import com.example.walactv.ui.compose.ensureFiltersLoaded
 import com.example.walactv.ui.compose.handleCompletedUpdateDownload
 import com.example.walactv.ui.compose.restoreCachedUpdateState
-import com.example.walactv.ui.compose.refreshEvents
-import com.example.walactv.ui.compose.startLoad
 import com.example.walactv.ui.compose.startUpdateDownload
 import com.example.walactv.ui.theme.WalacTVTheme
+import com.example.walactv.viewmodel.HomeViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 class ComposeMainFragment : Fragment() {
 
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    internal lateinit var repository: IptvRepository
+    internal val appComponent get() = (requireActivity().application as WalacApp).appComponent
+    internal val repository: IptvRepository get() = appComponent.iptvRepository
     internal lateinit var appUpdateRepository: AppUpdateRepository
-    internal lateinit var channelStateStore: ChannelStateStore
-    internal lateinit var watchProgressRepo: WatchProgressRepository
-    internal lateinit var contentCacheManager: ContentCacheManager
+    internal val channelStateStore: ChannelStateStore get() = appComponent.channelStateStore
+    internal val watchProgressRepo: WatchProgressRepository get() = appComponent.watchProgressRepository
+    internal val contentCacheManager: ContentCacheManager get() = appComponent.contentCacheManager
+    internal val viewModel: HomeViewModel get() = appComponent.homeViewModel
 
     var composeDialogOpen by mutableStateOf(false)
         internal set
@@ -71,6 +74,7 @@ class ComposeMainFragment : Fragment() {
     internal var pendingHomeFocusTarget by mutableStateOf<HomeFocusTarget?>(null)
     internal var homeFocusRestoreTrigger by mutableIntStateOf(0)
     internal var contentFocusTrigger by mutableIntStateOf(0)
+    internal var searchBackTrigger by mutableIntStateOf(0)
     internal var contentFocusCanOpenRail by mutableStateOf(false)
     internal var suppressEventAutoScroll by mutableStateOf(false)
     internal var currentMode by mutableStateOf(MainMode.Home)
@@ -127,14 +131,13 @@ class ComposeMainFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View {
-        repository = IptvRepository(requireContext())
+        CredentialStore.init(requireContext())
         appUpdateRepository = AppUpdateRepository(requireContext())
-        channelStateStore = ChannelStateStore(requireContext())
-        watchProgressRepo = WatchProgressRepository(requireContext())
-        contentCacheManager = ContentCacheManager(requireContext())
         installedAppVersion = appUpdateRepository.installedVersion()
         isSignedIn = repository.hasStoredCredentials()
         loginUsername = repository.currentUsername()
+
+        observeViewModel()
 
         return ComposeView(requireContext()).apply {
             setContent {
@@ -149,7 +152,74 @@ class ComposeMainFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         restoreCachedUpdateState()
         checkForAppUpdates()
-        if (isSignedIn) startLoad()
+        if (isSignedIn) viewModel.startLoad()
+    }
+
+    private fun observeViewModel() {
+        scope.launch {
+            launch {
+                viewModel.homeCatalog.collectLatest { homeCatalog = it }
+            }
+            launch {
+                viewModel.homeSections.collectLatest { homeSections = it }
+            }
+            launch {
+                viewModel.continueWatchingSection.collectLatest { continueWatchingSection = it }
+            }
+            launch {
+                viewModel.continueWatchingEntries.collectLatest { continueWatchingEntries = it }
+            }
+            launch {
+                viewModel.searchableItems.collectLatest { searchableItems = it }
+            }
+            launch {
+                viewModel.channelLineup.collectLatest { channelLineup = it }
+            }
+            launch {
+                viewModel.selectedHero.collectLatest { selectedHero = it }
+            }
+            launch {
+                viewModel.isLoaded.collectLatest { isLoaded = it }
+            }
+            launch {
+                viewModel.errorMessage.collectLatest { errorMessage = it }
+            }
+            launch {
+                viewModel.channelFilters.collectLatest { channelFilters = it }
+            }
+            launch {
+                viewModel.movieFilters.collectLatest { movieFilters = it }
+            }
+            launch {
+                viewModel.seriesFilters.collectLatest { seriesFilters = it }
+            }
+            launch {
+                viewModel.channelFilterCountry.collectLatest { channelFilterCountry = it }
+            }
+            launch {
+                viewModel.movieFilterCountry.collectLatest { movieFilterCountry = it }
+            }
+            launch {
+                viewModel.seriesFilterCountry.collectLatest { seriesFilterCountry = it }
+            }
+            launch {
+                viewModel.contentSyncState.collectLatest { syncState ->
+                    contentSyncState = ContentSyncState.valueOf(syncState.name)
+                }
+            }
+            launch {
+                viewModel.contentSyncError.collectLatest { contentSyncError = it }
+            }
+            launch {
+                viewModel.currentSyncLabel.collectLatest { currentSyncLabel = it }
+            }
+            launch {
+                viewModel.currentSyncCount.collectLatest { currentSyncCount = it }
+            }
+            launch {
+                viewModel.overallSyncProgress.collectLatest { overallSyncProgress = it }
+            }
+        }
     }
 
     override fun onStart() {
@@ -169,7 +239,7 @@ class ComposeMainFragment : Fragment() {
             pendingInstallPermission = false
             startUpdateDownload(mandatoryUpdate ?: availableUpdate)
         }
-        if (isSignedIn && isLoaded) refreshEvents()
+        if (isSignedIn && isLoaded) viewModel.refreshEvents()
     }
 
     override fun onStop() {
@@ -229,6 +299,11 @@ class ComposeMainFragment : Fragment() {
         if (pendingFocusItem != null) {
             pendingFocusTrigger++
         }
+    }
+
+    internal fun onSearchBackPressed() {
+        searchBackTrigger++
+        Log.d("FocusTrace", "onSearchBackPressed: searchBackTrigger=$searchBackTrigger")
     }
 
     internal fun rememberHomeFocus(

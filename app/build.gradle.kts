@@ -131,12 +131,20 @@ dependencies {
     // Glide para cargar imágenes de logos
     implementation(libs.glide)
 
+    // Coil para imágenes en Compose
+    implementation(libs.coil.compose)
+
     // OkHttp para actualizaciones
     implementation(libs.okhttp)
+    implementation(libs.okhttp.logging)
 
     // Retrofit + Gson para API
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
+
+    // Hilt/Dagger DI
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
 
     // Room Database
     implementation(libs.androidx.room.runtime)

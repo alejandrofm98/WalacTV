@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 
 @Dao
 interface ChannelDao {
@@ -57,6 +58,12 @@ interface ChannelDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(channels: List<ChannelEntity>)
+
+    @Transaction
+    suspend fun replaceAll(channels: List<ChannelEntity>) {
+        deleteAll()
+        insertAll(channels)
+    }
 
     @Query("DELETE FROM channels")
     suspend fun deleteAll()

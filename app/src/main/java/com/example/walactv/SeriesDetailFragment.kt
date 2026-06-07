@@ -186,7 +186,7 @@ fun SeriesDetailScreen(
     val allEpisodes = allEpisodesState.value
 
     // Cargamos el progreso de todos los episodios de esta serie
-    val watchProgressRepo = remember { WatchProgressRepository(context) }
+    val watchProgressRepo = remember { (context.applicationContext as WalacApp).appComponent.watchProgressRepository }
     val progressMap by produceState<Map<String, WatchProgressItem>>(emptyMap(), seriesName) {
         val inProgress = runCatching { watchProgressRepo.getContinueWatching() }.getOrDefault(emptyList())
         val watched = runCatching { watchProgressRepo.getWatchedItems() }.getOrDefault(emptyList())

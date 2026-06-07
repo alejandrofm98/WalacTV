@@ -52,6 +52,30 @@ internal const val COUNTRY_FILTER_DIALOG_TITLE = "Selecciona pais"
 
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BackInterceptingEditText — captura Back/Esc ANTES de que el IME lo toque
+// ─────────────────────────────────────────────────────────────────────────────
+class BackInterceptingEditText(context: Context) : EditText(context) {
+    var onBackPressed: (() -> Unit)? = null
+
+    override fun onKeyPreIme(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (event?.action == android.view.KeyEvent.ACTION_DOWN &&
+            (keyCode == android.view.KeyEvent.KEYCODE_BACK || keyCode == android.view.KeyEvent.KEYCODE_ESCAPE)
+        ) {
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            Log.d("FocusTrace", "NativeSearchBar onKeyPreIme: key=$keyCode isAcceptingText=${imm.isAcceptingText}")
+            // Solo consumir si el IME está realmente abierto
+            if (imm.isAcceptingText) {
+                Log.d("FocusTrace", "NativeSearchBar onKeyPreIme: IME open -> consuming Back")
+                onBackPressed?.invoke()
+                return true
+            }
+            Log.d("FocusTrace", "NativeSearchBar onKeyPreIme: IME closed -> letting Back flow")
+        }
+        return super.onKeyPreIme(keyCode, event)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // NativeSearchBar — usa un EditText real para que el IME de Android TV funcione
 // ─────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -60,6 +84,7 @@ fun NativeSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     focusRequester: FocusRequester,
+    onImeDismissed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -67,6 +92,12 @@ fun NativeSearchBar(
 
     // Referencia al EditText nativo para poder manipularlo desde Compose
     var editTextRef by remember { mutableStateOf<EditText?>(null) }
+    var editTextHasFocus by remember { mutableStateOf(false) }
+    // Ref al query actual para que el TextWatcher pueda comparar en el closure
+    val queryRef = remember { mutableStateOf(query) }
+    queryRef.value = query
+    // Debounce: evita doble onImeDismissed (Enter + layout listener)
+    var lastImeDismissTime by remember { mutableStateOf(0L) }
 
     LaunchedEffect(interactionSource) {
         interactionSource.interactions.collect { interaction ->
@@ -91,6 +122,15 @@ fun NativeSearchBar(
                 shape = RoundedCornerShape(8.dp)
             )
             .focusRequester(focusRequester)
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.DirectionUp, Key.DirectionDown -> true
+                        Key.DirectionLeft, Key.DirectionRight -> editTextHasFocus
+                        else -> false
+                    }
+                } else false
+            }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -113,7 +153,7 @@ fun NativeSearchBar(
             // EditText nativo: soporta IME completo en Android TV
             AndroidView(
                 factory = { context ->
-                    EditText(context).apply {
+                    BackInterceptingEditText(context).apply {
                         hint = "Buscar..."
                         setHintTextColor(IptvTextMuted.copy(alpha = 0.7f).toArgb())
                         setTextColor(IptvTextPrimary.toArgb())
@@ -127,6 +167,7 @@ fun NativeSearchBar(
                         inputType = android.text.InputType.TYPE_CLASS_TEXT
 
                         setOnFocusChangeListener { _, hasFocus ->
+                            editTextHasFocus = hasFocus
                             isFocused = hasFocus
                             Log.d("FocusTrace", "NativeSearchBar EditText focus=$hasFocus")
                             if (hasFocus) {
@@ -141,7 +182,10 @@ fun NativeSearchBar(
                             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
                             override fun afterTextChanged(s: android.text.Editable?) {
                                 val newText = s?.toString() ?: ""
-                                Log.d("FocusTrace", "NativeSearchBar textChanged: '$newText'")
+                                val ref = queryRef.value
+                                Log.d("FocusTrace", "NativeSearchBar textChanged: '$newText' queryRef='$ref' match=${newText == ref}")
+                                if (newText == ref) return  // ya sincronizado, ignorar
+                                Log.d("FocusTrace", "NativeSearchBar textChanged: PROPAGATING '$newText' to onQueryChange")
                                 onQueryChange(newText)
                             }
                         })
@@ -149,25 +193,46 @@ fun NativeSearchBar(
                         // Acción "Buscar" del teclado cierra el IME
                         setOnEditorActionListener { _, actionId, _ ->
                             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                                Log.d("FocusTrace", "NativeSearchBar EDITOR_ACTION_SEARCH query='$query'")
                                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                                 imm.hideSoftInputFromWindow(windowToken, 0)
+                                Log.d("FocusTrace", "NativeSearchBar calling onImeDismissed() after SEARCH")
+                                lastImeDismissTime = System.currentTimeMillis()
+                                onImeDismissed()
                                 true
                             } else false
                         }
 
-                        // ESC / Back: borra el texto y cierra el IME
-                        setOnKeyListener { v, keyCode, event ->
+                        // ESC / Back fallback (si onKeyPreIme no se dispara)
+                        setOnKeyListener { _, keyCode, event ->
                             if (event.action == AndroidKeyEvent.ACTION_DOWN &&
-                                keyCode == AndroidKeyEvent.KEYCODE_ESCAPE
+                                (keyCode == AndroidKeyEvent.KEYCODE_ESCAPE ||
+                                 keyCode == AndroidKeyEvent.KEYCODE_BACK)
                             ) {
-                                setText("")
-                                onQueryChange("")
+                                Log.d("FocusTrace", "NativeSearchBar KEY fallback: key=$keyCode")
                                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                                imm.hideSoftInputFromWindow(v.windowToken, 0)
+                                imm.hideSoftInputFromWindow(windowToken, 0)
+                                onImeDismissed()
                                 true
                             } else false
                         }
+
+                        // Intercepta Back/Esc ANTES de que el IME lo toque
+                        this.onBackPressed = {
+                            Log.d("FocusTrace", "NativeSearchBar onBackPressed callback firing")
+                            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                            imm.hideSoftInputFromWindow(windowToken, 0)
+                            onImeDismissed()
+                        }
                     }.also { editTextRef = it }
+                },
+                update = { editText ->
+                    val current = editText.text.toString()
+                    Log.d("FocusTrace", "NativeSearchBar UPDATE: current='$current' query='$query' match=${current == query}")
+                    if (current != query) {
+                        Log.d("FocusTrace", "NativeSearchBar UPDATE: setting text to '$query'")
+                        editText.setText(query)
+                    }
                 },
                 modifier = Modifier.weight(1f),
             )

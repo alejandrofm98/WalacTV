@@ -1,30 +1,22 @@
 package com.example.walactv
 
-import android.content.Context
 import android.util.Log
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.BufferedReader
-import java.net.HttpURLConnection
-import java.net.URL
+import com.example.walactv.network.IptvApiService
+import com.example.walactv.network.dto.SaveWatchProgressBody
+import com.example.walactv.network.dto.WatchProgressDto
+import javax.inject.Inject
 
-class WatchProgressRepository(context: Context) {
-
-    private val credentialStore = CredentialStore(context.applicationContext)
-    private var accessToken: String? = null
+class WatchProgressRepository @Inject constructor(private val apiService: IptvApiService) {
 
     suspend fun getContinueWatching(): List<WatchProgressItem> {
         return try {
-            val token = getToken()
-            val response = getJsonArray("${BuildConfig.IPTV_BASE_URL}/api/watch-progress?limit=20", token)
-            val items = mutableListOf<WatchProgressItem>()
-            for (i in 0 until response.length()) {
-                val obj = response.getJSONObject(i)
-                items.add(parseWatchProgressItem(obj))
+            val response = apiService.getWatchProgress(limit = 20)
+            if (response.isSuccessful) {
+                response.body()?.items?.map { it.toDomain() } ?: emptyList()
+            } else {
+                Log.e(TAG, "Error fetching continue watching: ${response.code()}")
+                emptyList()
             }
-            items
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching continue watching", e)
             emptyList()
@@ -33,9 +25,13 @@ class WatchProgressRepository(context: Context) {
 
     suspend fun getProgress(contentId: String): WatchProgressItem? {
         return try {
-            val token = getToken()
-            val obj = getJsonObject("${BuildConfig.IPTV_BASE_URL}/api/watch-progress/$contentId", token)
-            parseWatchProgressItem(obj)
+            val response = apiService.getWatchProgressItem(contentId)
+            if (response.isSuccessful) {
+                response.body()?.toDomain()
+            } else {
+                Log.d(TAG, "No progress found for $contentId: ${response.code()}")
+                null
+            }
         } catch (e: Exception) {
             Log.d(TAG, "No progress found for $contentId: ${e.message}")
             null
@@ -44,16 +40,13 @@ class WatchProgressRepository(context: Context) {
 
     suspend fun getWatchedItems(): List<WatchProgressItem> {
         return try {
-            val token = getToken()
-            val response = getJsonArray(
-                "${BuildConfig.IPTV_BASE_URL}/api/watch-progress/watched?limit=200",
-                token
-            )
-            val items = mutableListOf<WatchProgressItem>()
-            for (i in 0 until response.length()) {
-                items.add(parseWatchProgressItem(response.getJSONObject(i)))
+            val response = apiService.getWatchedItems(limit = 200)
+            if (response.isSuccessful) {
+                response.body()?.items?.map { it.toDomain() } ?: emptyList()
+            } else {
+                Log.e(TAG, "Error fetching watched items: ${response.code()}")
+                emptyList()
             }
-            items
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching watched items", e)
             emptyList()
@@ -72,19 +65,22 @@ class WatchProgressRepository(context: Context) {
         episodeNumber: Int? = null,
     ) {
         try {
-            val token = getToken()
-            val body = JSONObject().apply {
-                put("content_type", contentType)
-                put("position_ms", positionMs)
-                put("duration_ms", durationMs)
-                put("title", title)
-                put("image_url", imageUrl)
-                seriesName?.let { put("series_name", it) }
-                seasonNumber?.let { put("season_number", it) }
-                episodeNumber?.let { put("episode_number", it) }
+            val body = SaveWatchProgressBody(
+                contentType = contentType,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                title = title,
+                imageUrl = imageUrl,
+                seriesName = seriesName,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+            )
+            val response = apiService.saveWatchProgress(contentId, body)
+            if (response.isSuccessful) {
+                Log.d(TAG, "Progress saved: $contentId at ${positionMs}ms")
+            } else {
+                Log.e(TAG, "Error saving progress for $contentId: ${response.code()}")
             }
-            putJson("${BuildConfig.IPTV_BASE_URL}/api/watch-progress/$contentId", body, token)
-            Log.d(TAG, "Progress saved: $contentId at ${positionMs}ms")
         } catch (e: Exception) {
             Log.e(TAG, "Error saving progress for $contentId", e)
         }
@@ -92,8 +88,10 @@ class WatchProgressRepository(context: Context) {
 
     suspend fun deleteProgress(contentId: String) {
         try {
-            val token = getToken()
-            deleteRequest("${BuildConfig.IPTV_BASE_URL}/api/watch-progress/$contentId", token)
+            val response = apiService.deleteWatchProgress(contentId)
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Error deleting progress for $contentId: ${response.code()}")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting progress for $contentId", e)
         }
@@ -101,188 +99,42 @@ class WatchProgressRepository(context: Context) {
 
     suspend fun markAsWatched(contentId: String): Boolean {
         return try {
-            val token = getToken()
-            val body = JSONObject()
-            postJson("${BuildConfig.IPTV_BASE_URL}/api/watch-progress/$contentId/mark-watched", body, token)
-            true
+            val response = apiService.markWatched(contentId)
+            response.isSuccessful
         } catch (e: Exception) {
             Log.e(TAG, "Error marking as watched: $contentId", e)
             false
         }
     }
 
-    // ── Token management ────────────────────────────────────────────────────
-
-    private suspend fun getToken(): String {
-        accessToken?.let { return it }
-        val user = credentialStore.username()
-        val pass = credentialStore.password()
-        check(user.isNotBlank() && pass.isNotBlank()) { "No hay sesión iniciada" }
-
-        val response = postForm(
-            url = "${BuildConfig.IPTV_BASE_URL}/api/auth/login",
-            body = "username=${encodeParam(user)}&password=${encodeParam(pass)}",
-        )
-        return response.getString("access_token").also { accessToken = it }
-    }
-
-    // ── HTTP helpers ────────────────────────────────────────────────────────
-
-    private suspend fun getJsonObject(url: String, token: String): JSONObject =
-        withContext(Dispatchers.IO) {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "GET"
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 15_000
-                conn.setRequestProperty("Accept", "application/json")
-                conn.setRequestProperty("Authorization", "Bearer $token")
-                val body = readBody(conn)
-                if (conn.responseCode !in 200..299) throw IllegalStateException("HTTP ${conn.responseCode}: $body")
-                JSONObject(body)
-            } finally {
-                conn.disconnect()
-            }
-        }
-
-    private suspend fun getJsonArray(url: String, token: String): JSONArray =
-        withContext(Dispatchers.IO) {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "GET"
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 15_000
-                conn.setRequestProperty("Accept", "application/json")
-                conn.setRequestProperty("Authorization", "Bearer $token")
-                val body = readBody(conn)
-                if (conn.responseCode !in 200..299) throw IllegalStateException("HTTP ${conn.responseCode}: $body")
-                val json = JSONObject(body)
-                json.optJSONArray("items") ?: JSONArray()
-            } finally {
-                conn.disconnect()
-            }
-        }
-
-    private suspend fun putJson(url: String, body: JSONObject, token: String): JSONObject =
-        withContext(Dispatchers.IO) {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "PUT"
-                conn.doOutput = true
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 15_000
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.setRequestProperty("Accept", "application/json")
-                conn.setRequestProperty("Authorization", "Bearer $token")
-                conn.outputStream.use { it.write(body.toString().toByteArray()) }
-                val responseBody = readBody(conn)
-                if (conn.responseCode !in 200..299) throw IllegalStateException("HTTP ${conn.responseCode}: $responseBody")
-                JSONObject(responseBody)
-            } finally {
-                conn.disconnect()
-            }
-        }
-
-    private suspend fun postJson(url: String, body: JSONObject, token: String): JSONObject =
-        withContext(Dispatchers.IO) {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 15_000
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.setRequestProperty("Accept", "application/json")
-                conn.setRequestProperty("Authorization", "Bearer $token")
-                conn.outputStream.use { it.write(body.toString().toByteArray()) }
-                val responseBody = readBody(conn)
-                if (conn.responseCode !in 200..299) throw IllegalStateException("HTTP ${conn.responseCode}: $responseBody")
-                JSONObject(responseBody)
-            } finally {
-                conn.disconnect()
-            }
-        }
-
-    private suspend fun postForm(url: String, body: String): JSONObject =
-        withContext(Dispatchers.IO) {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 15_000
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                conn.setRequestProperty("Accept", "application/json")
-                conn.outputStream.use { it.write(body.toByteArray()) }
-                val responseBody = readBody(conn)
-                if (conn.responseCode !in 200..299) throw IllegalStateException("HTTP ${conn.responseCode}: $responseBody")
-                JSONObject(responseBody)
-            } finally {
-                conn.disconnect()
-            }
-        }
-
-    private suspend fun deleteRequest(url: String, token: String) =
-        withContext(Dispatchers.IO) {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "DELETE"
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 15_000
-                conn.setRequestProperty("Authorization", "Bearer $token")
-                conn.responseCode // trigger request
-            } finally {
-                conn.disconnect()
-            }
-        }
-
-    private fun readBody(conn: HttpURLConnection): String {
-        val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
-        return stream?.bufferedReader()?.use(BufferedReader::readText) ?: ""
-    }
-
-    private fun encodeParam(value: String): String =
-        java.net.URLEncoder.encode(value, "UTF-8")
-
-    private fun parseWatchProgressItem(obj: JSONObject): WatchProgressItem {
+    private fun WatchProgressDto.toDomain(): WatchProgressItem {
         return WatchProgressItem(
-            contentId = obj.getString("content_id"),
-            contentType = obj.getString("content_type"),
-            positionMs = obj.getLong("position_ms"),
-            durationMs = obj.getLong("duration_ms"),
-            normalizedTitle = obj.optString("normalized_title", ""),
-            title = obj.optString("title", ""),
-            imageUrl = obj.optString("image_url", ""),
-            seriesName = obj.optString("series_name", "").ifBlank { null },
-            seasonNumber = obj.optInt("season_number", 0).takeIf { it > 0 },
-            episodeNumber = obj.optInt("episode_number", 0).takeIf { it > 0 },
-            lastWatchedAt = obj.optString("last_watched_at", ""),
-            isWatched = obj.optBoolean("is_watched", false),
-            overview = obj.optString("overview", "").ifBlank { obj.optString("overview_es", "") }.ifBlank { null },
-            overviewEn = obj.optString("overview_en", "").ifBlank { null },
-            voteAverage = obj.optDouble("vote_average", Double.NaN)
-                .takeUnless { it.isNaN() }
-                ?.toFloat()
-                ?: obj.optDouble("rating", Double.NaN).takeUnless { it.isNaN() }?.toFloat(),
-            voteCount = obj.optInt("vote_count", 0).takeIf { it > 0 },
-            runtimeMinutes = obj.optInt("runtime_minutes", 0).takeIf { it > 0 },
-            genres = obj.optJSONArray("genres")?.toStringList().orEmpty(),
-            posterPath = obj.optString("poster_path", "").ifBlank { null },
-            backdropPath = obj.optString("backdrop_path", "").ifBlank { null },
-            tagline = obj.optString("tagline", "").ifBlank { null },
-            releaseDate = obj.optString("release_date", "").ifBlank { null },
-            year = obj.optInt("year", 0).takeIf { it > 0 },
-            tmdbTitle = obj.optString("tmdb_title", "").ifBlank { null },
-            totalSeasons = obj.optInt("total_seasons", 0).takeIf { it > 0 },
+            contentId = contentId.orEmpty(),
+            contentType = contentType.orEmpty(),
+            positionMs = positionMs ?: 0L,
+            durationMs = durationMs ?: 0L,
+            normalizedTitle = normalizedTitle.orEmpty(),
+            title = title.orEmpty(),
+            imageUrl = imageUrl.orEmpty(),
+            seriesName = seriesName?.ifBlank { null },
+            seasonNumber = seasonNumber?.takeIf { it > 0 },
+            episodeNumber = episodeNumber?.takeIf { it > 0 },
+            lastWatchedAt = lastWatchedAt.orEmpty(),
+            isWatched = isWatched ?: false,
+            overview = overview?.ifBlank { null } ?: overviewEn?.ifBlank { null },
+            overviewEn = overviewEn?.ifBlank { null },
+            voteAverage = voteAverage?.toFloat(),
+            voteCount = voteCount?.takeIf { it > 0 },
+            runtimeMinutes = runtimeMinutes?.takeIf { it > 0 },
+            genres = genres.orEmpty(),
+            posterPath = posterPath?.ifBlank { null },
+            backdropPath = backdropPath?.ifBlank { null },
+            tagline = tagline?.ifBlank { null },
+            releaseDate = releaseDate?.ifBlank { null },
+            year = year?.takeIf { it > 0 },
+            tmdbTitle = tmdbTitle?.ifBlank { null },
+            totalSeasons = totalSeasons?.takeIf { it > 0 },
         )
-    }
-
-    private fun JSONArray.toStringList(): List<String> {
-        return buildList {
-            for (index in 0 until length()) {
-                optString(index).takeIf(String::isNotBlank)?.let(::add)
-            }
-        }
     }
 
     companion object {

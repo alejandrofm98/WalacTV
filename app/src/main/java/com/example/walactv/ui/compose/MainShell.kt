@@ -35,6 +35,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
+import com.example.walactv.BuildConfig
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ComposeMainFragment.MainMode
 import com.example.walactv.ContentKind
@@ -78,7 +79,7 @@ internal fun MainShell(fragment: ComposeMainFragment) {
                     .fillMaxHeight()
                     .focusRequester(contentFocusRequester)
                     .onFocusChanged { state ->
-                        Log.d(TAG, "content focus isFocused=${state.isFocused} hasFocus=${state.hasFocus} mode=${fragment.currentMode}")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "content focus isFocused=${state.isFocused} hasFocus=${state.hasFocus} mode=${fragment.currentMode}")
                     }
                     .onPreviewKeyEvent { keyEvent ->
                         if (keyEvent.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN)
@@ -170,7 +171,7 @@ internal fun SideRail(
             .background(IptvSidebarBg)
             .onFocusChanged { state ->
                 fragment.isRailExpanded = state.hasFocus
-                Log.d(TAG, "rail focus hasFocus=${state.hasFocus} mode=${fragment.currentMode}")
+                if (BuildConfig.DEBUG) Log.d(TAG, "rail focus hasFocus=${state.hasFocus} mode=${fragment.currentMode}")
             }
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN)
@@ -205,9 +206,9 @@ internal fun SideRail(
                     selected = item.mode != null && fragment.currentMode == item.mode,
                     expanded = fragment.isRailExpanded,
                     modifier = Modifier.focusRequester(focusRequesters[index]),
-                    onFocusChanged = { focused ->
-                        Log.d(TAG, "rail item focus label=${item.label} focused=$focused mode=${fragment.currentMode}")
-                    }
+                onFocusChanged = { focused ->
+                    if (BuildConfig.DEBUG) Log.d(TAG, "rail item focus label=${item.label} focused=$focused mode=${fragment.currentMode}")
+                }
                 ) { item.onClick?.invoke() ?: item.mode?.let(fragment::changeMode) }
             }
         }
@@ -219,7 +220,7 @@ internal fun SideRail(
                 expanded = fragment.isRailExpanded,
                 modifier = Modifier.focusRequester(focusRequesters.last()),
                 onFocusChanged = { focused ->
-                    Log.d(TAG, "rail item focus label=Ajustes focused=$focused mode=${fragment.currentMode}")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "rail item focus label=Ajustes focused=$focused mode=${fragment.currentMode}")
                 }
             ) { fragment.changeMode(MainMode.Settings) }
         }
@@ -333,7 +334,7 @@ internal fun ErrorScreen(fragment: ComposeMainFragment, message: String) {
             Spacer(Modifier.height(10.dp))
             Text(message, color = IptvTextMuted, fontSize = 18.sp)
             Spacer(Modifier.height(24.dp))
-            FocusButton(label = "Reintentar", icon = Icons.Outlined.PlayArrow) { fragment.startLoad() }
+            FocusButton(label = "Reintentar", icon = Icons.Outlined.PlayArrow) { fragment.viewModel.startLoad() }
         }
     }
 }
