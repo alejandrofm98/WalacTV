@@ -70,6 +70,7 @@ interface IptvApiService {
         @Path("name") name: String,
         @Query("page") page: Int = 1,
         @Query("page_size") pageSize: Int = 100,
+        @Query("password") password: String? = null,
     ): Response<SeriesEpisodesResponse>
 
     // Search

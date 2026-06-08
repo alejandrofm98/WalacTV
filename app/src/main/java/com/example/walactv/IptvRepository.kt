@@ -303,7 +303,7 @@ class IptvRepository @Inject constructor(context: Context) {
             do {
                 Log.d(TAG, "loadSeriesEpisodes: fetching page $page")
                 val response = try {
-                    apiService.getSeriesEpisodes(seriesName, page, 100)
+                    apiService.getSeriesEpisodes(seriesName, page, 100, CredentialStore.password().ifBlank { null })
                 } catch (e: Exception) {
                     Log.e(TAG, "loadSeriesEpisodes: HTTP error for '$seriesName' page $page: ${e.message}")
                     break
@@ -617,6 +617,7 @@ class IptvRepository @Inject constructor(context: Context) {
                         StreamOption(
                             label = "Directo",
                             url = it,
+                            providerId = streams?.firstOrNull()?.providerId,
                         )
                     },
                 ) +
@@ -625,6 +626,7 @@ class IptvRepository @Inject constructor(context: Context) {
                             StreamOption(
                                 label = s.label ?: "Ver",
                                 url = it,
+                                providerId = s.providerId,
                             )
                         }
                     }

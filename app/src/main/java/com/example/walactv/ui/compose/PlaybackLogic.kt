@@ -11,12 +11,14 @@ import com.example.walactv.CatalogItem
 import com.example.walactv.CatalogMemory
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
+import com.example.walactv.CredentialStore
 import com.example.walactv.PlayerFragment
 import com.example.walactv.PreferencesManager
 import com.example.walactv.R
 import com.example.walactv.SeriesDetailFragment
 import com.example.walactv.StreamOption
 import com.example.walactv.WatchProgressItem
+import com.example.walactv.BuildConfig
 import com.example.walactv.idioma
 import com.example.walactv.normalizeLanguageCode
 import com.example.walactv.preferredVodPosterUrl
@@ -163,10 +165,24 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         return
     }
 
+    val streamUrl = if (stream.url.isNotBlank() && !stream.url.startsWith("http")) {
+        val user = CredentialStore.username()
+        val pass = CredentialStore.password()
+        val pid = stream.providerId
+        if (user.isNotBlank() && pass.isNotBlank() && !pid.isNullOrBlank()) {
+            Log.w(TAG, "openContinueWatchingSeries: relative stream URL, building proxy: pid=$pid")
+            "${BuildConfig.IPTV_BASE_URL}/series/$user/$pass/$pid.ts"
+        } else {
+            stream.url
+        }
+    } else {
+        stream.url
+    }
+
     withContext(Dispatchers.Main) {
         val playerFragment = PlayerFragment()
         playerFragment.initialize(
-            streamUrl = stream.url, overlayNumber = targetEpisode.kind.name, overlayTitle = targetEpisode.title,
+            streamUrl = streamUrl, overlayNumber = targetEpisode.kind.name, overlayTitle = targetEpisode.title,
             overlayMeta = if (targetEpisode.kind == ContentKind.SERIES) buildEpisodeLabel(targetEpisode.seasonNumber, targetEpisode.episodeNumber) else targetEpisode.subtitle, contentKind = targetEpisode.kind,
             onNavigateChannel = { _ -> }, onNavigateOption = { _ -> }, onDirectChannelNumber = { _ -> false },
             onToggleFavorite = { false }, onOpenFavorites = { false }, onOpenRecents = { false },
