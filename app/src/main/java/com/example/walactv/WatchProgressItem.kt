@@ -9,6 +9,7 @@ data class WatchProgressItem(
     val title: String,
     val imageUrl: String,
     val seriesName: String?,
+    val seriesProviderId: String? = null,
     val seasonNumber: Int?,
     val episodeNumber: Int?,
     val lastWatchedAt: String,

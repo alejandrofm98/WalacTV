@@ -91,16 +91,22 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         Log.w(TAG, "fetchContentItem failed for ${progress.contentId}, falling back to progress data", e)
         null
     }
-    Log.d(TAG, "TMDB_CW_SERIES card=${cardItem.tmdbDebug()} progressSeries=${progress.seriesName} episode=${episode.tmdbDebug()}")
-    val seriesName = episode?.seriesName ?: progress.seriesName ?: cardItem.seriesName ?: cardItem.title
-    if (seriesName.isBlank()) {
+    Log.d(TAG, "TMDB_CW_SERIES card=${cardItem.tmdbDebug()} progressSeries=${progress.seriesName} seriesProviderId=${progress.seriesProviderId} episode=${episode.tmdbDebug()}")
+    val seriesIdentifier = progress.seriesProviderId
+        ?: episode?.providerId
+        ?: episode?.seriesName
+        ?: episode?.title
+        ?: progress.seriesName
+        ?: cardItem.seriesName
+        ?: cardItem.title
+    if (seriesIdentifier.isBlank()) {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la serie", Toast.LENGTH_SHORT).show() }
         return
     }
     val allEpisodes = try {
-        repository.loadSeriesEpisodes(seriesName)
+        repository.loadSeriesEpisodes(seriesIdentifier)
     } catch (e: Exception) {
-        Log.e(TAG, "loadSeriesEpisodes failed for '$seriesName'", e)
+        Log.e(TAG, "loadSeriesEpisodes failed for '$seriesIdentifier'", e)
         emptyList()
     }
     if (allEpisodes.isEmpty()) {
@@ -168,16 +174,21 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     val streamUrl = if (stream.url.isNotBlank() && !stream.url.startsWith("http")) {
         val user = CredentialStore.username()
         val pass = CredentialStore.password()
-        val pid = stream.providerId
+        val pid = stream.providerId ?: targetEpisode.providerId
         if (user.isNotBlank() && pass.isNotBlank() && !pid.isNullOrBlank()) {
             Log.w(TAG, "openContinueWatchingSeries: relative stream URL, building proxy: pid=$pid")
             "${BuildConfig.IPTV_BASE_URL}/series/$user/$pass/$pid.ts"
         } else {
-            stream.url
+            Log.e(TAG, "openContinueWatchingSeries: cannot build stream URL — stream.providerId=${stream.providerId}, episode.providerId=${targetEpisode.providerId}")
+            withContext(Dispatchers.Main) {
+                Toast.makeText(requireContext(), "No se pudo obtener la URL de reproducción", Toast.LENGTH_SHORT).show()
+            }
+            return
         }
     } else {
         stream.url
     }
+    Log.d(TAG, "openContinueWatchingSeries: streamUrl=$streamUrl")
 
     withContext(Dispatchers.Main) {
         val playerFragment = PlayerFragment()

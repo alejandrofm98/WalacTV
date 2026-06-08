@@ -117,6 +117,7 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
             title = title.orEmpty(),
             imageUrl = imageUrl.orEmpty(),
             seriesName = seriesName?.ifBlank { null },
+            seriesProviderId = seriesProviderId?.ifBlank { null },
             seasonNumber = seasonNumber?.takeIf { it > 0 },
             episodeNumber = episodeNumber?.takeIf { it > 0 },
             lastWatchedAt = lastWatchedAt.orEmpty(),
