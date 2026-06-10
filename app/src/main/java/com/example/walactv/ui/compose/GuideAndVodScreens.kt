@@ -3,7 +3,6 @@ package com.example.walactv.ui.compose
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -709,10 +708,16 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     var selectedGroup by remember { mutableStateOf(ALL_OPTION) }
     var selectedGenre by remember { mutableStateOf(ALL_OPTION) }
     var searchQuery by remember { mutableStateOf("") }
+    var showTypeDialog by remember { mutableStateOf(false) }
     var showCountryDialog by remember { mutableStateOf(false) }
     var showGroupDialog by remember { mutableStateOf(false) }
     var showGenreDialog by remember { mutableStateOf(false) }
     val lazyGridState = rememberLazyGridState()
+
+    val typeOptions = listOf(
+        CatalogFilterOption(ContentKind.MOVIE.name, "Peliculas"),
+        CatalogFilterOption(ContentKind.SERIES.name, "Series"),
+    )
 
     val loader = remember(selectedTab) {
         PagedContentLoader(
@@ -878,23 +883,8 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     ) {
         ScreenHeader(title = "Discover", subtitle = "")
 
-        DiscoverTabs(
-            selectedTab = selectedTab,
-            onTabSelected = { newTab ->
-                if (newTab != selectedTab) {
-                    selectedTab = newTab
-                    selectedCountry = ALL_OPTION
-                    selectedGroup = ALL_OPTION
-                    selectedGenre = ALL_OPTION
-                    searchQuery = ""
-                    displayItems = emptyList()
-                    currentPage = 0
-                    lastLoadKey = ""
-                }
-            }
-        )
-
         FilterTopBarWithGenre(
+            selectedTipo = typeOptions.firstOrNull { it.value == selectedTab.name }?.label ?: "Peliculas",
             showIdioma = true,
             selectedIdioma = countryOptions.firstOrNull { it.value == selectedCountry }?.label
                 ?: selectedCountry,
@@ -902,9 +892,11 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
                 ?: selectedGroup,
             selectedGenero = genreOptions.firstOrNull { it.value == selectedGenre }?.label
                 ?: selectedGenre,
+            onTipoClicked = { showTypeDialog = true },
             onIdiomaClicked = { showCountryDialog = true },
             onGrupoClicked = { showGroupDialog = true },
             onGeneroClicked = { showGenreDialog = true },
+            tipoFocusRequester = remember { FocusRequester() },
             idiomaFocusRequester = remember { FocusRequester() },
             grupoFocusRequester = remember { FocusRequester() },
             generoFocusRequester = remember { FocusRequester() },
@@ -972,6 +964,25 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
         }
     }
 
+    if (showTypeDialog) FilterDialog(
+        title = "Selecciona tipo",
+        options = typeOptions,
+        selectedOption = selectedTab.name,
+        onOptionSelected = {
+            val newTab = ContentKind.valueOf(it.value)
+            if (newTab != selectedTab) {
+                selectedTab = newTab
+                selectedCountry = ALL_OPTION
+                selectedGroup = ALL_OPTION
+                selectedGenre = ALL_OPTION
+                searchQuery = ""
+                displayItems = emptyList()
+                currentPage = 0
+                lastLoadKey = ""
+            }
+            showTypeDialog = false
+        },
+        onDismiss = { showTypeDialog = false })
     if (showCountryDialog) FilterDialog(
         title = "Selecciona idioma",
         options = countryOptions,
@@ -993,64 +1004,17 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
 }
 
 @Composable
-private fun DiscoverTabs(
-    selectedTab: ContentKind,
-    onTabSelected: (ContentKind) -> Unit,
-) {
-    val tabs = listOf(
-        ContentKind.MOVIE to "Peliculas",
-        ContentKind.SERIES to "Series",
-    )
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        tabs.forEach { (kind, label) ->
-            val isSelected = selectedTab == kind
-            var isFocused by remember { mutableStateOf(false) }
-            val bgColor = when {
-                isFocused -> IptvFocusBg
-                isSelected -> IptvSidebarSelected
-                else -> IptvBackground
-            }
-            val borderColor = when {
-                isFocused -> IptvFocusBorder
-                isSelected -> IptvFocusBorder.copy(alpha = 0.5f)
-                else -> Color.Transparent
-            }
-            val contentColor = if (isFocused || isSelected) IptvTextPrimary else IptvTextMuted
-
-            Box(
-                modifier = Modifier
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(bgColor)
-                    .border(1.dp, borderColor, RoundedCornerShape(8.dp))
-                    .focusRequester(remember { FocusRequester() })
-                    .onFocusChanged { isFocused = it.isFocused }
-                    .clickable { onTabSelected(kind) }
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    color = contentColor,
-                    fontSize = 14.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun FilterTopBarWithGenre(
+    selectedTipo: String,
     showIdioma: Boolean,
     selectedIdioma: String,
     selectedGrupo: String,
     selectedGenero: String,
+    onTipoClicked: () -> Unit,
     onIdiomaClicked: () -> Unit,
     onGrupoClicked: () -> Unit,
     onGeneroClicked: () -> Unit,
+    tipoFocusRequester: FocusRequester,
     idiomaFocusRequester: FocusRequester,
     grupoFocusRequester: FocusRequester,
     generoFocusRequester: FocusRequester,
@@ -1061,6 +1025,7 @@ private fun FilterTopBarWithGenre(
     idiomaLabel: String = "País",
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        FilterChip(label = "Tipo: $selectedTipo", focusRequester = tipoFocusRequester, onClick = onTipoClicked)
         if (showIdioma) {
             FilterChip(label = "$idiomaLabel: $selectedIdioma", focusRequester = idiomaFocusRequester, onClick = onIdiomaClicked)
         }
