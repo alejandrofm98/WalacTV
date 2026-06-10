@@ -72,7 +72,8 @@ class PlayerFragment : Fragment() {
     private var currentEpisode: CatalogItem? = null
     private var streamOptionLabels: List<String> = emptyList()
     private var currentOptionIndex: Int = 0
-    private var onSelectQuality: ((Int) -> Unit)? = null
+    private var unifiedStreamOptions: List<UnifiedStreamOption> = emptyList()
+    private var onSelectUnifiedOption: ((Int) -> Unit)? = null
     private var overlayLogoUrl: String = ""
     private var isFavorite: Boolean = false
     private var contentId: String = ""
@@ -105,7 +106,6 @@ class PlayerFragment : Fragment() {
         streamOptionLabels: List<String> = emptyList(),
         currentOptionIndex: Int = 0,
         showOptionsOnStart: Boolean = false,
-        onSelectQuality: ((Int) -> Unit)? = null,
         overlayLogoUrl: String = "",
         isFavorite: Boolean = false,
         contentId: String = "",
@@ -113,6 +113,8 @@ class PlayerFragment : Fragment() {
         onPlayerClosed: (() -> Unit)? = null,
         onProgressSaved: ((WatchProgressItem) -> Unit)? = null,
         customHeaders: Map<String, String> = emptyMap(),
+        unifiedStreamOptions: List<UnifiedStreamOption> = emptyList(),
+        onSelectUnifiedOption: ((Int) -> Unit)? = null,
     ) {
         this.streamUrl = streamUrl
         this.overlayNumber = overlayNumber
@@ -136,7 +138,6 @@ class PlayerFragment : Fragment() {
         this.liveOptionIndex = currentOptionIndex
         this.shouldShowOptionsOnStart = showOptionsOnStart
         Log.d(TAG, "INITIALIZE: currentOptionIndex=$currentOptionIndex, showOptionsOnStart=$showOptionsOnStart, streamOptionLabels.size=${streamOptionLabels.size}")
-        this.onSelectQuality = onSelectQuality
         this.overlayLogoUrl = overlayLogoUrl
         this.isFavorite = isFavorite
         this.isFavoriteState = isFavorite
@@ -145,6 +146,8 @@ class PlayerFragment : Fragment() {
         this.onPlayerClosed = onPlayerClosed
         this.onProgressSaved = onProgressSaved
         this.customHeaders = customHeaders
+        this.unifiedStreamOptions = unifiedStreamOptions
+        this.onSelectUnifiedOption = onSelectUnifiedOption
     }
 
     private var currentSeriesEpisode: CatalogItem? = currentEpisode
@@ -515,24 +518,21 @@ class PlayerFragment : Fragment() {
     }
 
     private fun bindVodControls() {
-        // Pausa al abrir audio, reanuda al cerrar el diálogo
-        playerView.findViewById<ImageButton>(R.id.vod_btn_audio)?.setOnClickListener {
-            player?.pause()
-            showAudioSelector()
+        val streamBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_stream)
+        if (unifiedStreamOptions.size > 1 && onSelectUnifiedOption != null) {
+            streamBtn?.visibility = View.VISIBLE
+            streamBtn?.setOnClickListener {
+                player?.pause()
+                showUnifiedSelector()
+            }
+        } else {
+            streamBtn?.visibility = View.GONE
         }
 
         // Pausa al abrir subtítulos, reanuda al cerrar el diálogo
         playerView.findViewById<ImageButton>(R.id.vod_btn_subtitles)?.setOnClickListener {
             player?.pause()
             showSubtitleSelector()
-        }
-
-        val qualityBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_quality)
-        if (streamOptionLabels.size > 1 && onSelectQuality != null) {
-            qualityBtn?.visibility = View.VISIBLE
-            qualityBtn?.setOnClickListener { showQualitySelector() }
-        } else {
-            qualityBtn?.visibility = View.GONE
         }
 
         val nextBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_next)
@@ -669,20 +669,11 @@ class PlayerFragment : Fragment() {
 
         val exoPlayer = player ?: return
 
-        val audioTrackCount = exoPlayer.currentTracks.groups
-            .filter { group -> group.type == C.TRACK_TYPE_AUDIO }
-            .sumOf { group -> group.length }
-        val hasSelectableAudioTracks = isAudioSelectorEnabled(audioTrackCount)
-
         val hasSubtitleTracks = exoPlayer.currentTracks.groups.any { group ->
             group.type == C.TRACK_TYPE_TEXT && group.length > 0
         }
 
-        val audioButton = playerView.findViewById<ImageButton>(R.id.vod_btn_audio)
         val subtitleButton = playerView.findViewById<ImageButton>(R.id.vod_btn_subtitles)
-
-        audioButton?.isEnabled = hasSelectableAudioTracks
-        audioButton?.alpha = if (hasSelectableAudioTracks) 1.0f else 0.4f
 
         subtitleButton?.isEnabled = hasSubtitleTracks
         subtitleButton?.alpha = if (hasSubtitleTracks) 1.0f else 0.4f
@@ -716,118 +707,28 @@ class PlayerFragment : Fragment() {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  Audio / Subtitle selectors
+    //  Unified stream selector (audio + quality)
     // ──────────────────────────────────────────────────────────────────────
 
-    private fun showAudioSelector() {
-        val exoPlayer = player ?: return
+    private fun showUnifiedSelector() {
         val ctx = context ?: return
+        val options = unifiedStreamOptions
+        if (options.isEmpty()) return
 
-        val audioGroups = exoPlayer.currentTracks.groups.filter { group ->
-            group.type == C.TRACK_TYPE_AUDIO
-        }
-
-        if (audioGroups.isEmpty()) {
-            Toast.makeText(ctx, R.string.vod_no_audio_available, Toast.LENGTH_SHORT).show()
-            player?.play()
-            return
-        }
-
-        data class AudioTrackChoice(
-            val label: String,
-            val groupIndex: Int,
-            val trackIndex: Int,
-            val isSelected: Boolean,
-        )
-
-        val choices = mutableListOf<AudioTrackChoice>()
-
-        audioGroups.forEachIndexed { groupIdx, group ->
-            for (trackIdx in 0 until group.length) {
-                val format = group.getTrackFormat(trackIdx)
-                val lang = normalizeLanguageCode(format.language)
-                val channelCount = format.channelCount
-                val displayLanguage = languageDisplayLabel(lang)
-                val label = if (channelCount > 0) {
-                    "$displayLanguage ($channelCount ch)"
-                } else {
-                    format.label ?: displayLanguage
-                }
-                val selected = group.isTrackSelected(trackIdx)
-                choices.add(AudioTrackChoice(label, groupIdx, trackIdx, selected))
-            }
-        }
-
-        val labels = choices.map { it.label }.toTypedArray()
-        val checkedIndex = choices.indexOfFirst { it.isSelected }.coerceAtLeast(0)
+        val labels = options.map { it.displayLabel }.toTypedArray()
+        val currentUrl = streamUrl
+        val currentIndex = options.indexOfFirst { it.url == currentUrl }.coerceAtLeast(0)
 
         AlertDialog.Builder(ctx, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle(R.string.vod_audio_dialog_title)
-            .setSingleChoiceItems(labels, checkedIndex) { dialog, which ->
-                val chosen = choices[which]
-                applyAudioSelection(exoPlayer, audioGroups, chosen.groupIndex, chosen.trackIndex)
+            .setTitle(R.string.vod_stream)
+            .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
+                if (which != currentIndex) {
+                    onSelectUnifiedOption?.invoke(which)
+                }
                 dialog.dismiss()
             }
             .setOnDismissListener { player?.play() }
             .show()
-    }
-
-    private fun applyAudioSelection(
-        exoPlayer: ExoPlayer,
-        audioGroups: List<Tracks.Group>,
-        groupIndex: Int,
-        trackIndex: Int,
-    ) {
-        val group = audioGroups[groupIndex]
-        if (contentKind == ContentKind.SERIES && allSeriesEpisodes.isNotEmpty()) {
-            val selectedFormat = group.getTrackFormat(trackIndex)
-            val trackLanguage = selectedFormat.language ?: return
-            val languageCode = normalizeLanguageCode(trackLanguage)
-
-            val current = currentSeriesEpisode
-            if (current != null && languageCode != normalizeLanguageCode(current.idioma)) {
-                val switched = switchToEpisodeWithLanguage(languageCode)
-                if (switched) return
-            }
-        }
-
-        val paramsBuilder = exoPlayer.trackSelectionParameters.buildUpon()
-        paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-        paramsBuilder.setOverrideForType(
-            TrackSelectionOverride(group.mediaTrackGroup, trackIndex),
-        )
-        exoPlayer.trackSelectionParameters = paramsBuilder.build()
-    }
-
-    private fun switchToEpisodeWithLanguage(targetLanguage: String): Boolean {
-        val current = currentSeriesEpisode ?: return false
-        val equivalentEpisode = allSeriesEpisodes.findEquivalentSeriesEpisode(current, targetLanguage)
-
-        if (equivalentEpisode != null) {
-            val stream = equivalentEpisode.streamOptions.firstOrNull() ?: return false
-            watchedMarked = false
-            currentSeriesEpisode = equivalentEpisode
-
-            player?.let { exoPlayer ->
-                val wasPlaying = exoPlayer.isPlaying
-                val position = exoPlayer.currentPosition
-
-                exoPlayer.setMediaItem(createMediaItem(stream.url))
-                exoPlayer.prepare()
-                exoPlayer.seekTo(position)
-                exoPlayer.playWhenReady = wasPlaying
-
-                updateDisplayedMetadata(
-                    title = equivalentEpisode.title,
-                    meta = equivalentEpisode.description.ifBlank { stream.label },
-                )
-            }
-            return true
-        } else {
-            val ctx = context ?: return false
-            Toast.makeText(ctx, R.string.episode_not_available_in_language, Toast.LENGTH_SHORT).show()
-            return false
-        }
     }
 
     private fun updateDisplayedMetadata(title: String, meta: String) {
@@ -910,22 +811,6 @@ class PlayerFragment : Fragment() {
             )
         }
         exoPlayer.trackSelectionParameters = paramsBuilder.build()
-    }
-
-    private fun showQualitySelector() {
-        val ctx = context ?: return
-        val labels = streamOptionLabels.toTypedArray()
-        if (labels.isEmpty()) return
-
-        AlertDialog.Builder(ctx, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle(R.string.vod_quality)
-            .setSingleChoiceItems(labels, currentOptionIndex) { dialog, which ->
-                if (which != currentOptionIndex) {
-                    onSelectQuality?.invoke(which)
-                }
-                dialog.dismiss()
-            }
-            .show()
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -1156,16 +1041,16 @@ class PlayerFragment : Fragment() {
 
         if (isCodecIncompatible) {
             Log.w(TAG, "Error de codec incompatible detectado: $errorMessage")
-            if (isVodMode && streamOptionLabels.size > 1 && onSelectQuality != null) {
+            if (isVodMode && unifiedStreamOptions.size > 1 && onSelectUnifiedOption != null) {
                 val nextIndex = currentOptionIndex + 1
-                if (nextIndex < streamOptionLabels.size) {
-                    Log.d(TAG, "Auto-fallback de calidad: ${streamOptionLabels[currentOptionIndex]} → ${streamOptionLabels[nextIndex]}")
-                    onSelectQuality?.invoke(nextIndex)
+                if (nextIndex < unifiedStreamOptions.size) {
+                    Log.d(TAG, "Auto-fallback de calidad: ${streamOptionLabels.getOrNull(currentOptionIndex)} → ${streamOptionLabels.getOrNull(nextIndex)}")
+                    onSelectUnifiedOption?.invoke(nextIndex)
                     return
                 }
                 Log.w(TAG, "Auto-fallback: todas las opciones de calidad agotadas")
                 showErrorOverlay(categorizedError, autoClose = false)
-                handler.postDelayed({ showQualitySelector() }, 500)
+                handler.postDelayed({ showUnifiedSelector() }, 500)
                 return
             }
             Toast.makeText(context, R.string.codec_unsupported_device, Toast.LENGTH_LONG).show()
@@ -1417,9 +1302,8 @@ class PlayerFragment : Fragment() {
 
     private fun getFocusedVodButton(): View? {
         val customButtonIds = listOf(
-            R.id.vod_btn_audio,
+            R.id.vod_btn_stream,
             R.id.vod_btn_subtitles,
-            R.id.vod_btn_quality,
             R.id.vod_btn_next,
             R.id.vod_btn_prev,
         )
@@ -1460,8 +1344,7 @@ class PlayerFragment : Fragment() {
         val customButtonIds = listOf(
             R.id.vod_btn_prev,
             R.id.vod_btn_next,
-            R.id.vod_btn_audio,
-            R.id.vod_btn_quality,
+            R.id.vod_btn_stream,
             R.id.vod_btn_subtitles,
         )
         val target = customButtonIds

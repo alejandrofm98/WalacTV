@@ -39,6 +39,7 @@
     <string name="vod_subtitles">Subtitulos</string>
     <string name="vod_audio">Audio</string>
     <string name="vod_quality">Calidad</string>
+    <string name="vod_stream">Audio y Calidad</string>
     <string name="vod_play_pause">Reproducir / Pausar</string>
     <string name="vod_next_episode">Siguiente capitulo</string>
     <string name="vod_prev_episode">Capitulo anterior</string>

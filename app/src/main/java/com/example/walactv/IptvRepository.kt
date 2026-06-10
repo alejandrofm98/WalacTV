@@ -618,6 +618,8 @@ class IptvRepository @Inject constructor(context: Context) {
                             label = "Directo",
                             url = it,
                             providerId = streams?.firstOrNull()?.providerId,
+                            language = streams?.firstOrNull()?.country,
+                            quality = streams?.firstOrNull()?.quality,
                         )
                     },
                 ) +
@@ -627,6 +629,8 @@ class IptvRepository @Inject constructor(context: Context) {
                                 label = s.label ?: "Ver",
                                 url = it,
                                 providerId = s.providerId,
+                                language = s.country,
+                                quality = s.quality,
                             )
                         }
                     }

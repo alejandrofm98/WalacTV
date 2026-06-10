@@ -155,6 +155,7 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
             }
 
             val playerFragment = PlayerFragment()
+            val unifiedOptions = resolvedItem.streamOptions.toUnifiedOptions()
             playerFragment.initialize(
                 streamUrl = stream.url,
                 overlayNumber = when {
@@ -176,6 +177,16 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
                 overlayLogoUrl = resolvedItem.preferredVodPosterUrl(),
                 isFavorite = channelStateStore.isFavorite(resolvedItem),
                 contentId = resolvedItem.providerId ?: resolvedItem.stableId,
+                unifiedStreamOptions = unifiedOptions,
+                onSelectUnifiedOption = if (resolvedItem.kind == ContentKind.MOVIE || resolvedItem.kind == ContentKind.SERIES) {
+                    { selectedIndex ->
+                        val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
+                        val optionIndex = resolvedItem.streamOptions.indexOfFirst { it.url == selectedOption.url }
+                        if (optionIndex >= 0) {
+                            playCatalogItem(resolvedItem, optionIndex)
+                        }
+                    }
+                } else null,
             )
 
             fragmentManager.beginTransaction()

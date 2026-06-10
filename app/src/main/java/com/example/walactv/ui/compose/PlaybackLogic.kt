@@ -17,7 +17,9 @@ import com.example.walactv.PreferencesManager
 import com.example.walactv.R
 import com.example.walactv.SeriesDetailFragment
 import com.example.walactv.StreamOption
+import com.example.walactv.UnifiedStreamOption
 import com.example.walactv.WatchProgressItem
+import com.example.walactv.toUnifiedOptions
 import com.example.walactv.BuildConfig
 import com.example.walactv.idioma
 import com.example.walactv.normalizeLanguageCode
@@ -192,6 +194,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
 
     withContext(Dispatchers.Main) {
         val playerFragment = PlayerFragment()
+        val unifiedOptions = targetEpisode.streamOptions.toUnifiedOptions()
         playerFragment.initialize(
             streamUrl = streamUrl, overlayNumber = targetEpisode.kind.name, overlayTitle = targetEpisode.title,
             overlayMeta = if (targetEpisode.kind == ContentKind.SERIES) buildEpisodeLabel(targetEpisode.seasonNumber, targetEpisode.episodeNumber) else targetEpisode.subtitle, contentKind = targetEpisode.kind,
@@ -204,6 +207,13 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
             positionMs = progress.positionMs,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
+            unifiedStreamOptions = unifiedOptions,
+            onSelectUnifiedOption = if (targetEpisode.kind == ContentKind.MOVIE || targetEpisode.kind == ContentKind.SERIES) {
+                { selectedIndex ->
+                    val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
+                    playCatalogItemWithUnifiedOption(targetEpisode, selectedOption)
+                }
+            } else null,
         )
         rememberPlaybackReturnState(cardItem)
         currentItem = cardItem
@@ -229,6 +239,15 @@ internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex:
     playResolvedCatalogItem(item, optionIndex, showOptionsOnStart)
 }
 
+internal fun ComposeMainFragment.playCatalogItemWithUnifiedOption(item: CatalogItem, option: UnifiedStreamOption) {
+    val optionIndex = item.streamOptions.indexOfFirst { it.url == option.url }
+    if (optionIndex >= 0) {
+        playCatalogItem(item, optionIndex)
+    } else {
+        playResolvedCatalogItem(item, 0)
+    }
+}
+
 internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false, positionMs: Long = 0) {
     val stream = item.streamOptions.getOrNull(optionIndex) ?: return
     rememberPlaybackReturnState(item)
@@ -240,6 +259,7 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
     val favoriteTarget = channelItem ?: item
 
     val playerFragment = PlayerFragment()
+    val unifiedOptions = item.streamOptions.toUnifiedOptions()
     playerFragment.initialize(
         streamUrl = stream.url,
         overlayNumber = when {
@@ -260,9 +280,6 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
         streamOptionLabels = item.streamOptions.map { it.label },
         currentOptionIndex = optionIndex,
         showOptionsOnStart = showOptionsOnStart,
-        onSelectQuality = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
-            { newIndex -> playCatalogItem(item, newIndex) }
-        } else null,
         overlayLogoUrl = item.preferredVodPosterUrl(),
         isFavorite = channelStateStore.isFavorite(favoriteTarget),
         contentId = if (item.kind == ContentKind.SERIES) {
@@ -276,6 +293,13 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
             { progressItem -> upsertContinueWatchingEntry(progressItem) }
         } else null,
         customHeaders = stream.headers,
+        unifiedStreamOptions = unifiedOptions,
+        onSelectUnifiedOption = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
+            { selectedIndex ->
+                val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
+                playCatalogItemWithUnifiedOption(item, selectedOption)
+            }
+        } else null,
     )
     launchPlayerFragment(playerFragment)
 }

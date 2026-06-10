@@ -116,6 +116,7 @@ class SeriesDetailFragment : Fragment() {
         Log.d(TAG, "SERIES_CONTENT_ID seriesKey=${episodeToPlay.seriesKey} providerId=${episodeToPlay.providerId} stableId=${episodeToPlay.stableId} -> $seriesContentId")
 
         val playerFragment = PlayerFragment()
+        val unifiedOptions = episodeToPlay.streamOptions.toUnifiedOptions()
         playerFragment.initialize(
             streamUrl = stream.url,
             overlayNumber = item.kind.name,
@@ -135,6 +136,17 @@ class SeriesDetailFragment : Fragment() {
             contentId = seriesContentId,
             onPlayerClosed = {
                 view?.requestFocus()
+            },
+            unifiedStreamOptions = unifiedOptions,
+            onSelectUnifiedOption = { selectedIndex ->
+                val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
+                val freshEpisode = allEpisodesForSeries.find { ep ->
+                    ep.seriesName == episodeToPlay.seriesName &&
+                        ep.seasonNumber == episodeToPlay.seasonNumber &&
+                        ep.episodeNumber == episodeToPlay.episodeNumber &&
+                        ep.streamOptions.any { s -> s.url == selectedOption.url }
+                } ?: episodeToPlay
+                playEpisode(freshEpisode, allEpisodesForSeries, logicalEpisodes)
             },
         )
         val fragmentManager = requireActivity().supportFragmentManager

@@ -46,8 +46,6 @@ fun languageDisplayLabel(value: String?): String {
     }
 }
 
-fun isAudioSelectorEnabled(trackCount: Int): Boolean = trackCount > 1
-
 fun displayCardTitle(item: CatalogItem): String {
     return if (item.kind == ContentKind.CHANNEL && item.channelNumber != null) {
         "${item.channelNumber}  ${item.title}"

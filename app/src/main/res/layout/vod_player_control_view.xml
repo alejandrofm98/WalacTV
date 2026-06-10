@@ -152,19 +152,21 @@
                     android:contentDescription="@string/vod_audio"
                     android:focusable="true"
                     android:scaleType="centerInside"
-                    android:src="@drawable/ic_vod_audio" />
+                    android:src="@drawable/ic_vod_audio"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
 
-                <!-- Quality selector (only visible when multiple qualities available) -->
+                <!-- Unified stream selector (audio + quality) -->
                 <ImageButton
-                    android:id="@+id/vod_btn_quality"
+                    android:id="@+id/vod_btn_stream"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
                     android:layout_marginStart="20dp"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="@string/vod_quality"
+                    android:contentDescription="@string/vod_stream"
                     android:focusable="true"
                     android:scaleType="centerInside"
-                    android:src="@drawable/ic_vod_quality"
+                    android:src="@drawable/ic_vod_audio"
                     android:visibility="gone"
                     tools:visibility="visible" />
 

@@ -70,6 +70,8 @@ data class CatalogItemDto(
 data class StreamDto(
     val url: String? = null,
     val label: String? = null,
+    val country: String? = null,
+    val quality: String? = null,
     @SerializedName("provider_id") val providerId: String? = null,
     val headers: Map<String, String>? = null,
 )

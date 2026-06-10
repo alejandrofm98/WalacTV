@@ -105,12 +105,36 @@ fun List<CatalogItem>.uniqueSeriesEpisodes(preferredLanguage: String? = null): L
             } else {
                 val best = candidates.maxByOrNull { qualityScore(it) } ?: candidates.first()
                 val qualityOptions = candidates.flatMap { variant ->
-                    val quality = extractQualityLabel(variant.title) ?: "Ver"
-                    variant.streamOptions.map { it.copy(label = quality) }
-                }.distinctBy { it.url }
-                    .sortedByDescending { QUALITY_ORDER[it.label] ?: 0 }
+                    val variantLang = normalizeLanguageCode(variant.idioma)
+                    variant.streamOptions.map { stream ->
+                        val quality = stream.quality
+                            ?: extractQualityLabel(variant.title)
+                            ?: "Ver"
+                        val lang = stream.language ?: variantLang
+                        stream.copy(
+                            label = quality,
+                            language = lang,
+                            quality = quality,
+                        )
+                    }
+                }.distinctBy { "${it.language}_${it.quality}_${it.url}" }
+                    .sortedWith(
+                        compareByDescending<StreamOption> { QUALITY_ORDER[it.quality ?: ""] ?: 0 }
+                            .thenBy { it.language ?: "" },
+                    )
+                val hasLanguageInfo = qualityOptions.any { it.language != null }
+                val finalOptions = if (hasLanguageInfo) {
+                    qualityOptions.map { stream ->
+                        val lang = stream.language ?: "unknown"
+                        val quality = stream.quality ?: stream.label
+                        val displayLang = languageDisplayLabel(normalizeLanguageCode(lang))
+                        stream.copy(label = "$displayLang $quality")
+                    }
+                } else {
+                    qualityOptions
+                }
                 best.copy(
-                    streamOptions = qualityOptions,
+                    streamOptions = finalOptions,
                     badgeText = candidates.mapNotNull { extractQualityLabel(it.title) }
                         .distinct()
                         .sortedByDescending { QUALITY_ORDER[it] ?: 0 }
