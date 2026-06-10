@@ -110,8 +110,7 @@ internal fun MainShell(fragment: ComposeMainFragment) {
                     MainMode.Home     -> HomeContent(fragment)
                     MainMode.TV       -> GuideContent(fragment, ContentKind.CHANNEL)
                     MainMode.Events   -> GuideContent(fragment, ContentKind.EVENT)
-                    MainMode.Movies   -> VodGridContent(fragment, ContentKind.MOVIE)
-                    MainMode.Series   -> VodGridContent(fragment, ContentKind.SERIES)
+                    MainMode.Discover -> DiscoverContent(fragment)
                     MainMode.Settings -> SettingsContent(fragment)
                 }
             }
@@ -247,13 +246,12 @@ private fun RailHeader(expanded: Boolean) {
 
 internal fun ComposeMainFragment.toNavItem(entry: SideRailEntry): ComposeMainFragment.NavItem {
     return when (entry.destination) {
-        SideRailDestination.SEARCH -> ComposeMainFragment.NavItem(Icons.Outlined.Search, entry.label, onClick = ::openSearch)
-        SideRailDestination.HOME   -> ComposeMainFragment.NavItem(Icons.Outlined.Home, entry.label, MainMode.Home)
-        SideRailDestination.EVENTS -> ComposeMainFragment.NavItem(Icons.Outlined.Event, entry.label, MainMode.Events)
-        SideRailDestination.TV     -> ComposeMainFragment.NavItem(Icons.Outlined.LiveTv, entry.label, MainMode.TV)
-        SideRailDestination.MOVIES -> ComposeMainFragment.NavItem(Icons.Outlined.Movie, entry.label, MainMode.Movies)
-        SideRailDestination.SERIES -> ComposeMainFragment.NavItem(Icons.Outlined.Tv, entry.label, MainMode.Series)
-        else                       -> ComposeMainFragment.NavItem(Icons.Outlined.Home, entry.label, MainMode.Home)
+        SideRailDestination.SEARCH   -> ComposeMainFragment.NavItem(Icons.Outlined.Search, entry.label, onClick = ::openSearch)
+        SideRailDestination.HOME     -> ComposeMainFragment.NavItem(Icons.Outlined.Home, entry.label, MainMode.Home)
+        SideRailDestination.EVENTS   -> ComposeMainFragment.NavItem(Icons.Outlined.Event, entry.label, MainMode.Events)
+        SideRailDestination.TV       -> ComposeMainFragment.NavItem(Icons.Outlined.LiveTv, entry.label, MainMode.TV)
+        SideRailDestination.DISCOVER -> ComposeMainFragment.NavItem(Icons.Outlined.Explore, entry.label, MainMode.Discover)
+        else                         -> ComposeMainFragment.NavItem(Icons.Outlined.Home, entry.label, MainMode.Home)
     }
 }
 

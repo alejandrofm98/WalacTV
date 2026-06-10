@@ -248,9 +248,11 @@ internal fun ComposeMainFragment.changeMode(newMode: ComposeMainFragment.MainMod
     currentMode = newMode
     selectedHero = defaultItemForMode(newMode)
     when (newMode) {
-        ComposeMainFragment.MainMode.TV     -> ensureFiltersLoaded(ContentKind.CHANNEL)
-        ComposeMainFragment.MainMode.Movies -> ensureFiltersLoaded(ContentKind.MOVIE)
-        ComposeMainFragment.MainMode.Series -> ensureFiltersLoaded(ContentKind.SERIES)
+        ComposeMainFragment.MainMode.TV       -> ensureFiltersLoaded(ContentKind.CHANNEL)
+        ComposeMainFragment.MainMode.Discover -> {
+            ensureFiltersLoaded(ContentKind.MOVIE)
+            ensureFiltersLoaded(ContentKind.SERIES)
+        }
         else -> Unit
     }
 }
@@ -270,8 +272,7 @@ internal fun ComposeMainFragment.defaultItemForMode(
     ComposeMainFragment.MainMode.Home     -> homeSections.firstNotNullOfOrNull { it.items.firstOrNull() }
     ComposeMainFragment.MainMode.TV       -> searchableItems.firstOrNull { it.kind == ContentKind.CHANNEL }
     ComposeMainFragment.MainMode.Events   -> searchableItems.firstOrNull { it.kind == ContentKind.EVENT }
-    ComposeMainFragment.MainMode.Movies   -> searchableItems.firstOrNull { it.kind == ContentKind.MOVIE }
-    ComposeMainFragment.MainMode.Series   -> searchableItems.firstOrNull { it.kind == ContentKind.SERIES }
+    ComposeMainFragment.MainMode.Discover -> searchableItems.firstOrNull { it.kind == ContentKind.MOVIE || it.kind == ContentKind.SERIES }
     ComposeMainFragment.MainMode.Settings -> null
 }
 

@@ -5,8 +5,7 @@ internal enum class SideRailDestination {
     HOME,
     EVENTS,
     TV,
-    MOVIES,
-    SERIES,
+    DISCOVER,
 }
 
 internal data class SideRailEntry(
@@ -20,7 +19,6 @@ internal fun buildDefaultSideRailEntries(): List<SideRailEntry> {
         SideRailEntry(label = "Inicio", destination = SideRailDestination.HOME),
         SideRailEntry(label = "Eventos", destination = SideRailDestination.EVENTS),
         SideRailEntry(label = "TV en directo", destination = SideRailDestination.TV),
-        SideRailEntry(label = "Peliculas", destination = SideRailDestination.MOVIES),
-        SideRailEntry(label = "Series", destination = SideRailDestination.SERIES),
+        SideRailEntry(label = "Discover", destination = SideRailDestination.DISCOVER),
     )
 }

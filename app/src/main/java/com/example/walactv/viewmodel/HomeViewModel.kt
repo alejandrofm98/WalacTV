@@ -423,8 +423,7 @@ class HomeViewModel @Inject constructor(
             "Home" -> _homeSections.value.firstNotNullOfOrNull { it.items.firstOrNull() }
             "TV" -> _searchableItems.value.firstOrNull { it.kind == ContentKind.CHANNEL }
             "Events" -> _searchableItems.value.firstOrNull { it.kind == ContentKind.EVENT }
-            "Movies" -> _searchableItems.value.firstOrNull { it.kind == ContentKind.MOVIE }
-            "Series" -> _searchableItems.value.firstOrNull { it.kind == ContentKind.SERIES }
+            "Discover" -> _searchableItems.value.firstOrNull { it.kind == ContentKind.MOVIE || it.kind == ContentKind.SERIES }
             else -> null
         }
     }

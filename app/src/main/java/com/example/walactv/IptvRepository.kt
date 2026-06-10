@@ -215,7 +215,14 @@ class IptvRepository @Inject constructor(context: Context) {
             groupsPayload.groups.map { CatalogFilterOption(value = it.value, label = it.label) }
         }
 
-        CatalogFilters(countries = countries, groups = groups)
+        val genres = if (kind == ContentKind.MOVIE || kind == ContentKind.SERIES) {
+            val genresResponse = apiService.getGenres(contentType)
+            if (genresResponse.isSuccessful) {
+                (genresResponse.body()?.genres ?: emptyList()).map { CatalogFilterOption(value = it, label = it) }
+            } else emptyList()
+        } else emptyList()
+
+        CatalogFilters(countries = countries, groups = groups, genres = genres)
             .also { filterCache[cacheKey] = it }
     }
 
@@ -227,6 +234,7 @@ class IptvRepository @Inject constructor(context: Context) {
         country: String? = null,
         group: String? = null,
         search: String? = null,
+        genre: String? = null,
     ): RemoteCatalogPage = withContext(Dispatchers.IO) {
         if (kind == ContentKind.EVENT) {
             return@withContext RemoteCatalogPage(emptyList(), 0, page, 0, 0, false, false)
@@ -253,6 +261,7 @@ class IptvRepository @Inject constructor(context: Context) {
             country = country?.takeIf { it.isNotBlank() },
             group = group?.takeIf { it.isNotBlank() },
             search = search?.takeIf { it.isNotBlank() },
+            genre = genre?.takeIf { it.isNotBlank() },
             page = page,
             pageSize = PAGE_SIZE,
         )

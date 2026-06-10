@@ -37,6 +37,7 @@ interface IptvApiService {
         @Query("year") year: Int? = null,
         @Query("section") section: String? = null,
         @Query("search") search: String? = null,
+        @Query("genre") genre: String? = null,
         @Query("page") page: Int = 1,
         @Query("page_size") pageSize: Int = 24,
     ): Response<CatalogPageResponse>
@@ -58,6 +59,11 @@ interface IptvApiService {
         @Query("countries") countries: String? = null,
         @Query("country") country: String? = null,
     ): Response<FilterOptionsResponse>
+
+    @GET("api/content/genres")
+    suspend fun getGenres(
+        @Query("content_type") contentType: String,
+    ): Response<GenresResponse>
 
     @GET("api/content/stats")
     suspend fun getContentStats(
