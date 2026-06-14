@@ -617,7 +617,11 @@ internal fun ContentSection(
         }
         if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
             val index = fragment.findNextEventIndex(section.items)
-            if (index > 0) lazyListState.scrollToItem(index)
+            if (index >= 0) {
+                lazyListState.scrollToItem(index)
+                delay(100.milliseconds)
+                focusRequesters.getOrNull(index)?.requestFocus()
+            }
         }
     }
 
@@ -667,19 +671,22 @@ internal fun ContentSection(
         val target = fragment.pendingHomeFocusTarget
         if (target == null) {
             if (sectionIndex != 0) return@LaunchedEffect
-            Log.d("HomeContent", "Rail restore has no target, focusing first card section=${section.title} items=${section.items.size} requesters=${focusRequesters.size}")
+            val initialIndex = if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
+                fragment.findNextEventIndex(section.items).takeIf { it >= 0 } ?: 0
+            } else 0
+            Log.d("HomeContent", "Rail restore has no target, focusing initialIndex=$initialIndex section=${section.title} items=${section.items.size} requesters=${focusRequesters.size}")
             runCatching {
-                lazyListState.scrollToItem(0)
+                lazyListState.scrollToItem(initialIndex)
                 delay(80.milliseconds)
-                val requester = focusRequesters.firstOrNull()
+                val requester = focusRequesters.getOrNull(initialIndex)
                 if (requester == null) {
-                    Log.w("HomeContent", "Home first card focus skipped: no requester section=${section.title}")
+                    Log.w("HomeContent", "Home initial focus skipped: no requester for index $initialIndex section=${section.title}")
                 } else {
                     requester.requestFocus()
-                    Log.d("HomeContent", "Home first card requestFocus success section=${section.title}")
+                    Log.d("HomeContent", "Home initial focus success index=$initialIndex section=${section.title}")
                 }
             }.onFailure {
-                Log.w("HomeContent", "Home first card focus failed: ${it.message}")
+                Log.w("HomeContent", "Home initial focus failed: ${it.message}")
             }
             return@LaunchedEffect
         }

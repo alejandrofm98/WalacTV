@@ -415,6 +415,7 @@ class IptvRepository @Inject constructor(context: Context) {
         Log.d(TAG, "fetchEventSections: eventos=${payload.eventos.size}")
 
         val items = payload.eventos.mapNotNull { mapCalendarEvent(it) }
+            .sortedBy { it.badgeText }
 
         if (items.isEmpty()) return emptyList()
 

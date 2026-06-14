@@ -295,6 +295,7 @@ internal fun ComposeMainFragment.findNextEventIndex(items: List<CatalogItem>): I
     val now = java.util.Calendar.getInstance()
     var bestUpcoming = -1; var bestUpcomingDelta = Long.MAX_VALUE
     var bestLive = -1; var bestLiveDelta = Long.MAX_VALUE
+    var bestPast = -1; var bestPastDelta = Long.MAX_VALUE
     for (i in items.indices) {
         if (items[i].kind != ContentKind.EVENT) continue
         val parsed = runCatching { ComposeMainFragment.EVENT_TIME_FORMAT.parse(items[i].badgeText) }.getOrNull() ?: continue
@@ -307,10 +308,13 @@ internal fun ComposeMainFragment.findNextEventIndex(items: List<CatalogItem>): I
         val delta = (now.timeInMillis - eventCal.timeInMillis) / 60_000L
         when {
             delta < 0 && -delta < bestUpcomingDelta -> { bestUpcoming = i; bestUpcomingDelta = -delta }
-            delta in 0..180 && delta < bestLiveDelta -> { bestLive = i; bestLiveDelta = delta }
+            delta in 0..300 && delta < bestLiveDelta -> { bestLive = i; bestLiveDelta = delta }
+            delta > 300 && delta < bestPastDelta -> { bestPast = i; bestPastDelta = delta }
         }
     }
-    return if (bestUpcoming >= 0) bestUpcoming else bestLive
+    return bestUpcoming.takeIf { it >= 0 }
+        ?: bestLive.takeIf { it >= 0 }
+        ?: bestPast
 }
 
 internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgressItem) {
