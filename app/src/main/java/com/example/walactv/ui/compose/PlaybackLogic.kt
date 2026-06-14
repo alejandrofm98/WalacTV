@@ -42,7 +42,7 @@ internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List
     }
     if (item.kind == ContentKind.SERIES && item.seriesName != null) {
         rememberPlaybackReturnState(item)
-        val fragment = SeriesDetailFragment.newInstance(item.seriesName)
+        val fragment = SeriesDetailFragment.newInstance(item)
         requireActivity().supportFragmentManager.beginTransaction()
             .replace(R.id.main_browse_fragment, fragment)
             .addToBackStack("SeriesDetailFragment")

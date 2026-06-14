@@ -646,6 +646,11 @@ class IptvRepository @Inject constructor(context: Context) {
 
         val tmdbTitleVal = tmdbTitle.orEmpty()
 
+        val stillPathVal = stillPath
+            ?.takeIf { it.isNotBlank() && isTmdbImagePath(it) }
+            ?.let { buildTmdbImageUrl(it, "w780") }
+            ?: stillPath
+
         return CatalogItem(
             stableId = stableId,
             providerId = providerIdStr,
@@ -668,7 +673,7 @@ class IptvRepository @Inject constructor(context: Context) {
             languageLabel = normalized.languageLabel?.takeIf { it.isNotBlank() },
             normalizedGroup = null,
             seriesName = normalized.seriesName?.takeIf { it.isNotBlank() },
-            seriesKey = null,
+            seriesKey = seriesKey ?: seriesName,
             seasonNumber = this@toCatalogItem.seasonNumber,
             episodeNumber = this@toCatalogItem.episodeNumber,
             streamOptions = (
@@ -697,7 +702,7 @@ class IptvRepository @Inject constructor(context: Context) {
             ),
             overviewEn = overviewEn?.takeIf { it.isNotBlank() },
             voteAverage = rating?.toFloat(),
-            voteCount = null,
+            voteCount = voteCount,
             runtimeMinutes = runtimeMinutes,
             genres = genres.orEmpty(),
             countries = this@toCatalogItem.countries.orEmpty(),
@@ -708,6 +713,10 @@ class IptvRepository @Inject constructor(context: Context) {
             year = parsedYear,
             tmdbTitle = tmdbTitleVal.ifBlank { null },
             totalSeasons = totalSeasons,
+            stillPath = stillPathVal,
+            airDate = this@toCatalogItem.airDate,
+            titleEn = this@toCatalogItem.titleEn,
+            episodeType = this@toCatalogItem.episodeType,
         )
     }
 

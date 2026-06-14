@@ -112,7 +112,7 @@ class SearchFragment : Fragment() {
     private fun playCatalogItem(item: CatalogItem, optionIndex: Int = 0, position: Int = currentItemPosition) {
         if (item.kind == ContentKind.SERIES && item.seriesName != null) {
             requireActivity().supportFragmentManager.beginTransaction()
-                .replace(R.id.main_browse_fragment, SeriesDetailFragment.newInstance(item.seriesName))
+                .replace(R.id.main_browse_fragment, SeriesDetailFragment.newInstance(item))
                 .addToBackStack("SeriesDetailFragment")
                 .commit()
             return
