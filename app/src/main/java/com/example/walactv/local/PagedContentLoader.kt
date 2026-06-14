@@ -19,7 +19,6 @@ class PagedContentLoader(
     private val loadedPages = mutableSetOf<Int>()
     private var totalCount = 0
     private var lastCountry: String? = null
-    private var lastGroup: String? = null
     private var lastGenre: String? = null
     private var isSearchMode = false
     private var isLoading = false
@@ -29,7 +28,7 @@ class PagedContentLoader(
     fun isPageLoaded(page: Int): Boolean = loadedPages.contains(page)
     fun isCurrentlyLoading(): Boolean = isLoading
 
-    suspend fun loadPage(page: Int, country: String?, group: String?, genre: String? = null) {
+    suspend fun loadPage(page: Int, country: String?, group: String? = null, genre: String? = null) {
         if (loadedPages.contains(page)) {
             Log.d(TAG, "loadPage($kind, page=$page): already loaded, skipping")
             return
@@ -39,12 +38,11 @@ class PagedContentLoader(
             return
         }
 
-        if (country != lastCountry || group != lastGroup || genre != lastGenre) {
-            Log.d(TAG, "loadPage($kind, page=$page): filter changed (country: $lastCountry→$country, group: $lastGroup→$group, genre: $lastGenre→$genre), clearing cache")
+        if (country != lastCountry || genre != lastGenre) {
+            Log.d(TAG, "loadPage($kind, page=$page): filter changed (country: $lastCountry→$country, genre: $lastGenre→$genre), clearing cache")
             cache.clear()
             loadedPages.clear()
             lastCountry = country
-            lastGroup = group
             lastGenre = genre
             isSearchMode = false
         }
@@ -165,7 +163,6 @@ class PagedContentLoader(
         loadedPages.clear()
         totalCount = 0
         lastCountry = null
-        lastGroup = null
         lastGenre = null
         isSearchMode = false
         isLoading = false

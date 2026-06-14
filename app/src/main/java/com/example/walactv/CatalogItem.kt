@@ -27,6 +27,7 @@ data class CatalogItem(
     val voteCount: Int? = null,
     val runtimeMinutes: Int? = null,
     val genres: List<String> = emptyList(),
+    val countries: List<String> = emptyList(),
     val backdropUrl: String? = null,
     val tmdbPosterUrl: String? = null,
     val tagline: String? = null,

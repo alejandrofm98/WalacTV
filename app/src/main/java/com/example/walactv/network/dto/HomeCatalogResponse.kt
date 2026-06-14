@@ -13,5 +13,7 @@ data class SectionDto(
     val items: List<CatalogItemDto> = emptyList(),
     @SerializedName("content_type") val contentType: String? = null,
     @SerializedName("group_name") val groupName: String? = null,
+    @SerializedName("section_title") val sectionTitle: String? = null,
+    @SerializedName("year") val year: Int? = null,
     @SerializedName("has_next") val hasNext: Boolean = false,
 )

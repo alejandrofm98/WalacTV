@@ -235,14 +235,14 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
                                 fragment.selectedHero = it
                             }
                         },
-                        onLoadMore = if (section.contentType != null && section.groupName != null && section.hasNextPage) {
+                        onLoadMore = if (section.contentType != null && (section.groupName != null || section.sectionTitle != null || section.year != null) && section.hasNextPage) {
                             { sectionToLoad: BrowseSection, onDone: () -> Unit ->
                                 fragment.scope.launch {
                                     try {
                                         val pageSize = 24
                                         val nextPage = sectionToLoad.currentPage + 1
                                         val (newItems, hasNext) = fragment.repository.loadContentPage(
-                                            sectionToLoad.contentType!!, sectionToLoad.groupName!!, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
+                                            sectionToLoad.contentType!!, sectionToLoad.groupName, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
                                         )
                                         val actuallyHasNext = if (newItems.isEmpty()) false else hasNext
                                         val updated = sectionToLoad.copy(
@@ -343,21 +343,14 @@ private fun HomeBackdrop(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(IptvBackground),
-                    contentAlignment = Alignment.CenterEnd,
+                        .padding(start = backdropStartPadding),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(0.55f),
-                    ) {
-                        RemoteImage(
-                            url = posterUrl,
-                            width = 600,
-                            height = 900,
-                            scaleType = CENTER_CROP,
-                        )
-                    }
+                    RemoteImage(
+                        url = posterUrl,
+                        width = 600,
+                        height = 900,
+                        scaleType = CENTER_CROP,
+                    )
                 }
             }
             else -> Box(

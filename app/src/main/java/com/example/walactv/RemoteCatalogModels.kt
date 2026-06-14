@@ -335,6 +335,18 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         }
     }
 
+    val countriesList = buildList {
+        if (has("countries")) {
+            val countriesArray = optJSONArray("countries")
+            if (countriesArray != null) {
+                for (i in 0 until countriesArray.length()) {
+                    val country = countriesArray.optString(i, "")
+                    if (country.isNotBlank()) add(country)
+                }
+            }
+        }
+    }
+
     // Construir URL de backdrop
     val backdropPath = optFirstCleanString(
         "tmdb_backposter",
@@ -412,6 +424,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
         voteCount = optInt("vote_count").takeIf { has("vote_count") },
         runtimeMinutes = optInt("runtime_minutes").takeIf { has("runtime_minutes") },
         genres = genresList,
+        countries = countriesList,
         backdropUrl = backdropUrl,
         tmdbPosterUrl = tmdbPosterUrl,
         tagline = optCleanString("tagline").ifBlank { null },

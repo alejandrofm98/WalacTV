@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -51,7 +52,11 @@ class MovieDetailFragment : Fragment() {
         private const val ARG_CATALOG_ITEM = "catalog_item"
         private const val TAG = "MovieDetailFragment"
 
+        private var cachedItem: CatalogItem? = null
+
         fun newInstance(item: CatalogItem): MovieDetailFragment {
+            cachedItem = item
+            Log.d(TAG, "TMDB_DETAIL newInstance item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
             return MovieDetailFragment().apply {
                 arguments = Bundle().apply {
                     putParcelable(ARG_CATALOG_ITEM, createItemBundle(item))
@@ -75,6 +80,8 @@ class MovieDetailFragment : Fragment() {
                 putInt("runtimeMinutes", item.runtimeMinutes ?: 0)
                 putStringArrayList("genres", ArrayList(item.genres))
                 putString("group", item.group)
+                putString("subtitle", item.subtitle)
+                putString("providerId", item.providerId)
             }
         }
     }
@@ -92,13 +99,85 @@ class MovieDetailFragment : Fragment() {
                     MovieDetailScreen(
                         item = item,
                         onBackClick = { requireActivity().supportFragmentManager.popBackStack() },
-                        onPlayClick = {
-                            // TODO: Navegar al reproductor
-                        }
+                        onPlayClick = { playMovie() }
                     )
                 }
             }
         }
+    }
+
+    @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
+    private fun playMovie() {
+        val item = cachedItem ?: run {
+            Log.e(TAG, "playMovie: no cached item")
+            return
+        }
+        Log.d(TAG, "playMovie item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
+
+        val stream = item.streamOptions.firstOrNull()
+        if (stream == null) {
+            android.widget.Toast.makeText(requireContext(), R.string.no_streams_available, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val unifiedOptions = item.streamOptions.toUnifiedOptions()
+        val playerFragment = PlayerFragment()
+        playerFragment.initialize(
+            streamUrl = stream.url,
+            overlayNumber = item.kind.name,
+            overlayTitle = item.title,
+            overlayMeta = item.subtitle,
+            contentKind = item.kind,
+            onNavigateChannel = { _ -> },
+            onNavigateOption = { _ -> },
+            onDirectChannelNumber = { _ -> false },
+            onToggleFavorite = { false },
+            onOpenFavorites = { false },
+            onOpenRecents = { false },
+            onOpenGuide = null,
+            onNextEpisode = null,
+            onPreviousEpisode = null,
+            allSeriesEpisodes = emptyList(),
+            currentEpisode = null,
+            streamOptionLabels = item.streamOptions.map { it.label },
+            currentOptionIndex = 0,
+            showOptionsOnStart = false,
+            overlayLogoUrl = item.preferredVodPosterUrl(),
+            isFavorite = false,
+            contentId = item.providerId ?: item.stableId,
+            positionMs = 0,
+            onPlayerClosed = {
+                view?.requestFocus()
+            },
+            onProgressSaved = null,
+            customHeaders = stream.headers,
+            unifiedStreamOptions = unifiedOptions,
+            onSelectUnifiedOption = { selectedIndex ->
+                val selected = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
+                val freshItem = item.copy(
+                    streamOptions = listOf(
+                        StreamOption(
+                            label = selected.displayLabel,
+                            url = selected.url,
+                            providerId = selected.providerId,
+                            headers = selected.headers,
+                            language = selected.language,
+                            quality = selected.quality
+                        )
+                    )
+                )
+                cachedItem = freshItem
+                playMovie()
+            },
+        )
+        val fm = requireActivity().supportFragmentManager
+        fm.findFragmentById(R.id.player_container)?.let { fm.beginTransaction().remove(it).commitNow() }
+        fm.beginTransaction().replace(R.id.player_container, playerFragment, "player_fragment").commitNow()
+        val container = requireActivity().findViewById<FrameLayout>(R.id.player_container)
+        container.visibility = View.VISIBLE
+        container.isFocusable = true
+        container.isFocusableInTouchMode = true
+        runCatching { container.requestFocus() }
     }
 
     private fun parseArguments(args: Bundle): MovieDetailItem {

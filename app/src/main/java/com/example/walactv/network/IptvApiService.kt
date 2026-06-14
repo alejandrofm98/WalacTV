@@ -35,7 +35,7 @@ interface IptvApiService {
         @Query("country") country: String? = null,
         @Query("group") group: String? = null,
         @Query("year") year: Int? = null,
-        @Query("section") section: String? = null,
+        @Query("section_title") section: String? = null,
         @Query("search") search: String? = null,
         @Query("genre") genre: String? = null,
         @Query("page") page: Int = 1,

@@ -15,6 +15,7 @@ import com.example.walactv.CredentialStore
 import com.example.walactv.PlayerFragment
 import com.example.walactv.PreferencesManager
 import com.example.walactv.R
+import com.example.walactv.MovieDetailFragment
 import com.example.walactv.SeriesDetailFragment
 import com.example.walactv.StreamOption
 import com.example.walactv.UnifiedStreamOption
@@ -45,6 +46,15 @@ internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List
         requireActivity().supportFragmentManager.beginTransaction()
             .replace(R.id.main_browse_fragment, fragment)
             .addToBackStack("SeriesDetailFragment")
+            .commit()
+        return
+    }
+    if (item.kind == ContentKind.MOVIE) {
+        rememberPlaybackReturnState(item)
+        val fragment = MovieDetailFragment.newInstance(item)
+        requireActivity().supportFragmentManager.beginTransaction()
+            .replace(R.id.main_browse_fragment, fragment)
+            .addToBackStack("MovieDetailFragment")
             .commit()
         return
     }

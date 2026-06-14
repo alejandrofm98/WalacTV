@@ -347,7 +347,7 @@ class IptvRepository @Inject constructor(context: Context) {
 
     suspend fun loadContentPage(
         contentType: String,
-        group: String,
+        group: String?,
         page: Int,
         pageSize: Int = 12,
         year: Int? = null,
@@ -475,15 +475,35 @@ class IptvRepository @Inject constructor(context: Context) {
     }
 
     private fun mapHomeCatalogResponse(response: HomeCatalogResponse): HomeCatalog {
-        val allSections = response.sections + response.movieSections + response.seriesSections
-        val sections = allSections.map { section ->
-            val items = section.items.map { it.toCatalogItem(null) }
+        val allSections = response.sections.map { it to null } +
+            response.movieSections.map { it to "movies" } +
+            response.seriesSections.map { it to "series" }
+        val sections = allSections.map { (section, inferredContentType) ->
+            val contentType = inferredContentType ?: section.contentType
+            val expectedKind = when (contentType) {
+                "movies" -> ContentKind.MOVIE
+                "series" -> ContentKind.SERIES
+                "channels" -> ContentKind.CHANNEL
+                else -> null
+            }
+            val items = section.items.map { it.toCatalogItem(expectedKind) }
+            val title = section.title.orEmpty()
+            val sectionTitle = section.sectionTitle
+                ?: title.takeIf { t ->
+                    Regex("^20\\d{2}\\s*ESTRENOS", RegexOption.IGNORE_CASE).matches(t) ||
+                    Regex("^(PRIME|NETFLIX|HBO MAX|DISNEY\\+|HBO)$", RegexOption.IGNORE_CASE).matches(t)
+                }
+            val year = section.year
+                ?: Regex("^(20\\d{2})\\s*ESTRENOS", RegexOption.IGNORE_CASE)
+                    .find(title)?.groupValues?.get(1)?.toIntOrNull()
             BrowseSection(
-                title = section.title.orEmpty(),
+                title = title,
                 items = items,
-                contentType = section.contentType,
-                groupName = section.groupName,
-                hasNextPage = section.hasNext,
+                contentType = contentType,
+                groupName = section.groupName ?: title.substringBefore(" ·").takeIf { it.isNotBlank() },
+                sectionTitle = sectionTitle,
+                year = year,
+                hasNextPage = section.hasNext || section.items.size >= 24,
             )
         }
 
@@ -557,7 +577,7 @@ class IptvRepository @Inject constructor(context: Context) {
             walacLanguage = country.orEmpty(),
             walacNameNormalized = "",
             walacGroupNormalized = "",
-            walacSeriesNameNormalized = serieName.orEmpty(),
+            walacSeriesNameNormalized = seriesName.orEmpty(),
         )
 
         val descriptionVal = listOf(
@@ -566,13 +586,13 @@ class IptvRepository @Inject constructor(context: Context) {
             subtitle,
         ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
 
-        val backdropPathVal = tmdbBackdropPath
+        val backdropPathVal = backdropPath
             ?: backdrop
             ?: backdropUrl
             .takeUnless { it.isNullOrBlank() }.orEmpty()
         val backdropUrlVal = buildTmdbImageUrl(backdropPathVal, "w1280")
 
-        val tmdbPosterPathVal = (tmdbPosterPath ?: "")
+        val tmdbPosterPathVal = (posterPath ?: "")
             .takeIf { it.isNotBlank() && isTmdbImagePath(it) }.orEmpty()
         val tmdbPosterUrlVal = buildTmdbImageUrl(tmdbPosterPathVal, "w500")
 
@@ -592,8 +612,7 @@ class IptvRepository @Inject constructor(context: Context) {
             ?.getOrNull(1)
             ?.toIntOrNull()
 
-        val tmdbTitleVal = listOfNotNull(tmdbTitle, tmdbName)
-            .firstOrNull { it.isNotBlank() }.orEmpty()
+        val tmdbTitleVal = tmdbTitle.orEmpty()
 
         return CatalogItem(
             stableId = stableId,
@@ -645,10 +664,11 @@ class IptvRepository @Inject constructor(context: Context) {
                     }
             ),
             overviewEn = overviewEn?.takeIf { it.isNotBlank() },
-            voteAverage = (voteAverage ?: rating)?.toFloat(),
+            voteAverage = rating?.toFloat(),
             voteCount = null,
             runtimeMinutes = runtimeMinutes,
             genres = genres.orEmpty(),
+            countries = this@toCatalogItem.countries.orEmpty(),
             backdropUrl = backdropUrlVal,
             tmdbPosterUrl = tmdbPosterUrlVal,
             tagline = null,

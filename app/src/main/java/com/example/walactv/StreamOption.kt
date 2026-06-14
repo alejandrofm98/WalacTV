@@ -26,7 +26,7 @@ fun List<StreamOption>.toUnifiedOptions(): List<UnifiedStreamOption> {
         val lang = stream.language ?: return@mapNotNull null
         val quality = stream.quality?.takeIf { it.uppercase() in KNOWN_QUALITY_TOKENS }
             ?: stream.label.uppercase().takeIf { it in KNOWN_QUALITY_TOKENS }
-            ?: return@mapNotNull null
+            ?: "HD"
         val displayLang = languageDisplayLabel(normalizeLanguageCode(lang))
         UnifiedStreamOption(
             language = displayLang,
