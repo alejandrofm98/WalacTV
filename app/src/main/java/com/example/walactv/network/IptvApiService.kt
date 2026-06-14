@@ -35,8 +35,9 @@ interface IptvApiService {
         @Query("country") country: String? = null,
         @Query("group") group: String? = null,
         @Query("year") year: Int? = null,
-        @Query("section") section: String? = null,
+        @Query("section_title") section: String? = null,
         @Query("search") search: String? = null,
+        @Query("genre") genre: String? = null,
         @Query("page") page: Int = 1,
         @Query("page_size") pageSize: Int = 24,
     ): Response<CatalogPageResponse>
@@ -59,6 +60,11 @@ interface IptvApiService {
         @Query("country") country: String? = null,
     ): Response<FilterOptionsResponse>
 
+    @GET("api/content/genres")
+    suspend fun getGenres(
+        @Query("content_type") contentType: String,
+    ): Response<GenresResponse>
+
     @GET("api/content/stats")
     suspend fun getContentStats(
         @Query("content_type") contentType: String,
@@ -70,12 +76,17 @@ interface IptvApiService {
         @Path("name") name: String,
         @Query("page") page: Int = 1,
         @Query("page_size") pageSize: Int = 100,
-    ): Response<List<CatalogItemResponse>>
+        @Query("password") password: String? = null,
+    ): Response<SeriesEpisodesResponse>
 
     // Search
     @GET("api/search")
     suspend fun search(
         @Query("q") query: String,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 50,
+        @Query("types") types: String? = null,
+        @Query("password") password: String? = null,
     ): Response<SearchResponse>
 
     // Favorites

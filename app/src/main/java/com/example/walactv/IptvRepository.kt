@@ -9,6 +9,7 @@ import com.example.walactv.network.dto.CalendarEventDto
 import com.example.walactv.network.dto.CanalResueltoDto
 import com.example.walactv.network.dto.FilterOptionsResponse
 import com.example.walactv.network.dto.HomeCatalogResponse
+import com.example.walactv.network.dto.SearchResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -215,7 +216,14 @@ class IptvRepository @Inject constructor(context: Context) {
             groupsPayload.groups.map { CatalogFilterOption(value = it.value, label = it.label) }
         }
 
-        CatalogFilters(countries = countries, groups = groups)
+        val genres = if (kind == ContentKind.MOVIE || kind == ContentKind.SERIES) {
+            val genresResponse = apiService.getGenres(contentType)
+            if (genresResponse.isSuccessful) {
+                (genresResponse.body()?.genres ?: emptyList()).map { CatalogFilterOption(value = it, label = it) }
+            } else emptyList()
+        } else emptyList()
+
+        CatalogFilters(countries = countries, groups = groups, genres = genres)
             .also { filterCache[cacheKey] = it }
     }
 
@@ -227,6 +235,7 @@ class IptvRepository @Inject constructor(context: Context) {
         country: String? = null,
         group: String? = null,
         search: String? = null,
+        genre: String? = null,
     ): RemoteCatalogPage = withContext(Dispatchers.IO) {
         if (kind == ContentKind.EVENT) {
             return@withContext RemoteCatalogPage(emptyList(), 0, page, 0, 0, false, false)
@@ -253,6 +262,7 @@ class IptvRepository @Inject constructor(context: Context) {
             country = country?.takeIf { it.isNotBlank() },
             group = group?.takeIf { it.isNotBlank() },
             search = search?.takeIf { it.isNotBlank() },
+            genre = genre?.takeIf { it.isNotBlank() },
             page = page,
             pageSize = PAGE_SIZE,
         )
@@ -280,6 +290,36 @@ class IptvRepository @Inject constructor(context: Context) {
 
     // ── Busqueda ──────────────────────────────────────────────────────────────
 
+    suspend fun search(
+        query: String,
+        page: Int = 1,
+        pageSize: Int = 50,
+        types: String? = null,
+    ): Pair<List<CatalogItem>, SearchResponse> = withContext(Dispatchers.IO) {
+        val password = CredentialStore.password().ifBlank { null }
+        val response = apiService.search(query, page, pageSize, types, password)
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+        val payload = response.body() ?: throw IllegalStateException("Empty response body")
+        val items = payload.items.map { it.toCatalogItem() }
+        val resolved = resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
+
+        val user = CredentialStore.username()
+        val pass = CredentialStore.password()
+        val withFallbacks = resolved.map { item ->
+            if (item.streamOptions.isNotEmpty()) return@map item
+            if (item.kind != ContentKind.CHANNEL && item.kind != ContentKind.EVENT) return@map item
+            val streamId = item.providerId?.takeIf { it.isNotBlank() } ?: item.stableId
+            if (streamId.isBlank()) return@map item
+            val fallbackUrl = "${BuildConfig.IPTV_BASE_URL}/live/$user/$pass/$streamId"
+            item.copy(
+                streamOptions = listOf(
+                    StreamOption(label = "Directo", url = fallbackUrl)
+                )
+            )
+        }
+        Pair(withFallbacks, payload)
+    }
+
     suspend fun fetchContentItem(kind: ContentKind, itemId: String): CatalogItem? = withContext(Dispatchers.IO) {
         if (itemId.isBlank() || kind == ContentKind.EVENT || kind == ContentKind.CHANNEL) return@withContext null
         val response = apiService.getContentItem(kind.toApiType(), itemId)
@@ -303,7 +343,7 @@ class IptvRepository @Inject constructor(context: Context) {
             do {
                 Log.d(TAG, "loadSeriesEpisodes: fetching page $page")
                 val response = try {
-                    apiService.getSeriesEpisodes(seriesName, page, 100)
+                    apiService.getSeriesEpisodes(seriesName, page, 100, CredentialStore.password().ifBlank { null })
                 } catch (e: Exception) {
                     Log.e(TAG, "loadSeriesEpisodes: HTTP error for '$seriesName' page $page: ${e.message}")
                     break
@@ -312,7 +352,17 @@ class IptvRepository @Inject constructor(context: Context) {
                     Log.e(TAG, "loadSeriesEpisodes: HTTP ${response.code()} for '$seriesName' page $page")
                     break
                 }
-                val dtos = response.body().orEmpty()
+                val body = response.body()
+                val dtos = if (body != null) {
+                    body.items.ifEmpty { body.episodes }
+                } else {
+                    emptyList()
+                }
+                if (body == null) {
+                    Log.e(TAG, "loadSeriesEpisodes: null body for '$seriesName' page $page")
+                } else if (dtos.isEmpty()) {
+                    Log.d(TAG, "loadSeriesEpisodes: empty episodes for '$seriesName' page $page (total=${body.totalEpisodes})")
+                }
                 val parsed = dtos.map { it.toCatalogItem(ContentKind.SERIES) }
                 Log.d(TAG, "loadSeriesEpisodes: page $page returned ${parsed.size} items")
                 items += parsed
@@ -328,7 +378,7 @@ class IptvRepository @Inject constructor(context: Context) {
 
     suspend fun loadContentPage(
         contentType: String,
-        group: String,
+        group: String?,
         page: Int,
         pageSize: Int = 12,
         year: Int? = null,
@@ -396,6 +446,7 @@ class IptvRepository @Inject constructor(context: Context) {
         Log.d(TAG, "fetchEventSections: eventos=${payload.eventos.size}")
 
         val items = payload.eventos.mapNotNull { mapCalendarEvent(it) }
+            .sortedBy { it.badgeText }
 
         if (items.isEmpty()) return emptyList()
 
@@ -456,15 +507,35 @@ class IptvRepository @Inject constructor(context: Context) {
     }
 
     private fun mapHomeCatalogResponse(response: HomeCatalogResponse): HomeCatalog {
-        val allSections = response.sections + response.movieSections + response.seriesSections
-        val sections = allSections.map { section ->
-            val items = section.items.map { it.toCatalogItem(null) }
+        val allSections = response.sections.map { it to null } +
+            response.movieSections.map { it to "movies" } +
+            response.seriesSections.map { it to "series" }
+        val sections = allSections.map { (section, inferredContentType) ->
+            val contentType = inferredContentType ?: section.contentType
+            val expectedKind = when (contentType) {
+                "movies" -> ContentKind.MOVIE
+                "series" -> ContentKind.SERIES
+                "channels" -> ContentKind.CHANNEL
+                else -> null
+            }
+            val items = section.items.map { it.toCatalogItem(expectedKind) }
+            val title = section.title.orEmpty()
+            val sectionTitle = section.sectionTitle
+                ?: title.takeIf { t ->
+                    Regex("^20\\d{2}\\s*ESTRENOS", RegexOption.IGNORE_CASE).matches(t) ||
+                    Regex("^(PRIME|NETFLIX|HBO MAX|DISNEY\\+|HBO)$", RegexOption.IGNORE_CASE).matches(t)
+                }
+            val year = section.year
+                ?: Regex("^(20\\d{2})\\s*ESTRENOS", RegexOption.IGNORE_CASE)
+                    .find(title)?.groupValues?.get(1)?.toIntOrNull()
             BrowseSection(
-                title = section.title.orEmpty(),
+                title = title,
                 items = items,
-                contentType = section.contentType,
-                groupName = section.groupName,
-                hasNextPage = section.hasNext,
+                contentType = contentType,
+                groupName = section.groupName ?: title.substringBefore(" ·").takeIf { it.isNotBlank() },
+                sectionTitle = sectionTitle,
+                year = year,
+                hasNextPage = section.hasNext || section.items.size >= 24,
             )
         }
 
@@ -519,7 +590,7 @@ class IptvRepository @Inject constructor(context: Context) {
                 else -> ContentKind.CHANNEL
             }
         }
-        val rawId = (id?.toString() ?: channelId?.toString()).orEmpty()
+        val rawId = (id?.toString() ?: episodeId?.toString() ?: channelId?.toString()).orEmpty()
         val providerIdStr = providerId?.toString()?.takeIf { it.isNotBlank() }
         val stableIdValue = providerIdStr ?: rawId
         val stableId = if (kind == ContentKind.EVENT) stableIdValue else "${kind.name.lowercase()}:$stableIdValue"
@@ -538,7 +609,7 @@ class IptvRepository @Inject constructor(context: Context) {
             walacLanguage = country.orEmpty(),
             walacNameNormalized = "",
             walacGroupNormalized = "",
-            walacSeriesNameNormalized = serieName.orEmpty(),
+            walacSeriesNameNormalized = seriesName.orEmpty(),
         )
 
         val descriptionVal = listOf(
@@ -547,13 +618,13 @@ class IptvRepository @Inject constructor(context: Context) {
             subtitle,
         ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
 
-        val backdropPathVal = tmdbBackdropPath
+        val backdropPathVal = backdropPath
             ?: backdrop
             ?: backdropUrl
             .takeUnless { it.isNullOrBlank() }.orEmpty()
         val backdropUrlVal = buildTmdbImageUrl(backdropPathVal, "w1280")
 
-        val tmdbPosterPathVal = (tmdbPosterPath ?: "")
+        val tmdbPosterPathVal = (posterPath ?: "")
             .takeIf { it.isNotBlank() && isTmdbImagePath(it) }.orEmpty()
         val tmdbPosterUrlVal = buildTmdbImageUrl(tmdbPosterPathVal, "w500")
 
@@ -573,8 +644,12 @@ class IptvRepository @Inject constructor(context: Context) {
             ?.getOrNull(1)
             ?.toIntOrNull()
 
-        val tmdbTitleVal = listOfNotNull(tmdbTitle, tmdbName)
-            .firstOrNull { it.isNotBlank() }.orEmpty()
+        val tmdbTitleVal = tmdbTitle.orEmpty()
+
+        val stillPathVal = stillPath
+            ?.takeIf { it.isNotBlank() && isTmdbImagePath(it) }
+            ?.let { buildTmdbImageUrl(it, "w780") }
+            ?: stillPath
 
         return CatalogItem(
             stableId = stableId,
@@ -598,22 +673,39 @@ class IptvRepository @Inject constructor(context: Context) {
             languageLabel = normalized.languageLabel?.takeIf { it.isNotBlank() },
             normalizedGroup = null,
             seriesName = normalized.seriesName?.takeIf { it.isNotBlank() },
-            seriesKey = null,
+            seriesKey = seriesKey ?: seriesName,
             seasonNumber = this@toCatalogItem.seasonNumber,
             episodeNumber = this@toCatalogItem.episodeNumber,
-            streamOptions = listOfNotNull(
-                streamUrl.orEmpty().takeIf { it.isNotBlank() }?.let {
-                    StreamOption(
-                        label = "Directo",
-                        url = it,
-                    )
-                },
+            streamOptions = (
+                listOfNotNull(
+                    streamUrl.orEmpty().takeIf { it.isNotBlank() }?.let {
+                        StreamOption(
+                            label = "Directo",
+                            url = it,
+                            providerId = streams?.firstOrNull()?.providerId,
+                            language = streams?.firstOrNull()?.country,
+                            quality = streams?.firstOrNull()?.quality,
+                        )
+                    },
+                ) +
+                    streams.orEmpty().mapNotNull { s ->
+                        s.url.takeIf { !it.isNullOrBlank() }?.let {
+                            StreamOption(
+                                label = s.label ?: "Ver",
+                                url = it,
+                                providerId = s.providerId,
+                                language = s.country,
+                                quality = s.quality,
+                            )
+                        }
+                    }
             ),
             overviewEn = overviewEn?.takeIf { it.isNotBlank() },
-            voteAverage = (voteAverage ?: rating)?.toFloat(),
-            voteCount = null,
+            voteAverage = rating?.toFloat(),
+            voteCount = voteCount,
             runtimeMinutes = runtimeMinutes,
             genres = genres.orEmpty(),
+            countries = this@toCatalogItem.countries.orEmpty(),
             backdropUrl = backdropUrlVal,
             tmdbPosterUrl = tmdbPosterUrlVal,
             tagline = null,
@@ -621,6 +713,10 @@ class IptvRepository @Inject constructor(context: Context) {
             year = parsedYear,
             tmdbTitle = tmdbTitleVal.ifBlank { null },
             totalSeasons = totalSeasons,
+            stillPath = stillPathVal,
+            airDate = this@toCatalogItem.airDate,
+            titleEn = this@toCatalogItem.titleEn,
+            episodeType = this@toCatalogItem.episodeType,
         )
     }
 

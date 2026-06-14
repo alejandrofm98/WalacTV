@@ -39,10 +39,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
@@ -74,7 +75,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -156,6 +156,10 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
 
     LaunchedEffect(fragment.homeSections) {
         if (fragment.homeSections.isEmpty()) return@LaunchedEffect
+        Log.d("HomeContent", "=== SECTIONS ORDER (${fragment.homeSections.size}) ===")
+        fragment.homeSections.forEachIndexed { i, s ->
+            Log.d("HomeContent", "  [$i] '${s.title}' items=${s.items.size}")
+        }
         if (fragment.selectedHero != null || fragment.pendingFocusItem != null) return@LaunchedEffect
         delay(200.milliseconds)
         runCatching { focusRequesters.firstOrNull()?.requestFocus() }
@@ -194,7 +198,6 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(IptvBackground)) {
         val screenHeight = maxHeight
         val heroHeight   = screenHeight * HOME_HERO_FRACTION
-        val rowZoneHeight = screenHeight - heroHeight
 
         // ── FIX: el backdrop ajusta su padding izquierdo dinámicamente
         // según si el rail está expandido o colapsado, eliminando la franja visible.
@@ -215,34 +218,32 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
                     .height(heroHeight),
             )
 
-            LazyColumn(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(rowZoneHeight),
-                contentPadding = PaddingValues(top = 0.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 24.dp),
             ) {
-                itemsIndexed(fragment.homeSections, key = { index, s -> "$index-${s.title}" }) { index, section ->
+                fragment.homeSections.forEachIndexed { index, section ->
                     ContentSection(
                         fragment = fragment,
                         section = section,
                         sectionIndex = index,
                         selfFocusRequester = focusRequesters[index],
-                        sectionHeight = rowZoneHeight,
                         onFocused = {
                             if (it.isHeroContent()) {
                                 Log.d("TMDB_HOME", "focus item=${it.tmdbDebug()}")
                                 fragment.selectedHero = it
                             }
                         },
-                        onLoadMore = if (section.contentType != null && section.groupName != null && section.hasNextPage) {
+                        onLoadMore = if (section.contentType != null && (section.groupName != null || section.sectionTitle != null || section.year != null) && section.hasNextPage) {
                             { sectionToLoad: BrowseSection, onDone: () -> Unit ->
                                 fragment.scope.launch {
                                     try {
                                         val pageSize = 24
                                         val nextPage = sectionToLoad.currentPage + 1
                                         val (newItems, hasNext) = fragment.repository.loadContentPage(
-                                            sectionToLoad.contentType!!, sectionToLoad.groupName!!, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
+                                            sectionToLoad.contentType!!, sectionToLoad.groupName, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
                                         )
                                         val actuallyHasNext = if (newItems.isEmpty()) false else hasNext
                                         val updated = sectionToLoad.copy(
@@ -343,21 +344,14 @@ private fun HomeBackdrop(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(IptvBackground),
-                    contentAlignment = Alignment.CenterEnd,
+                        .padding(start = backdropStartPadding),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(0.55f),
-                    ) {
-                        RemoteImage(
-                            url = posterUrl,
-                            width = 600,
-                            height = 900,
-                            scaleType = CENTER_CROP,
-                        )
-                    }
+                    RemoteImage(
+                        url = posterUrl,
+                        width = 600,
+                        height = 900,
+                        scaleType = CENTER_CROP,
+                    )
                 }
             }
             else -> Box(
@@ -589,7 +583,6 @@ internal fun ContentSection(
     section: BrowseSection,
     sectionIndex: Int,
     selfFocusRequester: FocusRequester,
-    sectionHeight: Dp = 0.dp,
     onFocused: (CatalogItem) -> Unit,
     onLoadMore: ((BrowseSection, () -> Unit) -> Unit)? = null,
 ) {
@@ -599,6 +592,7 @@ internal fun ContentSection(
     val focusRequesters = remember(section.items.size) {
         List(section.items.size) { FocusRequester() }
     }
+    Log.d("HomeContent", "ContentSection[$sectionIndex] '${section.title}' items=${section.items.size} kinds=${section.items.map { it.kind }.distinct()}")
     // Memoize the continue-watching lookup to avoid recomputing per card
     val cwLookup = remember(section.items, fragment.continueWatchingEntries) {
         section.items.associateWith { item ->
@@ -624,7 +618,11 @@ internal fun ContentSection(
         }
         if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
             val index = fragment.findNextEventIndex(section.items)
-            if (index > 0) lazyListState.scrollToItem(index)
+            if (index >= 0) {
+                lazyListState.scrollToItem(index)
+                delay(100.milliseconds)
+                focusRequesters.getOrNull(index)?.requestFocus()
+            }
         }
     }
 
@@ -674,19 +672,22 @@ internal fun ContentSection(
         val target = fragment.pendingHomeFocusTarget
         if (target == null) {
             if (sectionIndex != 0) return@LaunchedEffect
-            Log.d("HomeContent", "Rail restore has no target, focusing first card section=${section.title} items=${section.items.size} requesters=${focusRequesters.size}")
+            val initialIndex = if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
+                fragment.findNextEventIndex(section.items).takeIf { it >= 0 } ?: 0
+            } else 0
+            Log.d("HomeContent", "Rail restore has no target, focusing initialIndex=$initialIndex section=${section.title} items=${section.items.size} requesters=${focusRequesters.size}")
             runCatching {
-                lazyListState.scrollToItem(0)
+                lazyListState.scrollToItem(initialIndex)
                 delay(80.milliseconds)
-                val requester = focusRequesters.firstOrNull()
+                val requester = focusRequesters.getOrNull(initialIndex)
                 if (requester == null) {
-                    Log.w("HomeContent", "Home first card focus skipped: no requester section=${section.title}")
+                    Log.w("HomeContent", "Home initial focus skipped: no requester for index $initialIndex section=${section.title}")
                 } else {
                     requester.requestFocus()
-                    Log.d("HomeContent", "Home first card requestFocus success section=${section.title}")
+                    Log.d("HomeContent", "Home initial focus success index=$initialIndex section=${section.title}")
                 }
             }.onFailure {
-                Log.w("HomeContent", "Home first card focus failed: ${it.message}")
+                Log.w("HomeContent", "Home initial focus failed: ${it.message}")
             }
             return@LaunchedEffect
         }
@@ -724,23 +725,13 @@ internal fun ContentSection(
     }
 
     val isEventSection = section.items.firstOrNull()?.kind == ContentKind.EVENT
-    val columnModifier = if (sectionHeight > 0.dp) {
-        Modifier
-            .focusRequester(selfFocusRequester)
-            .height(sectionHeight)
-            .padding(horizontal = 32.dp)
-            .padding(top = if (isEventSection) 8.dp else 16.dp, bottom = if (isEventSection) 6.dp else 16.dp)
-            .onFocusChanged { state ->
-                if (BuildConfig.DEBUG) Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
-            }
-    } else {
-        Modifier
-            .focusRequester(selfFocusRequester)
-            .padding(horizontal = 32.dp)
-            .onFocusChanged { state ->
-                if (BuildConfig.DEBUG) Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
-            }
-    }
+    val columnModifier = Modifier
+        .focusRequester(selfFocusRequester)
+        .padding(horizontal = 32.dp)
+        .padding(top = if (isEventSection) 8.dp else 16.dp, bottom = if (isEventSection) 6.dp else 16.dp)
+        .onFocusChanged { state ->
+            if (BuildConfig.DEBUG) Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
+        }
 
     Column(
         modifier = columnModifier,
@@ -814,6 +805,8 @@ internal fun ContentSection(
 
                     if (section.title == "Continuar viendo") {
                         val wp = cwLookup[item]
+                        val remainingText = wp?.let { formatDurationRemaining(it.positionMs, it.durationMs) }
+                        val epBadge = item.subtitle.ifBlank { null }
                         ContinueWatchingCard(
                             fragment = fragment,
                             item = item,
@@ -821,6 +814,8 @@ internal fun ContentSection(
                             debugTag = "${section.title}[$index]",
                             progressPercent = wp?.progressPercent ?: 0,
                             isWatched = wp?.isWatched == true,
+                            timeRemainingText = remainingText,
+                            episodeBadge = epBadge,
                             onFocused = { focusedItem ->
                                 fragment.rememberHomeFocus(sectionIndex, section.title, focusedItem, index)
                                 onFocused(focusedItem)
@@ -1203,6 +1198,8 @@ internal fun ContinueWatchingCard(
     debugTag: String = "",
     progressPercent: Int = 0,
     isWatched: Boolean = false,
+    timeRemainingText: String? = null,
+    episodeBadge: String? = null,
     onFocused: (CatalogItem) -> Unit,
     onDeleteRequest: (CatalogItem) -> Unit,
 ) {
@@ -1213,7 +1210,7 @@ internal fun ContinueWatchingCard(
     var keyDownMillis by remember { mutableLongStateOf(0L) }
     var consumeClick by remember { mutableStateOf(false) }
 
-    Column(
+    Box(
         modifier = modifier
             .width(cardWidth)
             .clip(RoundedCornerShape(10.dp))
@@ -1225,9 +1222,7 @@ internal fun ContinueWatchingCard(
             )
             .onFocusChanged {
                 isFocused = it.isFocused
-                if (it.isFocused) {
-                    onFocused(item)
-                }
+                if (it.isFocused) onFocused(item)
             }
             .clickable { if (!consumeClick) fragment.handleCardClick(item, listOf(item)) }
             .onKeyEvent { event ->
@@ -1282,15 +1277,56 @@ internal fun ContinueWatchingCard(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .height(80.dp)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)),
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
                         ),
                     ),
             )
 
-            if (isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
+            if (isWatched) {
+                WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
+            } else {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp),
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    if (timeRemainingText != null) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                        ) {
+                            Text(
+                                text = timeRemainingText,
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    if (episodeBadge != null) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                        ) {
+                            Text(
+                                text = episodeBadge,
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
 
             if (progressPercent in 1..99) {
                 Box(
@@ -1308,37 +1344,6 @@ internal fun ContinueWatchingCard(
                     )
                 }
             }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(VOD_TEXT_AREA_HEIGHT)
-                .padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = item.resolveDisplayTitle(),
-                    color = IptvTextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 17.sp,
-                )
-            }
-            Text(
-                text = item.subtitle.ifBlank { "" },
-                color = IptvAccent.copy(alpha = 0.85f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }

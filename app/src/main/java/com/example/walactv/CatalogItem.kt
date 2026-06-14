@@ -27,6 +27,7 @@ data class CatalogItem(
     val voteCount: Int? = null,
     val runtimeMinutes: Int? = null,
     val genres: List<String> = emptyList(),
+    val countries: List<String> = emptyList(),
     val backdropUrl: String? = null,
     val tmdbPosterUrl: String? = null,
     val tagline: String? = null,
@@ -34,6 +35,10 @@ data class CatalogItem(
     val year: Int? = null,
     val tmdbTitle: String? = null,
     val totalSeasons: Int? = null,
+    val stillPath: String? = null,
+    val airDate: String? = null,
+    val titleEn: String? = null,
+    val episodeType: String? = null,
 )
 
 private const val TMDB_IMG_TAG = "TMDB_IMG"

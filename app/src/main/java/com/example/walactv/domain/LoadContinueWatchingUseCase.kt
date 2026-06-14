@@ -10,6 +10,6 @@ class LoadContinueWatchingUseCase @Inject constructor(
     private val watchProgressRepo: WatchProgressRepository,
 ) {
     suspend operator fun invoke(): Result<List<WatchProgressItem>> {
-        return runCatching { watchProgressRepo.getContinueWatching() }
+        return watchProgressRepo.getContinueWatching()
     }
 }

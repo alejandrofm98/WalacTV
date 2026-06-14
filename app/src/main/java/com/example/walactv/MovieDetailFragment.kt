@@ -7,28 +7,22 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import com.example.walactv.ui.compose.tvClickable
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.*
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -51,11 +45,13 @@ class MovieDetailFragment : Fragment() {
         private const val ARG_CATALOG_ITEM = "catalog_item"
         private const val TAG = "MovieDetailFragment"
 
+        private var cachedItem: CatalogItem? = null
+
         fun newInstance(item: CatalogItem): MovieDetailFragment {
+            cachedItem = item
+            Log.d(TAG, "TMDB_DETAIL newInstance item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
             return MovieDetailFragment().apply {
-                arguments = Bundle().apply {
-                    putParcelable(ARG_CATALOG_ITEM, createItemBundle(item))
-                }
+                arguments = createItemBundle(item)
             }
         }
 
@@ -75,6 +71,10 @@ class MovieDetailFragment : Fragment() {
                 putInt("runtimeMinutes", item.runtimeMinutes ?: 0)
                 putStringArrayList("genres", ArrayList(item.genres))
                 putString("group", item.group)
+                putString("subtitle", item.subtitle)
+                putString("providerId", item.providerId)
+                putStringArrayList("countries", ArrayList(item.countries))
+                putInt("year", item.year ?: 0)
             }
         }
     }
@@ -92,13 +92,85 @@ class MovieDetailFragment : Fragment() {
                     MovieDetailScreen(
                         item = item,
                         onBackClick = { requireActivity().supportFragmentManager.popBackStack() },
-                        onPlayClick = {
-                            // TODO: Navegar al reproductor
-                        }
+                        onPlayClick = { playMovie() }
                     )
                 }
             }
         }
+    }
+
+    @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
+    private fun playMovie() {
+        val item = cachedItem ?: run {
+            Log.e(TAG, "playMovie: no cached item")
+            return
+        }
+        Log.d(TAG, "playMovie item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
+
+        val stream = item.streamOptions.firstOrNull()
+        if (stream == null) {
+            android.widget.Toast.makeText(requireContext(), R.string.no_streams_available, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val unifiedOptions = item.streamOptions.toUnifiedOptions()
+        val playerFragment = PlayerFragment()
+        playerFragment.initialize(
+            streamUrl = stream.url,
+            overlayNumber = item.kind.name,
+            overlayTitle = item.title,
+            overlayMeta = item.subtitle,
+            contentKind = item.kind,
+            onNavigateChannel = { _ -> },
+            onNavigateOption = { _ -> },
+            onDirectChannelNumber = { _ -> false },
+            onToggleFavorite = { false },
+            onOpenFavorites = { false },
+            onOpenRecents = { false },
+            onOpenGuide = null,
+            onNextEpisode = null,
+            onPreviousEpisode = null,
+            allSeriesEpisodes = emptyList(),
+            currentEpisode = null,
+            streamOptionLabels = item.streamOptions.map { it.label },
+            currentOptionIndex = 0,
+            showOptionsOnStart = false,
+            overlayLogoUrl = item.preferredVodPosterUrl(),
+            isFavorite = false,
+            contentId = item.providerId ?: item.stableId,
+            positionMs = 0,
+            onPlayerClosed = {
+                view?.requestFocus()
+            },
+            onProgressSaved = null,
+            customHeaders = stream.headers,
+            unifiedStreamOptions = unifiedOptions,
+            onSelectUnifiedOption = { selectedIndex ->
+                val selected = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
+                val freshItem = item.copy(
+                    streamOptions = listOf(
+                        StreamOption(
+                            label = selected.displayLabel,
+                            url = selected.url,
+                            providerId = selected.providerId,
+                            headers = selected.headers,
+                            language = selected.language,
+                            quality = selected.quality
+                        )
+                    )
+                )
+                cachedItem = freshItem
+                playMovie()
+            },
+        )
+        val fm = requireActivity().supportFragmentManager
+        fm.findFragmentById(R.id.player_container)?.let { fm.beginTransaction().remove(it).commitNow() }
+        fm.beginTransaction().replace(R.id.player_container, playerFragment, "player_fragment").commitNow()
+        val container = requireActivity().findViewById<FrameLayout>(R.id.player_container)
+        container.visibility = View.VISIBLE
+        container.isFocusable = true
+        container.isFocusableInTouchMode = true
+        runCatching { container.requestFocus() }
     }
 
     private fun parseArguments(args: Bundle): MovieDetailItem {
@@ -116,6 +188,8 @@ class MovieDetailFragment : Fragment() {
             genres = args.getStringArrayList("genres")?.toList() ?: emptyList(),
             group = args.getString("group") ?: "",
             tmdbPosterUrl = args.getString("tmdbPosterUrl") ?: "",
+            countries = args.getStringArrayList("countries")?.toList() ?: emptyList(),
+            year = args.getInt("year").takeIf { it > 0 },
         ).also { item ->
             Log.d(
                 TAG,
@@ -141,6 +215,8 @@ data class MovieDetailItem(
     val genres: List<String>,
     val group: String,
     val tmdbPosterUrl: String = "",
+    val countries: List<String> = emptyList(),
+    val year: Int? = null,
 )
 
 @Composable
@@ -149,214 +225,233 @@ fun MovieDetailScreen(
     onBackClick: () -> Unit,
     onPlayClick: () -> Unit
 ) {
-    val scrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(item.stableId, item.backdropUrl, item.description, item.imageUrl) {
+    val backgroundImageUrl = item.backdropUrl?.takeIf { it.isNotBlank() }
+        ?: item.tmdbPosterUrl.takeIf { it.isNotBlank() }
+        ?: item.imageUrl.takeIf { it.isNotBlank() }
+
+    LaunchedEffect(item.stableId) {
         Log.d(
             "MovieDetailFragment",
-            "TMDB_DETAIL compose id=${item.stableId} title=${item.title.take(120)} hasDesc=${item.description.isNotBlank()} " +
-                "image=${item.imageUrl.take(160)} backdrop=${item.backdropUrl.orEmpty().take(160)}",
+            "TMDB_DETAIL compose id=${item.stableId} title='${item.title}' " +
+                "hasBackdrop=${!item.backdropUrl.isNullOrBlank()} hasImage=${item.imageUrl.isNotBlank()} " +
+                "hasPoster=${item.tmdbPosterUrl.isNotBlank()} bgUsed=${backgroundImageUrl?.take(80)} " +
+                "desc=${item.description.take(80)} rating=${item.voteAverage} genres=${item.genres} " +
+                "countries=${item.countries} runtime=${item.runtimeMinutes} release=${item.releaseDate}",
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Fondo: Backdrop image
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Backdrop
-            val backdropUrl = item.backdropUrl
-            if (!backdropUrl.isNullOrBlank()) {
-                AsyncImage(
-                    url = backdropUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
-            // Overlay degradado
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.3f),
-                                Color.Black.copy(alpha = 0.7f),
-                                Color.Black.copy(alpha = 0.95f)
-                            ),
-                            startY = 0f,
-                            endY = Float.POSITIVE_INFINITY
-                        )
-                    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(IptvBackground)
+    ) {
+        if (!backgroundImageUrl.isNullOrBlank()) {
+            AsyncImage(
+                url = backgroundImageUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize()
             )
         }
 
-        // Contenido scrollable
+        // Gradiente horizontal (oscuro izquierda -> transparente derecha)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.95f),
+                            Color.Black.copy(alpha = 0.8f),
+                            Color.Black.copy(alpha = 0.4f),
+                            Color.Transparent
+                        ),
+                        startX = 0f,
+                        endX = Float.POSITIVE_INFINITY
+                    )
+                )
+        )
+
+        // Gradiente vertical (oscuro abajo -> transparente arriba)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.3f),
+                            Color.Black.copy(alpha = 0.8f)
+                        ),
+                        startY = 0f,
+                        endY = Float.POSITIVE_INFINITY
+                    )
+                )
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 48.dp, vertical = 32.dp)
+                .padding(start = 56.dp, end = 24.dp, top = 48.dp, bottom = 48.dp)
         ) {
-            Spacer(modifier = Modifier.height(200.dp))
-
+            // Botón superior izquierdo "Volver"
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(32.dp)
+                modifier = Modifier
+                    .tvClickable { onBackClick() }
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Poster izquierdo
-                val posterImageUrl = item.tmdbPosterUrl.takeIf { it.isNotBlank() } ?: item.imageUrl
-                if (posterImageUrl.isNotBlank()) {
-                    PosterImage(
-                        url = posterImageUrl,
-                        modifier = Modifier
-                            .width(240.dp)
-                            .aspectRatio(2f / 3f)
-                            .clip(RoundedCornerShape(12.dp))
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "Volver",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            Column(
+                modifier = Modifier.fillMaxWidth(0.55f),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                // Título
+                Text(
+                    text = item.title,
+                    color = IptvTextPrimary,
+                    fontSize = 56.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 60.sp
+                )
+
+                // Botones
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.focusRequester(focusRequester)
+                ) {
+                    ActionButton(
+                        text = "Reproducir",
+                        icon = Icons.Default.PlayArrow,
+                        isPrimary = true,
+                        onClick = onPlayClick
                     )
                 }
 
-                // Info principal
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Tagline
-                    item.tagline?.takeIf { it.isNotBlank() }?.let {
+                // Descripción
+                if (item.description.isNotBlank()) {
+                    Text(
+                        text = item.description,
+                        color = IptvTextPrimary,
+                        fontSize = 16.sp,
+                        lineHeight = 24.sp,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Bloque de metadatos (Géneros, Año, Duración, Rating)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Línea 1: Géneros • Año
+                    val line1Parts = buildList {
+                        if (item.genres.isNotEmpty()) add(item.genres.joinToString(" • "))
+                        item.releaseDate?.takeIf { it.isNotBlank() }?.let { add(it) }
+                            ?: item.year?.toString()?.let { add(it) }
+                    }
+                    if (line1Parts.isNotEmpty()) {
                         Text(
-                            text = it,
-                            color = IptvAccent,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Medium,
+                            text = line1Parts.joinToString("  •  "),
+                            color = IptvTextMuted,
+                            fontSize = 14.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    // Título
-                    Text(
-                        text = item.title,
-                        color = IptvTextPrimary,
-                        fontSize = 42.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                    // Línea 2: Duración • País • Rating
+                    val countryNames = mapOf(
+                        "AD" to "Andorra", "AE" to "Emiratos Árabes Unidos", "AF" to "Afganistán",
+                        "AL" to "Albania", "AM" to "Armenia", "AR" to "Argentina", "AT" to "Austria",
+                        "AU" to "Australia", "AZ" to "Azerbaiyán", "BE" to "Bélgica", "BG" to "Bulgaria",
+                        "BH" to "Baréin", "BR" to "Brasil", "BY" to "Bielorrusia", "CA" to "Canadá",
+                        "CH" to "Suiza", "CY" to "Chipre", "CZ" to "República Checa", "DE" to "Alemania",
+                        "DK" to "Dinamarca", "DO" to "República Dominicana", "DZ" to "Argelia",
+                        "EC" to "Ecuador", "EG" to "Egipto", "EN" to "Inglés", "ES" to "España",
+                        "FI" to "Finlandia", "FR" to "Francia", "GB" to "Reino Unido", "GR" to "Grecia",
+                        "HK" to "Hong Kong", "HN" to "Honduras", "HR" to "Croacia", "HU" to "Hungría",
+                        "ID" to "Indonesia", "IE" to "Irlanda", "IL" to "Israel", "IN" to "India",
+                        "IQ" to "Irak", "IR" to "Irán", "IS" to "Islandia", "IT" to "Italia",
+                        "JM" to "Jamaica", "JO" to "Jordania", "JP" to "Japón", "KE" to "Kenia",
+                        "KR" to "Corea del Sur", "KW" to "Kuwait", "KZ" to "Kazajistán",
+                        "LB" to "Líbano", "LT" to "Lituania", "LU" to "Luxemburgo", "LV" to "Letonia",
+                        "MA" to "Marruecos", "MX" to "México", "MY" to "Malasia", "NG" to "Nigeria",
+                        "NL" to "Países Bajos", "NO" to "Noruega", "NP" to "Nepal", "NZ" to "Nueva Zelanda",
+                        "PE" to "Perú", "PH" to "Filipinas", "PK" to "Pakistán", "PL" to "Polonia",
+                        "PT" to "Portugal", "RO" to "Rumania", "RS" to "Serbia", "RU" to "Rusia",
+                        "SA" to "Arabia Saudita", "SE" to "Suecia", "SG" to "Singapur", "SI" to "Eslovenia",
+                        "SK" to "Eslovaquia", "TH" to "Tailandia", "TN" to "Túnez", "TR" to "Turquía",
+                        "TW" to "Taiwán", "UA" to "Ucrania", "UK" to "Reino Unido", "US" to "Estados Unidos",
+                        "UY" to "Uruguay", "VE" to "Venezuela", "VN" to "Vietnam", "ZA" to "Sudáfrica",
+                        "CO" to "Colombia", "CL" to "Chile", "VE" to "Venezuela",
                     )
-
-                    // Meta info (año, duración, rating)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(24.dp)
-                    ) {
-                        // Año
-                        item.releaseDate?.takeIf { it.length >= 4 }?.let {
-                            MetaBadge(text = it.substring(0, 4))
-                        }
-
-                        // Duración
+                    val line2Parts = buildList {
                         item.runtimeMinutes?.let { minutes ->
                             val hours = minutes / 60
                             val mins = minutes % 60
-                            MetaBadge(
-                                text = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+                            add(if (hours > 0) "${hours}h ${mins}m" else "${mins}m")
+                        }
+                        val displayCountries = item.countries
+                            .filter { it.isNotBlank() && it != "UNKNOWN" }
+                            .map { code -> countryNames[code] ?: code }
+                        if (displayCountries.isNotEmpty()) {
+                            add(displayCountries.joinToString(" • "))
+                        }
+                    }
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (line2Parts.isNotEmpty()) {
+                            Text(
+                                text = line2Parts.joinToString("  •  "),
+                                color = IptvTextMuted,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "•",
+                                color = IptvTextMuted,
+                                fontSize = 14.sp
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                        }
+                        
+                        item.voteAverage?.let { rating ->
+                            Text(
+                                text = "⭐ ${String.format(java.util.Locale.US, "%.1f", rating)}",
+                                color = Color(0xFF46D369), // Verde estilo Netflix
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
-
-                        // Rating TMDB
-                        item.voteAverage?.let { rating ->
-                            RatingBadge(rating = rating, voteCount = item.voteCount)
-                        }
-                    }
-
-                    // Géneros
-                    if (item.genres.isNotEmpty()) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            item.genres.take(4).forEach { genre ->
-                                GenreChip(genre = genre)
-                            }
-                        }
-                    }
-
-                    // Descripción
-                    if (item.description.isNotBlank()) {
-                        Text(
-                            text = item.description,
-                            color = IptvTextSecondary,
-                            fontSize = 16.sp,
-                            lineHeight = 24.sp,
-                            maxLines = 8,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    // Botones de acción
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.padding(top = 24.dp)
-                    ) {
-                        // Botón Reproducir
-                        ActionButton(
-                            text = "Reproducir",
-                            icon = Icons.Default.PlayArrow,
-                            isPrimary = true,
-                            onClick = onPlayClick,
-                            modifier = Modifier.focusRequester(focusRequester)
-                        )
-
-                        // Botón Volver
-                        ActionButton(
-                            text = "Volver",
-                            icon = Icons.Default.ArrowBack,
-                            isPrimary = false,
-                            onClick = onBackClick
-                        )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(100.dp))
-        }
-
-        // Botón flotante "Volver arriba" cuando se hace scroll
-        val showScrollToTop by remember {
-            derivedStateOf { scrollState.value > 500 }
-        }
-
-        AnimatedVisibility(
-            visible = showScrollToTop,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(32.dp)
-        ) {
-            ScrollToTopButton(onClick = { /* TODO: scroll to top */ })
         }
     }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
-}
-
-@Composable
-private fun PosterImage(url: String, modifier: Modifier = Modifier) {
-    AndroidView(
-        factory = { context ->
-            ImageView(context).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-            }
-        },
-        modifier = modifier,
-        update = { imageView ->
-            Glide.with(imageView)
-                .load(url)
-                .placeholder(R.drawable.ic_launcher_background)
-                .into(imageView)
-        }
-    )
 }
 
 @Composable
@@ -377,61 +472,6 @@ private fun AsyncImage(url: String, contentDescription: String?, modifier: Modif
 }
 
 @Composable
-private fun MetaBadge(text: String) {
-    Text(
-        text = text,
-        color = IptvTextMuted,
-        fontSize = 14.sp,
-        modifier = Modifier
-            .background(IptvSurfaceVariant, RoundedCornerShape(4.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    )
-}
-
-@Composable
-private fun RatingBadge(rating: Float, voteCount: Int?) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier
-            .background(Color(0xFF1DB954).copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    ) {
-        Icon(
-            imageVector = Icons.Default.Star,
-            contentDescription = null,
-            tint = Color(0xFF1DB954),
-            modifier = Modifier.size(16.dp)
-        )
-        Text(
-            text = String.format(java.util.Locale.US, "%.1f", rating),
-            color = Color(0xFF1DB954),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold
-        )
-        voteCount?.let {
-            Text(
-                text = "(${it / 1000}K)",
-                color = IptvTextMuted,
-                fontSize = 12.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun GenreChip(genre: String) {
-    Text(
-        text = genre,
-        color = IptvTextSecondary,
-        fontSize = 13.sp,
-        modifier = Modifier
-            .background(IptvSurface, RoundedCornerShape(16.dp))
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    )
-}
-
-@Composable
 private fun ActionButton(
     text: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -442,15 +482,17 @@ private fun ActionButton(
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (isFocused) 1.05f else 1f)
 
+    val bgColor = if (isPrimary) Color.White else Color.Transparent
+    val contentColor = if (isPrimary) Color.Black else Color.White
+    val borderModifier = if (!isPrimary) Modifier.border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(8.dp)) else Modifier
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = modifier
             .scale(scale)
-            .background(
-                if (isPrimary) IptvAccent else IptvSurface,
-                RoundedCornerShape(8.dp)
-            )
+            .then(borderModifier)
+            .background(bgColor, RoundedCornerShape(8.dp))
             .onFocusChanged { isFocused = it.isFocused }
             .tvClickable { onClick() }
             .padding(horizontal = 24.dp, vertical = 14.dp)
@@ -458,32 +500,14 @@ private fun ActionButton(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (isPrimary) Color.White else IptvTextPrimary,
+            tint = contentColor,
             modifier = Modifier.size(20.dp)
         )
         Text(
             text = text,
-            color = if (isPrimary) Color.White else IptvTextPrimary,
+            color = contentColor,
             fontSize = 16.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-@Composable
-private fun ScrollToTopButton(onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(48.dp)
-            .background(IptvAccent, RoundedCornerShape(24.dp))
-            .tvClickable { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = Icons.Default.ArrowBack,
-            contentDescription = "Volver arriba",
-            tint = Color.White,
-            modifier = Modifier.size(24.dp)
+            fontWeight = FontWeight.Bold
         )
     }
 }

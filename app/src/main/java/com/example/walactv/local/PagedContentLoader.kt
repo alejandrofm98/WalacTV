@@ -19,7 +19,7 @@ class PagedContentLoader(
     private val loadedPages = mutableSetOf<Int>()
     private var totalCount = 0
     private var lastCountry: String? = null
-    private var lastGroup: String? = null
+    private var lastGenre: String? = null
     private var isSearchMode = false
     private var isLoading = false
 
@@ -28,7 +28,7 @@ class PagedContentLoader(
     fun isPageLoaded(page: Int): Boolean = loadedPages.contains(page)
     fun isCurrentlyLoading(): Boolean = isLoading
 
-    suspend fun loadPage(page: Int, country: String?, group: String?) {
+    suspend fun loadPage(page: Int, country: String?, group: String? = null, genre: String? = null) {
         if (loadedPages.contains(page)) {
             Log.d(TAG, "loadPage($kind, page=$page): already loaded, skipping")
             return
@@ -38,18 +38,18 @@ class PagedContentLoader(
             return
         }
 
-        if (country != lastCountry || group != lastGroup) {
-            Log.d(TAG, "loadPage($kind, page=$page): filter changed (country: $lastCountry→$country, group: $lastGroup→$group), clearing cache")
+        if (country != lastCountry || genre != lastGenre) {
+            Log.d(TAG, "loadPage($kind, page=$page): filter changed (country: $lastCountry→$country, genre: $lastGenre→$genre), clearing cache")
             cache.clear()
             loadedPages.clear()
             lastCountry = country
-            lastGroup = group
+            lastGenre = genre
             isSearchMode = false
         }
 
         isLoading = true
         try {
-            Log.d(TAG, "loadPage($kind, page=$page): starting load, country=$country, group=$group, cache.size=${cache.size}")
+            Log.d(TAG, "loadPage($kind, page=$page): starting load, country=$country, group=$group, genre=$genre, cache.size=${cache.size}")
             val user = repository.currentUsername()
             val pass = repository.currentPassword()
             val items = when (kind) {
@@ -60,12 +60,12 @@ class PagedContentLoader(
                     entities.map { it.toCatalogItem(user, pass) }
                 }
                 ContentKind.MOVIE -> {
-                    val result = repository.loadCatalogPage(kind, page + 1, country, group)
+                    val result = repository.loadCatalogPage(kind, page + 1, country, group, genre = genre)
                     totalCount = result.total
                     result.items
                 }
                 ContentKind.SERIES -> {
-                    val result = repository.loadCatalogPage(kind, page + 1, country, group)
+                    val result = repository.loadCatalogPage(kind, page + 1, country, group, genre = genre)
                     totalCount = result.total
                     result.items
                 }
@@ -103,8 +103,8 @@ class PagedContentLoader(
         }
     }
 
-    suspend fun loadSearch(query: String, country: String? = null, group: String? = null) {
-        Log.d(TAG, "loadSearch: starting search for '$query' with kind=$kind, country=$country, group=$group")
+    suspend fun loadSearch(query: String, country: String? = null, group: String? = null, genre: String? = null) {
+        Log.d(TAG, "loadSearch: starting search for '$query' with kind=$kind, country=$country, group=$group, genre=$genre")
         cache.clear()
         loadedPages.clear()
         isSearchMode = true
@@ -112,7 +112,7 @@ class PagedContentLoader(
         try {
             val user = repository.currentUsername()
             val pass = repository.currentPassword()
-            Log.d(TAG, "loadSearch: calling search for kind=$kind, query='$query', country=$country, group=$group")
+            Log.d(TAG, "loadSearch: calling search for kind=$kind, query='$query', country=$country, group=$group, genre=$genre")
             val items = when (kind) {
                 ContentKind.CHANNEL -> {
                     val entities = withContext(Dispatchers.IO) { contentCacheManager.searchChannels(query, country, group) }
@@ -120,13 +120,13 @@ class PagedContentLoader(
                     entities.map { it.toCatalogItem(user, pass) }
                 }
                 ContentKind.MOVIE -> {
-                    val result = repository.loadCatalogPage(kind, 1, country, group, query)
+                    val result = repository.loadCatalogPage(kind, 1, country, group, query, genre)
                     totalCount = result.total
                     Log.d(TAG, "loadSearch: movies search returned ${result.items.size} items")
                     result.items
                 }
                 ContentKind.SERIES -> {
-                    val result = repository.loadCatalogPage(kind, 1, country, group, query)
+                    val result = repository.loadCatalogPage(kind, 1, country, group, query, genre)
                     totalCount = result.total
                     Log.d(TAG, "loadSearch: series search returned ${result.items.size} items")
                     result.items
@@ -163,7 +163,7 @@ class PagedContentLoader(
         loadedPages.clear()
         totalCount = 0
         lastCountry = null
-        lastGroup = null
+        lastGenre = null
         isSearchMode = false
         isLoading = false
     }

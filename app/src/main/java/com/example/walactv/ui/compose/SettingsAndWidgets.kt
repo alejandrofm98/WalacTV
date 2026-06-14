@@ -259,7 +259,7 @@ internal fun FilterTopBar(
 }
 
 @Composable
-private fun FilterChip(label: String, focusRequester: FocusRequester, onClick: () -> Unit) {
+internal fun FilterChip(label: String, focusRequester: FocusRequester, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier.height(40.dp)
@@ -284,16 +284,16 @@ private fun FilterChip(label: String, focusRequester: FocusRequester, onClick: (
     }
 }
 
-    @Composable
-    private fun SearchBar(query: String, onQueryChange: (String) -> Unit, focusRequester: FocusRequester, onImeDismissed: () -> Unit = {}) {
-        NativeSearchBar(
-            query = query,
-            onQueryChange = onQueryChange,
-            focusRequester = focusRequester,
-            onImeDismissed = onImeDismissed,
-            modifier = Modifier.width(260.dp),
-        )
-    }
+@Composable
+internal fun SearchBar(query: String, onQueryChange: (String) -> Unit, focusRequester: FocusRequester, onImeDismissed: () -> Unit = {}) {
+    NativeSearchBar(
+        query = query,
+        onQueryChange = onQueryChange,
+        focusRequester = focusRequester,
+        onImeDismissed = onImeDismissed,
+        modifier = Modifier.width(260.dp),
+    )
+}
 
 // ── Filter dialog ──────────────────────────────────────────────────────────
 

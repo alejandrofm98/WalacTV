@@ -8,4 +8,5 @@ data class CatalogFilterOption(
 data class CatalogFilters(
     val countries: List<CatalogFilterOption> = emptyList(),
     val groups: List<CatalogFilterOption> = emptyList(),
+    val genres: List<CatalogFilterOption> = emptyList(),
 )

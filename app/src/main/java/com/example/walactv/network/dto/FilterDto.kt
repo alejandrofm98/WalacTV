@@ -9,3 +9,7 @@ data class FilterOptionDto(
     val value: String = "",
     val label: String = "",
 )
+
+data class GenresResponse(
+    val genres: List<String> = emptyList(),
+)

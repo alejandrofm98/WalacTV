@@ -13,16 +13,24 @@ import android.widget.ImageView.ScaleType.CENTER_CROP
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import com.example.walactv.ui.compose.buildEpisodeLabel
 import com.example.walactv.ui.compose.tvClickable
+import com.google.gson.Gson
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ArrowBack
+
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -56,9 +64,10 @@ class SeriesDetailFragment : Fragment() {
     companion object {
         private const val TAG = "SeriesDetailFragment"
         private const val PLAYER_FRAGMENT_TAG = "player_fragment"
-        private const val ARG_SERIES_NAME = "series_name"
-        fun newInstance(seriesName: String) = SeriesDetailFragment().apply {
-            arguments = Bundle().apply { putString(ARG_SERIES_NAME, seriesName) }
+        private const val ARG_SERIES_ITEM = "series_item"
+        
+        fun newInstance(item: CatalogItem) = SeriesDetailFragment().apply {
+            arguments = Bundle().apply { putString(ARG_SERIES_ITEM, Gson().toJson(item)) }
         }
     }
 
@@ -69,12 +78,20 @@ class SeriesDetailFragment : Fragment() {
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        val seriesName = arguments?.getString(ARG_SERIES_NAME) ?: ""
+        val seriesItemJson = arguments?.getString(ARG_SERIES_ITEM)
+        val catalogItem = if (seriesItemJson != null) Gson().fromJson(seriesItemJson, CatalogItem::class.java) else null
+        val seriesName = catalogItem?.seriesName ?: catalogItem?.title ?: ""
+
         Log.d(TAG, "SeriesDetailFragment: seriesName='$seriesName'")
         return ComposeView(requireContext()).apply {
             setContent {
                 WalacTVTheme {
-                    SeriesDetailScreen(seriesName, repository) { item, allEpisodesForSeries, logicalEpisodes ->
+                    SeriesDetailScreen(
+                        seriesName = seriesName,
+                        initialSeriesItem = catalogItem,
+                        repository = repository,
+                        onBack = { requireActivity().onBackPressedDispatcher.onBackPressed() }
+                    ) { item, allEpisodesForSeries, logicalEpisodes ->
                         playEpisode(item, allEpisodesForSeries, logicalEpisodes)
                     }
                 }
@@ -116,6 +133,7 @@ class SeriesDetailFragment : Fragment() {
         Log.d(TAG, "SERIES_CONTENT_ID seriesKey=${episodeToPlay.seriesKey} providerId=${episodeToPlay.providerId} stableId=${episodeToPlay.stableId} -> $seriesContentId")
 
         val playerFragment = PlayerFragment()
+        val unifiedOptions = episodeToPlay.streamOptions.toUnifiedOptions()
         playerFragment.initialize(
             streamUrl = stream.url,
             overlayNumber = item.kind.name,
@@ -135,6 +153,17 @@ class SeriesDetailFragment : Fragment() {
             contentId = seriesContentId,
             onPlayerClosed = {
                 view?.requestFocus()
+            },
+            unifiedStreamOptions = unifiedOptions,
+            onSelectUnifiedOption = { selectedIndex ->
+                val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
+                val freshEpisode = allEpisodesForSeries.find { ep ->
+                    ep.seriesName == episodeToPlay.seriesName &&
+                        ep.seasonNumber == episodeToPlay.seasonNumber &&
+                        ep.episodeNumber == episodeToPlay.episodeNumber &&
+                        ep.streamOptions.any { s -> s.url == selectedOption.url }
+                } ?: episodeToPlay
+                playEpisode(freshEpisode, allEpisodesForSeries, logicalEpisodes)
             },
         )
         val fragmentManager = requireActivity().supportFragmentManager
@@ -159,11 +188,14 @@ class SeriesDetailFragment : Fragment() {
 @Composable
 fun SeriesDetailScreen(
     seriesName: String,
+    initialSeriesItem: CatalogItem?,
     repository: IptvRepository,
+    onBack: () -> Unit,
     onEpisodeClick: (CatalogItem, List<CatalogItem>, List<CatalogItem>) -> Unit,
 ) {
     var isLoading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
+    var focusedEpisode by remember { mutableStateOf<CatalogItem?>(null) }
 
     val context = LocalContext.current
     val preferredLanguage = remember { PreferencesManager.getPreferredLanguageOrDefault() }
@@ -185,15 +217,13 @@ fun SeriesDetailScreen(
     }
     val allEpisodes = allEpisodesState.value
 
-    // Cargamos el progreso de todos los episodios de esta serie
     val watchProgressRepo = remember { (context.applicationContext as WalacApp).appComponent.watchProgressRepository }
     val progressMap by produceState<Map<String, WatchProgressItem>>(emptyMap(), seriesName) {
-        val inProgress = runCatching { watchProgressRepo.getContinueWatching() }.getOrDefault(emptyList())
-        val watched = runCatching { watchProgressRepo.getWatchedItems() }.getOrDefault(emptyList())
+        val inProgress = watchProgressRepo.getContinueWatching().getOrDefault(emptyList())
+        val watched = watchProgressRepo.getWatchedItems().getOrDefault(emptyList())
         val all = (inProgress + watched).filter {
             it.seriesName?.equals(seriesName, ignoreCase = true) == true
         }
-        // Indexamos por contentId para lookup rápido
         value = all.associateBy { it.contentId }
     }
 
@@ -206,137 +236,229 @@ fun SeriesDetailScreen(
     }
 
     var selectedSeason by remember { mutableIntStateOf(seasons.firstOrNull() ?: 1) }
-    var showSeasonDialog by remember { mutableStateOf(false) }
-    val seasonFocusRequester = remember { FocusRequester() }
+    val episodesListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(seasons) {
         selectedSeason = seasons.firstOrNull() ?: 1
     }
 
-    val displayEpisodes = remember(selectedSeason, uniqueEpisodes) {
-        uniqueEpisodes.filter { (it.seasonNumber ?: 1) == selectedSeason }
-    }
-
-    val posterUrl = allEpisodes.firstOrNull()?.preferredVodPosterUrl() ?: ""
-    val totalSeasons = allEpisodes.firstOrNull { it.totalSeasons != null }?.totalSeasons ?: seasons.size
-    val seriesDisplayName = allEpisodes.firstOrNull { !it.tmdbTitle.isNullOrBlank() }?.tmdbTitle ?: seriesName
-
     if (isLoading) {
-        val infiniteTransition = rememberInfiniteTransition(label = "loadingSpinner")
-        val rotation by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(tween(1000)),
-            label = "rotation"
-        )
-        Box(
-            modifier = Modifier.fillMaxSize().background(IptvBackground).padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Filled.PlayArrow,
-                contentDescription = null,
-                tint = IptvLive,
-                modifier = Modifier.size(48.dp).scale(rotation / 360f * 0.2f + 1f)
-            )
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            Text("Cargando...", color = Color.White)
         }
         return
     }
 
     if (loadError != null || allEpisodes.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize().background(IptvBackground).padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = loadError ?: "No se encontraron episodios",
-                    color = IptvLive,
-                    fontSize = 18.sp
-                )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "Serie: $seriesName",
-                    color = IptvTextMuted,
-                    fontSize = 14.sp
-                )
-            }
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            Text(loadError ?: "No se encontraron episodios", color = Color.White)
         }
         return
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(IptvBackground).padding(32.dp)) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(modifier = Modifier.fillMaxWidth().height(140.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                if (posterUrl.isNotBlank()) {
-                    AndroidView(
-                        factory = { ctx ->
-                            ImageView(ctx).apply { scaleType = CENTER_CROP }
-                        },
-                        update = { imageView ->
-                            Glide.with(imageView).load(posterUrl).override(300, 450).into(imageView)
-                        },
-                        modifier = Modifier.width(100.dp).fillMaxHeight().clip(RoundedCornerShape(8.dp))
-                    )
-                } else {
-                    Box(modifier = Modifier.width(100.dp).fillMaxHeight().background(IptvSurfaceVariant, RoundedCornerShape(8.dp)))
-                }
+    val seriesItem = initialSeriesItem ?: allEpisodes.firstOrNull { it.totalSeasons != null } ?: allEpisodes.firstOrNull()
+    val bgUrl = seriesItem?.backdropUrl?.takeIf { it.isNotBlank() }
+        ?: seriesItem?.tmdbPosterUrl?.takeIf { it.isNotBlank() }
+        ?: seriesItem?.imageUrl?.takeIf { it.isNotBlank() }
+        ?: ""
+    val seriesDisplayName = seriesItem?.tmdbTitle?.takeIf { it.isNotBlank() } ?: seriesItem?.title?.takeIf { it.isNotBlank() } ?: seriesName
+    val totalSeasons = seriesItem?.totalSeasons ?: seasons.size
+    val year = seriesItem?.year?.toString() ?: seriesItem?.releaseDate?.take(4) ?: ""
+    val genres = seriesItem?.genres?.joinToString(", ") ?: ""
+    val synopsis = focusedEpisode?.description?.takeIf { it.isNotBlank() }
+        ?: seriesItem?.description?.takeIf { it.isNotBlank() }
+        ?: "Sin sinopsis disponible."
 
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                    Text(seriesDisplayName, color = IptvTextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-                    Text("$totalSeasons Temporadas • ${uniqueEpisodes.size} Episodios", color = IptvTextMuted, fontSize = 16.sp)
+    Log.d("SeriesDetailScreen", "=== SERIES DETAIL DEBUG ===")
+    Log.d("SeriesDetailScreen", "seriesName=$seriesName seriesDisplayName=$seriesDisplayName")
+    Log.d("SeriesDetailScreen", "bgUrl='$bgUrl'")
+    Log.d("SeriesDetailScreen", "backdropUrl='${seriesItem?.backdropUrl}'")
+    Log.d("SeriesDetailScreen", "tmdbPosterUrl='${seriesItem?.tmdbPosterUrl}'")
+    Log.d("SeriesDetailScreen", "imageUrl='${seriesItem?.imageUrl}'")
+    Log.d("SeriesDetailScreen", "description='${seriesItem?.description?.take(120)}'")
+    Log.d("SeriesDetailScreen", "synopsis='${synopsis.take(120)}'")
+    Log.d("SeriesDetailScreen", "year=$year genres=$genres totalSeasons=$totalSeasons")
 
-                    Spacer(Modifier.height(8.dp))
-
-                    if (seasons.isNotEmpty()) {
-                        FilterTopBarButton(
-                            label = "Temporada $selectedSeason",
-                            onClick = { showSeasonDialog = true },
-                            focusRequester = seasonFocusRequester
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        if (bgUrl.isNotBlank()) {
+            AndroidView(
+                factory = { ctx ->
+                    ImageView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
                         )
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                    }
+                },
+                update = { iv ->
+                    Log.d("SeriesDetailScreen", "Glide loading bgUrl='$bgUrl' into iv=${iv.width}x${iv.height}")
+                    Glide.with(iv)
+                        .load(bgUrl)
+                        .override(com.bumptech.glide.request.target.Target.SIZE_ORIGINAL)
+                        .into(iv)
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Log.w("SeriesDetailScreen", "bgUrl is blank, not loading background image")
+        }
+
+        Box(modifier = Modifier.fillMaxSize().background(
+            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                colors = listOf(Color.Black.copy(alpha = 0.9f), Color.Black.copy(alpha = 0.6f), Color.Transparent),
+                startX = 0f, endX = 1500f
+            )
+        ))
+        Box(modifier = Modifier.fillMaxSize().background(
+            androidx.compose.ui.graphics.Brush.verticalGradient(
+                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f), Color.Black),
+                startY = 400f, endY = 1080f
+            )
+        ))
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(32.dp)
+        ) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                        .tvClickable { onBack() }
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(androidx.compose.material.icons.Icons.Filled.ArrowBack, contentDescription = "Volver", tint = Color.White)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Volver", color = Color.White, fontSize = 16.sp)
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(50.dp))
+            }
+
+            item {
+                Column(modifier = Modifier.fillMaxWidth(0.55f)) {
+                    Text(seriesDisplayName, color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold, lineHeight = 56.sp)
+                    Spacer(Modifier.height(8.dp))
+                    val metaList = listOfNotNull(
+                        year.takeIf { it.isNotBlank() },
+                        "$totalSeasons temporadas",
+                        genres.takeIf { it.isNotBlank() },
+                        seriesItem?.voteAverage?.takeIf { it > 0f }?.let { "★ %.1f".format(it) }
+                    )
+                    Text(metaList.joinToString(" • "), color = Color.LightGray, fontSize = 16.sp)
+                    focusedEpisode?.let { ep ->
+                        val epMeta = buildList {
+                            ep.seasonNumber?.let { s -> add("T$s") }
+                            ep.episodeNumber?.let { e -> add("E$e") }
+                            ep.airDate?.takeIf { it.isNotBlank() }?.let { add(formatSpanishDate(it) ?: it) }
+                            ep.voteAverage?.let { if (it > 0) add("★ %.1f".format(it)) }
+                        }
+                        if (epMeta.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(epMeta.joinToString(" · "), color = Color(0xFFB0BEC5), fontSize = 13.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = synopsis, 
+                        color = Color.White, 
+                        fontSize = 14.sp, 
+                        maxLines = 5, 
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.heightIn(min = 100.dp)
+                    )
+
+                    Spacer(Modifier.height(24.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        var playFocused by remember { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier
+                                .onFocusChanged { playFocused = it.isFocused }
+                                .tvClickable { onEpisodeClick(uniqueEpisodes.firstOrNull { it.seasonNumber == selectedSeason } ?: allEpisodes.first(), allEpisodes, uniqueEpisodes) }
+                                .background(if (playFocused) Color.LightGray else Color.White, androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+                                .padding(horizontal = 24.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.PlayArrow, contentDescription = null, tint = Color.Black)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Reproducir", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            item {
+                Spacer(Modifier.height(32.dp))
+            }
 
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            ) {
-                items(displayEpisodes, key = { it.stableId }) { ep ->
-                    // Buscamos el progreso por providerId o stableId
-                    val epContentId = ep.providerId ?: ep.stableId
-                    val wp = progressMap[epContentId]
-                        ?: progressMap[epContentId.substringAfterLast(":")]
-
-                    EpisodeCard(
-                        item = ep,
-                        watchProgress = wp,
-                        onClick = { onEpisodeClick(ep, allEpisodes, uniqueEpisodes) }
-                    )
+            if (seasons.isNotEmpty()) {
+                item {
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(seasons) { season ->
+                            val isSelected = season == selectedSeason
+                            var chipFocused by remember { mutableStateOf(false) }
+                            Text(
+                                text = "Temporada $season",
+                                color = when {
+                                    isSelected -> Color.Black
+                                    chipFocused -> Color.White
+                                    else -> Color.LightGray
+                                },
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier
+                                    .onFocusChanged { chipFocused = it.isFocused }
+                                    .tvClickable {
+                                        selectedSeason = season
+                                        val idx = uniqueEpisodes.indexOfFirst { it.seasonNumber == season }
+                                        if (idx >= 0) {
+                                            coroutineScope.launch { episodesListState.animateScrollToItem(idx) }
+                                        }
+                                    }
+                                    .background(
+                                        if (isSelected) Color.White else if (chipFocused) Color.White.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.1f),
+                                        RoundedCornerShape(20.dp)
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
                 }
             }
-        }
 
-        if (showSeasonDialog) {
-            FilterDialog(
-                title = "Selecciona Temporada",
-                options = seasons.map { CatalogFilterOption(value = it.toString(), label = "Temporada $it") },
-                selectedOption = selectedSeason.toString(),
-                onOptionSelected = {
-                    selectedSeason = it.value.toIntOrNull() ?: 1
-                    showSeasonDialog = false
-                },
-                onDismiss = { showSeasonDialog = false }
-            )
-        }
-
-        LaunchedEffect(showSeasonDialog) {
-            if (!showSeasonDialog) {
-                runCatching { seasonFocusRequester.requestFocus() }
+            item {
+                androidx.compose.foundation.lazy.LazyRow(
+                    state = episodesListState,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(uniqueEpisodes, key = { it.stableId }) { ep ->
+                        val epContentId = ep.providerId ?: ep.stableId
+                        val wp = progressMap[epContentId] ?: progressMap[epContentId.substringAfterLast(":")]
+                        EpisodeCard(
+                            item = ep,
+                            watchProgress = wp,
+                            onClick = { onEpisodeClick(ep, allEpisodes, uniqueEpisodes) },
+                            onFocus = {
+                                focusedEpisode = ep
+                                val epSeason = ep.seasonNumber ?: 1
+                                if (epSeason != selectedSeason) {
+                                    selectedSeason = epSeason
+                                }
+                            }
+                        )
+                    }
+                }
             }
         }
     }
@@ -347,142 +469,111 @@ fun EpisodeCard(
     item: CatalogItem,
     watchProgress: WatchProgressItem? = null,
     onClick: () -> Unit,
+    onFocus: () -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    var currentUrl by remember { mutableStateOf<String?>(null) }
 
     val isWatched = watchProgress?.isWatched == true
     val progressPercent = watchProgress?.progressPercent ?: 0
     val hasProgress = progressPercent in 1..99 && !isWatched
 
-    LaunchedEffect(item) {
-        currentUrl = item.preferredVodPosterUrl()
-    }
-
     Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isFocused) IptvFocusBg else IptvCard)
+            .width(240.dp)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+            .onFocusChanged { 
+                isFocused = it.isFocused
+                if (it.isFocused) onFocus()
+            }
+            .tvClickable { onClick() }
             .border(
                 width = 2.dp,
-                color = if (isFocused) IptvFocusBorder else Color.Transparent,
-                shape = RoundedCornerShape(12.dp)
+                color = if (isFocused) Color.White else Color.Transparent,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
             )
-            .onFocusChanged { isFocused = it.isFocused }
-            .tvClickable { onClick() }
             .scale(if (isFocused) 1.03f else 1f)
-            .padding(8.dp)
+            .background(Color.DarkGray.copy(alpha = 0.5f))
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(8.dp))
-                .background(IptvSurfaceVariant)
+                .background(Color.DarkGray)
         ) {
-            val imageUrl = currentUrl
-            if (!imageUrl.isNullOrBlank()) {
-                var imageView by remember { mutableStateOf<ImageView?>(null) }
-
+            val imageUrl = item.stillPath?.takeIf { it.isNotBlank() }
+                ?: item.backdropUrl?.takeIf { it.isNotBlank() }
+                ?: item.imageUrl.takeIf { it.isNotBlank() }
+                ?: ""
+            Log.d("EpisodeCard", "ep=${item.episodeNumber} imageUrl='$imageUrl' stillPath='${item.stillPath}' backdropUrl='${item.backdropUrl}'")
+            if (imageUrl.isNotBlank()) {
                 AndroidView(
-                    factory = { context ->
-                        ImageView(context).apply {
-                            scaleType = CENTER_CROP
-                            imageView = this
+                    factory = { ctx ->
+                        ImageView(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            scaleType = ImageView.ScaleType.CENTER_CROP
                         }
+                    },
+                    update = { iv ->
+                        Glide.with(iv)
+                            .load(imageUrl)
+                            .into(iv)
                     },
                     modifier = Modifier.fillMaxSize()
                 )
-
-                LaunchedEffect(imageView, imageUrl) {
-                    imageView?.let { iv ->
-                        Glide.with(iv).load(imageUrl).override(300, 169).into(iv)
-                    }
-                }
             }
-
-            // Overlay oscuro cuando está visto (efecto Netflix)
+            
             if (isWatched) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.45f))
-                )
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)))
             }
-
-            // Badge número de episodio (esquina superior izquierda)
+            
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(8.dp)
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .background(Color.Black.copy(alpha = 0.7f), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
-                val epNum = item.episodeNumber?.toString() ?: "?"
-                Text(text = "EP $epNum", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(text = item.episodeNumber?.toString() ?: "?", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
 
-            // Badge calidad (esquina inferior izquierda) — solo si no es "SERIE"
-            val qualityBadge = item.badgeText.takeIf {
-                it.isNotBlank() && !it.equals("SERIE", ignoreCase = true) && !it.equals("Serie", ignoreCase = true)
-            }
-            qualityBadge?.let { badge ->
-                Box(
+            val runtime = item.runtimeMinutes
+            val rating = item.voteAverage
+            if ((runtime != null && runtime > 0) || (rating != null && rating > 0f)) {
+                Row(
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
+                        .align(Alignment.BottomEnd)
                         .padding(8.dp)
-                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .background(Color.Black.copy(alpha = 0.7f), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = badge, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                }
-            }
-
-            // Badge VISTO (esquina superior derecha)
-            if (isWatched) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 4.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Visibility,
-                            contentDescription = "Visto",
-                            tint = Color(0xFF4CAF50),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text("VISTO", color = Color(0xFF4CAF50), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    if (rating != null && rating > 0f) {
+                        Text("★", color = Color(0xFFFFC107), fontSize = 11.sp)
+                        Spacer(Modifier.width(4.dp))
+                        Text("%.1f".format(rating), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if ((runtime != null && runtime > 0) && (rating != null && rating > 0f)) {
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    if (runtime != null && runtime > 0) {
+                        Text("$runtime min", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
 
-            // Icono Play centrado al hacer foco
             if (isFocused) {
                 Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(44.dp)
-                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(22.dp)),
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.PlayArrow,
-                        contentDescription = "Reproducir",
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    Icon(androidx.compose.material.icons.Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
                 }
             }
         }
-
-        // Barra de progreso (estilo Netflix: roja, debajo de la imagen)
+        
         if (hasProgress) {
             Box(
                 modifier = Modifier
@@ -499,19 +590,27 @@ fun EpisodeCard(
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = item.title,
+                color = if (isFocused) Color.White else Color.LightGray,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
 
-        Text(
-            text = item.title,
-            color = when {
-                isWatched -> IptvTextMuted.copy(alpha = 0.6f)
-                isFocused -> IptvTextPrimary
-                else -> IptvTextMuted
-            },
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
+fun formatSpanishDate(dateString: String?): String? {
+    if (dateString.isNullOrBlank()) return null
+    return try {
+        val parser = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val formatter = java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale("es", "ES"))
+        val date = parser.parse(dateString)
+        date?.let { formatter.format(it) } ?: dateString
+    } catch (e: Exception) {
+        dateString
     }
 }

@@ -125,10 +125,20 @@ class MainActivity : FragmentActivity() {
             return true
         }
 
-        // ── 2. Hay fragmentos en el back stack (Search, SeriesDetail…) → pop ─
+        // ── 2. Search visible → cerrar búsqueda ───────────────────────────────
+        val searchFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? SearchFragment
+        if (searchFragment != null) {
+            Log.d(TAG, "handleCentralizedBack: SearchFragment visible, popping")
+            fragmentManager.popBackStack()
+            return true
+        }
+
+        // ── 3. Hay fragmentos en el back stack (SeriesDetail…) → pop ─────────
         if (fragmentManager.backStackEntryCount > 0) {
             Log.d(TAG, "handleCentralizedBack: popping back stack (count=${fragmentManager.backStackEntryCount})")
             fragmentManager.popBackStack()
+            val composeFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
+            composeFragment?.onSearchBackPressed()
             return true
         }
 

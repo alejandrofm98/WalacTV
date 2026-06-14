@@ -39,10 +39,6 @@ internal fun ComposeMainFragment.updateStateFromCatalog(catalog: HomeCatalog) {
     viewModel.updateStateFromCatalog(catalog)
 }
 
-internal fun ComposeMainFragment.rebuildHomeSections() {
-    viewModel.rebuildHomeSections()
-}
-
 internal fun ComposeMainFragment.loadContinueWatching() {
     viewModel.loadContinueWatching()
 }
@@ -193,7 +189,21 @@ internal fun ComposeMainFragment.findSeriesMatch(
 internal fun buildEpisodeLabel(season: Int?, episode: Int?): String {
     val s = season?.let { "T${it}" } ?: ""
     val e = episode?.let { "E${it}" } ?: ""
-    return if (s.isNotBlank() && e.isNotBlank()) "$s • $e" else s + e
+    return if (s.isNotBlank() && e.isNotBlank()) "$s · $e" else s + e
+}
+
+internal fun formatDurationRemaining(positionMs: Long, durationMs: Long): String? {
+    if (durationMs <= 0 || positionMs <= 0) return null
+    val remainingMs = durationMs - positionMs
+    if (remainingMs <= 0) return null
+    val totalSeconds = remainingMs / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    return when {
+        hours > 0 -> "${hours}h ${minutes}m restantes"
+        minutes > 0 -> "${minutes}m restantes"
+        else -> null
+    }
 }
 
 // ── Filters (delegates to ViewModel) ────────────────────────────────────────
@@ -248,9 +258,11 @@ internal fun ComposeMainFragment.changeMode(newMode: ComposeMainFragment.MainMod
     currentMode = newMode
     selectedHero = defaultItemForMode(newMode)
     when (newMode) {
-        ComposeMainFragment.MainMode.TV     -> ensureFiltersLoaded(ContentKind.CHANNEL)
-        ComposeMainFragment.MainMode.Movies -> ensureFiltersLoaded(ContentKind.MOVIE)
-        ComposeMainFragment.MainMode.Series -> ensureFiltersLoaded(ContentKind.SERIES)
+        ComposeMainFragment.MainMode.TV       -> ensureFiltersLoaded(ContentKind.CHANNEL)
+        ComposeMainFragment.MainMode.Discover -> {
+            ensureFiltersLoaded(ContentKind.MOVIE)
+            ensureFiltersLoaded(ContentKind.SERIES)
+        }
         else -> Unit
     }
 }
@@ -270,8 +282,7 @@ internal fun ComposeMainFragment.defaultItemForMode(
     ComposeMainFragment.MainMode.Home     -> homeSections.firstNotNullOfOrNull { it.items.firstOrNull() }
     ComposeMainFragment.MainMode.TV       -> searchableItems.firstOrNull { it.kind == ContentKind.CHANNEL }
     ComposeMainFragment.MainMode.Events   -> searchableItems.firstOrNull { it.kind == ContentKind.EVENT }
-    ComposeMainFragment.MainMode.Movies   -> searchableItems.firstOrNull { it.kind == ContentKind.MOVIE }
-    ComposeMainFragment.MainMode.Series   -> searchableItems.firstOrNull { it.kind == ContentKind.SERIES }
+    ComposeMainFragment.MainMode.Discover -> searchableItems.firstOrNull { it.kind == ContentKind.MOVIE || it.kind == ContentKind.SERIES }
     ComposeMainFragment.MainMode.Settings -> null
 }
 
@@ -294,6 +305,7 @@ internal fun ComposeMainFragment.findNextEventIndex(items: List<CatalogItem>): I
     val now = java.util.Calendar.getInstance()
     var bestUpcoming = -1; var bestUpcomingDelta = Long.MAX_VALUE
     var bestLive = -1; var bestLiveDelta = Long.MAX_VALUE
+    var bestPast = -1; var bestPastDelta = Long.MAX_VALUE
     for (i in items.indices) {
         if (items[i].kind != ContentKind.EVENT) continue
         val parsed = runCatching { ComposeMainFragment.EVENT_TIME_FORMAT.parse(items[i].badgeText) }.getOrNull() ?: continue
@@ -306,10 +318,13 @@ internal fun ComposeMainFragment.findNextEventIndex(items: List<CatalogItem>): I
         val delta = (now.timeInMillis - eventCal.timeInMillis) / 60_000L
         when {
             delta < 0 && -delta < bestUpcomingDelta -> { bestUpcoming = i; bestUpcomingDelta = -delta }
-            delta in 0..180 && delta < bestLiveDelta -> { bestLive = i; bestLiveDelta = delta }
+            delta in 0..300 && delta < bestLiveDelta -> { bestLive = i; bestLiveDelta = delta }
+            delta > 300 && delta < bestPastDelta -> { bestPast = i; bestPastDelta = delta }
         }
     }
-    return if (bestUpcoming >= 0) bestUpcoming else bestLive
+    return bestUpcoming.takeIf { it >= 0 }
+        ?: bestLive.takeIf { it >= 0 }
+        ?: bestPast
 }
 
 internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgressItem) {
@@ -372,5 +387,4 @@ internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgress
         }
     }
     continueWatchingSection = BrowseSection("Continuar viendo", catalogItems)
-    rebuildHomeSections()
 }

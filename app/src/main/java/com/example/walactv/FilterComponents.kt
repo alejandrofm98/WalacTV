@@ -125,7 +125,7 @@ fun NativeSearchBar(
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
                     when (event.key) {
-                        Key.DirectionUp, Key.DirectionDown -> true
+                        Key.DirectionUp, Key.DirectionDown -> editTextHasFocus
                         Key.DirectionLeft, Key.DirectionRight -> editTextHasFocus
                         else -> false
                     }
@@ -196,6 +196,7 @@ fun NativeSearchBar(
                                 Log.d("FocusTrace", "NativeSearchBar EDITOR_ACTION_SEARCH query='$query'")
                                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                                 imm.hideSoftInputFromWindow(windowToken, 0)
+                                clearFocus()
                                 Log.d("FocusTrace", "NativeSearchBar calling onImeDismissed() after SEARCH")
                                 lastImeDismissTime = System.currentTimeMillis()
                                 onImeDismissed()
@@ -212,6 +213,7 @@ fun NativeSearchBar(
                                 Log.d("FocusTrace", "NativeSearchBar KEY fallback: key=$keyCode")
                                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                                 imm.hideSoftInputFromWindow(windowToken, 0)
+                                clearFocus()
                                 onImeDismissed()
                                 true
                             } else false
@@ -222,6 +224,7 @@ fun NativeSearchBar(
                             Log.d("FocusTrace", "NativeSearchBar onBackPressed callback firing")
                             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                             imm.hideSoftInputFromWindow(windowToken, 0)
+                            clearFocus()
                             onImeDismissed()
                         }
                     }.also { editTextRef = it }

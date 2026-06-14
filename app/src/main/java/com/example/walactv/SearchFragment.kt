@@ -2,37 +2,58 @@ package com.example.walactv
 
 import android.os.Bundle
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
-import androidx.core.content.ContextCompat
-import androidx.core.graphics.toColorInt
-import androidx.leanback.app.SearchSupportFragment
-import androidx.leanback.widget.ArrayObjectAdapter
-import androidx.leanback.widget.HeaderItem
-import androidx.leanback.widget.ImageCardView
-import androidx.leanback.widget.ListRow
-import androidx.leanback.widget.ListRowPresenter
-import androidx.leanback.widget.ObjectAdapter
-import androidx.leanback.widget.OnItemViewClickedListener
-import androidx.leanback.widget.Presenter
-import androidx.leanback.widget.Row
-import androidx.leanback.widget.RowPresenter
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.fragment.app.Fragment
 import androidx.media3.common.util.UnstableApi
-import com.bumptech.glide.Glide
+import androidx.tv.material3.Text
+import androidx.tv.material3.MaterialTheme
+import com.example.walactv.ui.compose.EventVsCard
+import com.example.walactv.ui.compose.MediaCard
 import com.example.walactv.ui.compose.buildEpisodeLabel
-import com.example.walactv.preferredCardImageUrl
+import com.example.walactv.ui.theme.WalacTVTheme
+import com.example.walactv.ui.theme.IptvBackground
+import com.example.walactv.ui.theme.IptvAccent
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResultProvider {
+class SearchFragment : Fragment() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val rowsAdapter = ArrayObjectAdapter(ListRowPresenter())
 
     private lateinit var repository: IptvRepository
     private lateinit var channelStateStore: ChannelStateStore
@@ -55,20 +76,31 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
         if (items.isEmpty()) {
             items = CatalogMemory.searchableItems
         }
-        setSearchResultProvider(this)
-        setOnItemViewClickedListener(ResultClickListener())
     }
 
-    override fun getResultsAdapter(): ObjectAdapter = rowsAdapter
-
-    override fun onQueryTextChange(newQuery: String): Boolean {
-        performSearch(newQuery)
-        return true
-    }
-
-    override fun onQueryTextSubmit(query: String): Boolean {
-        performSearch(query)
-        return true
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        return ComposeView(requireContext()).apply {
+            setContent {
+                WalacTVTheme {
+                    SearchScreen(
+                        allItems = items,
+                        onUpdateResults = { newActive, newChannel ->
+                            activeResults = newActive
+                            channelResults = newChannel
+                        },
+                        onItemClick = { item, activePosition ->
+                            playCatalogItem(item, position = activePosition)
+                        },
+                        onBack = {
+                            requireActivity().supportFragmentManager.popBackStack()
+                        }
+                    )
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -76,58 +108,24 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
         scope.cancel()
     }
 
-    private fun performSearch(query: String) {
-        rowsAdapter.clear()
-        currentItem = null
-        currentItemPosition = -1
-
-        if (query.isBlank()) {
-            activeResults = emptyList()
-            channelResults = emptyList()
+    @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
+    private fun playCatalogItem(item: CatalogItem, optionIndex: Int = 0, position: Int = currentItemPosition) {
+        if (item.kind == ContentKind.SERIES && item.seriesName != null) {
+            requireActivity().supportFragmentManager.beginTransaction()
+                .replace(R.id.main_browse_fragment, SeriesDetailFragment.newInstance(item))
+                .addToBackStack("SeriesDetailFragment")
+                .commit()
             return
         }
 
-        val normalizedTerms = query.trim().lowercase().split(" ").filter(String::isNotBlank)
-        val results = items.filter { item ->
-            val haystack = item.searchableText().joinToString(" ").lowercase()
-            normalizedTerms.all(haystack::contains)
+        if (item.kind == ContentKind.MOVIE) {
+            requireActivity().supportFragmentManager.beginTransaction()
+                .replace(R.id.main_browse_fragment, MovieDetailFragment.newInstance(item))
+                .addToBackStack("MovieDetailFragment")
+                .commit()
+            return
         }
 
-        val groupedResults = listOf(
-            ContentKind.EVENT to getString(R.string.search_events_header),
-            ContentKind.CHANNEL to getString(R.string.search_channels_header),
-            ContentKind.MOVIE to getString(R.string.search_movies_header),
-            ContentKind.SERIES to getString(R.string.search_series_header),
-        ).mapNotNull { (kind, title) ->
-            val matches = results.filter { it.kind == kind }
-            if (matches.isEmpty()) null else title to matches
-        }
-
-        activeResults = groupedResults.flatMap { it.second }
-        channelResults = results.filter { it.kind == ContentKind.CHANNEL }
-
-        groupedResults.forEachIndexed { index, (title, matches) ->
-            val rowAdapter = ArrayObjectAdapter(SearchResultCardPresenter())
-            matches.forEach(rowAdapter::add)
-            rowsAdapter.add(ListRow(HeaderItem(index.toLong(), title), rowAdapter))
-        }
-    }
-
-    private inner class ResultClickListener : OnItemViewClickedListener {
-        override fun onItemClicked(
-            itemViewHolder: Presenter.ViewHolder,
-            item: Any,
-            rowViewHolder: RowPresenter.ViewHolder,
-            row: Row,
-        ) {
-            val catalogItem = item as? CatalogItem ?: return
-            val position = activeResults.indexOfFirst { it.stableId == catalogItem.stableId }
-            playCatalogItem(catalogItem, position = position)
-        }
-    }
-
-    @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-    private fun playCatalogItem(item: CatalogItem, optionIndex: Int = 0, position: Int = currentItemPosition) {
         scope.launch {
             val resolvedItem = if (item.kind == ContentKind.EVENT) repository.resolveEventItem(item) else item
             if (resolvedItem.streamOptions.isEmpty()) {
@@ -155,6 +153,7 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
             }
 
             val playerFragment = PlayerFragment()
+            val unifiedOptions = resolvedItem.streamOptions.toUnifiedOptions()
             playerFragment.initialize(
                 streamUrl = stream.url,
                 overlayNumber = when {
@@ -176,6 +175,16 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
                 overlayLogoUrl = resolvedItem.preferredVodPosterUrl(),
                 isFavorite = channelStateStore.isFavorite(resolvedItem),
                 contentId = resolvedItem.providerId ?: resolvedItem.stableId,
+                unifiedStreamOptions = unifiedOptions,
+                onSelectUnifiedOption = if (resolvedItem.kind == ContentKind.MOVIE || resolvedItem.kind == ContentKind.SERIES) {
+                    { selectedIndex ->
+                        val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
+                        val optionIndex = resolvedItem.streamOptions.indexOfFirst { it.url == selectedOption.url }
+                        if (optionIndex >= 0) {
+                            playCatalogItem(resolvedItem, optionIndex)
+                        }
+                    }
+                } else null,
             )
 
             fragmentManager.beginTransaction()
@@ -269,45 +278,174 @@ class SearchFragment : SearchSupportFragment(), SearchSupportFragment.SearchResu
     }
 }
 
-private class SearchResultCardPresenter : Presenter() {
+@Composable
+fun SearchScreen(
+    allItems: List<CatalogItem>,
+    onUpdateResults: (List<CatalogItem>, List<CatalogItem>) -> Unit,
+    onItemClick: (CatalogItem, Int) -> Unit,
+    onBack: () -> Unit
+) {
+    BackHandler { onBack() }
 
-    override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
-        val cardView = ImageCardView(parent.context).apply {
-            layoutParams = ViewGroup.LayoutParams(CARD_WIDTH, ViewGroup.LayoutParams.WRAP_CONTENT)
-            isFocusable = true
-            isFocusableInTouchMode = true
-            setMainImageDimensions(CARD_WIDTH, CARD_HEIGHT)
-            setBackgroundColor(ContextCompat.getColor(context, android.R.color.darker_gray))
-            setInfoAreaBackgroundColor("#1E2530".toColorInt())
+    val context = LocalContext.current
+    val repository = remember { IptvRepository(context) }
+
+    var query by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var searchResults by remember { mutableStateOf<List<Pair<String, List<CatalogItem>>>>(emptyList()) }
+
+    LaunchedEffect(query) {
+        if (query.isBlank() || query.length < 2) {
+            searchResults = emptyList()
+            isLoading = false
+            return@LaunchedEffect
         }
-        return ViewHolder(cardView)
+        isLoading = true
+        delay(400)
+        try {
+            val (items, _) = repository.search(query)
+            val grouped = listOf(
+                ContentKind.EVENT to "Eventos",
+                ContentKind.CHANNEL to "Canales",
+                ContentKind.MOVIE to "Películas",
+                ContentKind.SERIES to "Series",
+            ).mapNotNull { (kind, title) ->
+                val kindMatches = items.filter { it.kind == kind }
+                if (kindMatches.isEmpty()) null else title to kindMatches
+            }
+            searchResults = grouped
+            onUpdateResults(items, items.filter { it.kind == ContentKind.CHANNEL })
+        } catch (e: Exception) {
+            Log.e("SearchFragment", "Search failed", e)
+            searchResults = emptyList()
+        } finally {
+            isLoading = false
+        }
     }
 
-    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any?) {
-        val catalogItem = item as? CatalogItem ?: return
-        val cardView = viewHolder.view as ImageCardView
-        cardView.titleText = displayCardTitle(catalogItem)
-        cardView.contentText = catalogItem.subtitle.ifBlank { catalogItem.description.ifBlank { catalogItem.group } }
-        val imageUrl = catalogItem.preferredCardImageUrl()
-        val mainImageView = cardView.mainImageView
-        if (imageUrl.isNotBlank() && mainImageView != null) {
-            Glide.with(cardView.context)
-                .load(imageUrl)
-                .override(CARD_WIDTH, CARD_HEIGHT)
-                .fitCenter()
-                .into(mainImageView)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(IptvBackground)
+    ) {
+        SearchBar(
+            query = query,
+            onQueryChange = { query = it }
+        )
+
+        if (isLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Buscando...",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 18.sp
+                )
+            }
         } else {
-            cardView.mainImage = null
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 32.dp)
+            ) {
+                items(searchResults) { (title, items) ->
+                    SearchRow(title = title, items = items, onItemClick = onItemClick)
+                }
+            }
         }
     }
+}
 
-    override fun onUnbindViewHolder(viewHolder: ViewHolder) {
-        val cardView = viewHolder.view as ImageCardView
-        cardView.mainImage = null
+@Composable
+fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+    var isFocused by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
     }
 
-    private companion object {
-        private const val CARD_WIDTH = 320
-        private const val CARD_HEIGHT = 480
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 44.dp, end = 44.dp, top = 44.dp, bottom = 24.dp)
+            .background(Color(0xFF1E2530), RoundedCornerShape(12.dp))
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) IptvAccent else Color.White.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .padding(horizontal = 24.dp, vertical = 16.dp)
+    ) {
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            textStyle = TextStyle(
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Medium
+            ),
+            cursorBrush = SolidColor(IptvAccent),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
+                .onFocusChanged { isFocused = it.isFocused },
+            decorationBox = { innerTextField ->
+                if (query.isEmpty()) {
+                    Text(
+                        text = "Buscar canales, películas, series, eventos...",
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                innerTextField()
+            }
+        )
+    }
+}
+
+@Composable
+fun SearchRow(
+    title: String,
+    items: List<CatalogItem>,
+    onItemClick: (CatalogItem, Int) -> Unit
+) {
+    Column(
+        modifier = Modifier.padding(bottom = 24.dp)
+    ) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 44.dp, bottom = 12.dp)
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 44.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(items) { item ->
+                if (item.kind == ContentKind.EVENT) {
+                    EventVsCard(
+                        item = item,
+                        useFixedWidth = true,
+                        onFocused = {},
+                        onClick = { onItemClick(item, -1) } // The active index isn't properly maintained here, I will fix it
+                    )
+                } else {
+                    MediaCard(
+                        item = item,
+                        onFocused = {},
+                        onClick = { onItemClick(item, -1) }
+                    )
+                }
+            }
+        }
     }
 }

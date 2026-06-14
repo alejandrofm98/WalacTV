@@ -14,7 +14,7 @@ data class ChannelEntity(
     val numero: Int?,
     val providerId: String,
     val logo: String,
-    val country: String,
+    val countries: String,
     val nombreNormalizado: String,
     val grupoNormalizado: String
 )
@@ -25,7 +25,7 @@ data class MovieEntity(
     val providerId: String,
     val nombre: String,
     val logo: String,
-    val country: String,
+    val countries: String,
     val nombreNormalizado: String,
     val grupoNormalizado: String
 )
@@ -35,13 +35,17 @@ data class SeriesEntity(
     @PrimaryKey val id: String,
     val providerId: String,
     val logo: String,
-    val country: String,
+    val countries: String,
     val temporada: Int,
     val episodio: Int,
     val serieName: String,
     val nombreNormalizado: String,
     val grupoNormalizado: String
 )
+
+fun String.parseCountryList(): List<String> {
+    return split(",").map { it.trim() }.filter { it.isNotBlank() }
+}
 
 private fun buildChannelStreamUrl(providerId: String, username: String, password: String): String {
     return "${BuildConfig.IPTV_BASE_URL}/live/$username/$password/$providerId"
@@ -66,6 +70,7 @@ fun ChannelEntity.toCatalogItem(username: String, password: String): CatalogItem
         group = grupoNormalizado,
         badgeText = "",
         channelNumber = numero,
+        countries = countries.parseCountryList(),
         streamOptions = if (streamUrl.isNotBlank()) listOf(StreamOption(label = "Ver", url = streamUrl, providerId = providerId)) else emptyList()
     )
 }

@@ -11,12 +11,17 @@ import com.example.walactv.CatalogItem
 import com.example.walactv.CatalogMemory
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
+import com.example.walactv.CredentialStore
 import com.example.walactv.PlayerFragment
 import com.example.walactv.PreferencesManager
 import com.example.walactv.R
+import com.example.walactv.MovieDetailFragment
 import com.example.walactv.SeriesDetailFragment
 import com.example.walactv.StreamOption
+import com.example.walactv.UnifiedStreamOption
 import com.example.walactv.WatchProgressItem
+import com.example.walactv.toUnifiedOptions
+import com.example.walactv.BuildConfig
 import com.example.walactv.idioma
 import com.example.walactv.normalizeLanguageCode
 import com.example.walactv.preferredVodPosterUrl
@@ -37,10 +42,19 @@ internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List
     }
     if (item.kind == ContentKind.SERIES && item.seriesName != null) {
         rememberPlaybackReturnState(item)
-        val fragment = SeriesDetailFragment.newInstance(item.seriesName)
+        val fragment = SeriesDetailFragment.newInstance(item)
         requireActivity().supportFragmentManager.beginTransaction()
             .replace(R.id.main_browse_fragment, fragment)
             .addToBackStack("SeriesDetailFragment")
+            .commit()
+        return
+    }
+    if (item.kind == ContentKind.MOVIE) {
+        rememberPlaybackReturnState(item)
+        val fragment = MovieDetailFragment.newInstance(item)
+        requireActivity().supportFragmentManager.beginTransaction()
+            .replace(R.id.main_browse_fragment, fragment)
+            .addToBackStack("MovieDetailFragment")
             .commit()
         return
     }
@@ -73,7 +87,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: Cata
     }
     withContext(Dispatchers.Main) {
         activePlaybackLineup = emptyList()
-        playResolvedCatalogItem(item, 0)
+        playResolvedCatalogItem(item, 0, positionMs = progress.positionMs)
         // Sobrescribir con cardItem CW para que vuelva a la card correcta
         rememberPlaybackReturnState(cardItem)
     }
@@ -89,16 +103,22 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         Log.w(TAG, "fetchContentItem failed for ${progress.contentId}, falling back to progress data", e)
         null
     }
-    Log.d(TAG, "TMDB_CW_SERIES card=${cardItem.tmdbDebug()} progressSeries=${progress.seriesName} episode=${episode.tmdbDebug()}")
-    val seriesName = episode?.seriesName ?: progress.seriesName ?: cardItem.seriesName ?: cardItem.title
-    if (seriesName.isBlank()) {
+    Log.d(TAG, "TMDB_CW_SERIES card=${cardItem.tmdbDebug()} progressSeries=${progress.seriesName} seriesProviderId=${progress.seriesProviderId} episode=${episode.tmdbDebug()}")
+    val seriesIdentifier = progress.seriesProviderId
+        ?: episode?.providerId
+        ?: episode?.seriesName
+        ?: episode?.title
+        ?: progress.seriesName
+        ?: cardItem.seriesName
+        ?: cardItem.title
+    if (seriesIdentifier.isBlank()) {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la serie", Toast.LENGTH_SHORT).show() }
         return
     }
     val allEpisodes = try {
-        repository.loadSeriesEpisodes(seriesName)
+        repository.loadSeriesEpisodes(seriesIdentifier)
     } catch (e: Exception) {
-        Log.e(TAG, "loadSeriesEpisodes failed for '$seriesName'", e)
+        Log.e(TAG, "loadSeriesEpisodes failed for '$seriesIdentifier'", e)
         emptyList()
     }
     if (allEpisodes.isEmpty()) {
@@ -130,24 +150,30 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
 
     val nextEpisodeCallback: (() -> Unit)? = if (currentIndex >= 0 && currentIndex < logicalEpisodes.lastIndex) {
         {
+            val nextEp = logicalEpisodes[currentIndex + 1]
             openContinueWatchingItem(cardItem, progress.copy(
-                seasonNumber = logicalEpisodes[currentIndex + 1].seasonNumber,
-                episodeNumber = logicalEpisodes[currentIndex + 1].episodeNumber,
-                seriesName = logicalEpisodes[currentIndex + 1].seriesName,
-                title = logicalEpisodes[currentIndex + 1].title,
-                imageUrl = logicalEpisodes[currentIndex + 1].imageUrl,
+                contentId = nextEp.providerId ?: nextEp.stableId,
+                positionMs = 0,
+                seasonNumber = nextEp.seasonNumber,
+                episodeNumber = nextEp.episodeNumber,
+                seriesName = nextEp.seriesName,
+                title = nextEp.title,
+                imageUrl = nextEp.imageUrl,
             ))
         }
     } else null
 
     val previousEpisodeCallback: (() -> Unit)? = if (currentIndex > 0) {
         {
+            val prevEp = logicalEpisodes[currentIndex - 1]
             openContinueWatchingItem(cardItem, progress.copy(
-                seasonNumber = logicalEpisodes[currentIndex - 1].seasonNumber,
-                episodeNumber = logicalEpisodes[currentIndex - 1].episodeNumber,
-                seriesName = logicalEpisodes[currentIndex - 1].seriesName,
-                title = logicalEpisodes[currentIndex - 1].title,
-                imageUrl = logicalEpisodes[currentIndex - 1].imageUrl,
+                contentId = prevEp.providerId ?: prevEp.stableId,
+                positionMs = 0,
+                seasonNumber = prevEp.seasonNumber,
+                episodeNumber = prevEp.episodeNumber,
+                seriesName = prevEp.seriesName,
+                title = prevEp.title,
+                imageUrl = prevEp.imageUrl,
             ))
         }
     } else null
@@ -157,19 +183,47 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         return
     }
 
+    val streamUrl = if (stream.url.isNotBlank() && !stream.url.startsWith("http")) {
+        val user = CredentialStore.username()
+        val pass = CredentialStore.password()
+        val pid = stream.providerId ?: targetEpisode.providerId
+        if (user.isNotBlank() && pass.isNotBlank() && !pid.isNullOrBlank()) {
+            Log.w(TAG, "openContinueWatchingSeries: relative stream URL, building proxy: pid=$pid")
+            "${BuildConfig.IPTV_BASE_URL}/series/$user/$pass/$pid.ts"
+        } else {
+            Log.e(TAG, "openContinueWatchingSeries: cannot build stream URL — stream.providerId=${stream.providerId}, episode.providerId=${targetEpisode.providerId}")
+            withContext(Dispatchers.Main) {
+                Toast.makeText(requireContext(), "No se pudo obtener la URL de reproducción", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+    } else {
+        stream.url
+    }
+    Log.d(TAG, "openContinueWatchingSeries: streamUrl=$streamUrl")
+
     withContext(Dispatchers.Main) {
         val playerFragment = PlayerFragment()
+        val unifiedOptions = targetEpisode.streamOptions.toUnifiedOptions()
         playerFragment.initialize(
-            streamUrl = stream.url, overlayNumber = targetEpisode.kind.name, overlayTitle = targetEpisode.title,
+            streamUrl = streamUrl, overlayNumber = targetEpisode.kind.name, overlayTitle = targetEpisode.title,
             overlayMeta = if (targetEpisode.kind == ContentKind.SERIES) buildEpisodeLabel(targetEpisode.seasonNumber, targetEpisode.episodeNumber) else targetEpisode.subtitle, contentKind = targetEpisode.kind,
             onNavigateChannel = { _ -> }, onNavigateOption = { _ -> }, onDirectChannelNumber = { _ -> false },
             onToggleFavorite = { false }, onOpenFavorites = { false }, onOpenRecents = { false },
             onNextEpisode = nextEpisodeCallback,
             onPreviousEpisode = previousEpisodeCallback,
             allSeriesEpisodes = allEpisodes, currentEpisode = targetEpisode,
-            overlayLogoUrl = targetEpisode.preferredVodPosterUrl(), contentId = progress.contentId,
+            overlayLogoUrl = targetEpisode.preferredVodPosterUrl(), contentId = targetEpisode.providerId ?: targetEpisode.stableId,
+            positionMs = progress.positionMs,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
+            unifiedStreamOptions = unifiedOptions,
+            onSelectUnifiedOption = if (targetEpisode.kind == ContentKind.MOVIE || targetEpisode.kind == ContentKind.SERIES) {
+                { selectedIndex ->
+                    val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
+                    playCatalogItemWithUnifiedOption(targetEpisode, selectedOption)
+                }
+            } else null,
         )
         rememberPlaybackReturnState(cardItem)
         currentItem = cardItem
@@ -195,7 +249,16 @@ internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex:
     playResolvedCatalogItem(item, optionIndex, showOptionsOnStart)
 }
 
-internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false) {
+internal fun ComposeMainFragment.playCatalogItemWithUnifiedOption(item: CatalogItem, option: UnifiedStreamOption) {
+    val optionIndex = item.streamOptions.indexOfFirst { it.url == option.url }
+    if (optionIndex >= 0) {
+        playCatalogItem(item, optionIndex)
+    } else {
+        playResolvedCatalogItem(item, 0)
+    }
+}
+
+internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false, positionMs: Long = 0) {
     val stream = item.streamOptions.getOrNull(optionIndex) ?: return
     rememberPlaybackReturnState(item)
     currentItem = item
@@ -206,6 +269,7 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
     val favoriteTarget = channelItem ?: item
 
     val playerFragment = PlayerFragment()
+    val unifiedOptions = item.streamOptions.toUnifiedOptions()
     playerFragment.initialize(
         streamUrl = stream.url,
         overlayNumber = when {
@@ -226,9 +290,6 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
         streamOptionLabels = item.streamOptions.map { it.label },
         currentOptionIndex = optionIndex,
         showOptionsOnStart = showOptionsOnStart,
-        onSelectQuality = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
-            { newIndex -> playCatalogItem(item, newIndex) }
-        } else null,
         overlayLogoUrl = item.preferredVodPosterUrl(),
         isFavorite = channelStateStore.isFavorite(favoriteTarget),
         contentId = if (item.kind == ContentKind.SERIES) {
@@ -236,11 +297,19 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
         } else {
             item.providerId ?: item.stableId
         },
+        positionMs = positionMs,
         onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
         onProgressSaved = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
             { progressItem -> upsertContinueWatchingEntry(progressItem) }
         } else null,
         customHeaders = stream.headers,
+        unifiedStreamOptions = unifiedOptions,
+        onSelectUnifiedOption = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
+            { selectedIndex ->
+                val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
+                playCatalogItemWithUnifiedOption(item, selectedOption)
+            }
+        } else null,
     )
     launchPlayerFragment(playerFragment)
 }
@@ -283,12 +352,10 @@ internal fun ComposeMainFragment.navigateToChannelNumber(number: Int): Boolean {
 internal fun ComposeMainFragment.toggleFavorite(item: CatalogItem): Boolean {
     CatalogMemory.registerChannel(item)
     val result = channelStateStore.toggleFavorite(item)
-    rebuildHomeSections()
     scope.launch {
         runCatching { repository.updateChannelFavorite(item, result) }
             .onFailure {
                 channelStateStore.setFavorite(item, !result)
-                rebuildHomeSections()
                 Toast.makeText(requireContext(), "No se pudo actualizar favoritos", Toast.LENGTH_SHORT).show()
             }
     }

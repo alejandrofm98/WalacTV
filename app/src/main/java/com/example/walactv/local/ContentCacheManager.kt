@@ -339,14 +339,15 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
     // ── Local filters (derived from cached data) ────────────────────────
 
     suspend fun getLocalChannelFilters(country: String? = null): com.example.walactv.CatalogFilters = withContext(Dispatchers.IO) {
-        val countries = database.channelDao().getDistinctCountries()
+        val rawCountries = database.channelDao().getDistinctCountries()
+        val allCountries = rawCountries.flatMap { it.parseCountryList() }.distinct().sorted()
         val groups = if (country != null) {
             database.channelDao().getDistinctGroupsByCountry(country)
         } else {
             database.channelDao().getDistinctGroups()
         }
         com.example.walactv.CatalogFilters(
-            countries = countries.map { com.example.walactv.CatalogFilterOption(it, it) },
+            countries = allCountries.map { com.example.walactv.CatalogFilterOption(it, it) },
             groups = groups.map { com.example.walactv.CatalogFilterOption(it, it) }
         )
     }
@@ -379,12 +380,28 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
         }
     }
 
+    private fun parseCountriesFromReader(reader: JsonReader): String {
+        val countries = mutableListOf<String>()
+        if (reader.peek() == JsonToken.BEGIN_ARRAY) {
+            reader.beginArray()
+            while (reader.hasNext()) {
+                val c = reader.nextString().trim().takeIf { it.isNotBlank() }
+                if (c != null) countries.add(c)
+            }
+            reader.endArray()
+        } else {
+            val c = reader.nextString().trim().takeIf { it.isNotBlank() }
+            if (c != null) countries.add(c)
+        }
+        return countries.joinToString(",")
+    }
+
     private fun parseChannelObject(reader: JsonReader): ChannelEntity {
         var id = ""
         var numero: Int? = null
         var providerId = ""
         var logo = ""
-        var country = ""
+        var countries = ""
         var nombreNormalizado = ""
         var grupoNormalizado = ""
 
@@ -402,7 +419,8 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
                 }
                 "provider_id" -> providerId = reader.nextString()
                 "logo" -> logo = reader.nextString()
-                "country" -> country = reader.nextString()
+                "countries" -> countries = parseCountriesFromReader(reader)
+                "country" -> { if (countries.isBlank()) countries = parseCountriesFromReader(reader) }
                 "nombre_normalizado" -> nombreNormalizado = reader.nextString()
                 "grupo_normalizado" -> grupoNormalizado = reader.nextString()
                 else -> reader.skipValue()
@@ -415,7 +433,7 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
             numero = numero,
             providerId = providerId,
             logo = logo,
-            country = country,
+            countries = countries,
             nombreNormalizado = nombreNormalizado,
             grupoNormalizado = grupoNormalizado
         )
@@ -426,7 +444,7 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
         var providerId = ""
         var nombre = ""
         var logo = ""
-        var country = ""
+        var countries = ""
         var nombreNormalizado = ""
         var grupoNormalizado = ""
 
@@ -438,7 +456,8 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
                 "provider_id" -> providerId = reader.nextString()
                 "nombre" -> nombre = reader.nextString()
                 "logo" -> logo = reader.nextString()
-                "country" -> country = reader.nextString()
+                "countries" -> countries = parseCountriesFromReader(reader)
+                "country" -> { if (countries.isBlank()) countries = parseCountriesFromReader(reader) }
                 "nombre_normalizado" -> nombreNormalizado = reader.nextString()
                 "grupo_normalizado" -> grupoNormalizado = reader.nextString()
                 else -> reader.skipValue()
@@ -451,7 +470,7 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
             providerId = providerId,
             nombre = nombre,
             logo = logo,
-            country = country,
+            countries = countries,
             nombreNormalizado = nombreNormalizado,
             grupoNormalizado = grupoNormalizado
         )
@@ -461,7 +480,7 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
         var id = ""
         var providerId = ""
         var logo = ""
-        var country = ""
+        var countries = ""
         var temporada = 0
         var episodio = 0
         var serieName = ""
@@ -475,7 +494,8 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
                 "id" -> id = reader.nextString()
                 "provider_id" -> providerId = reader.nextString()
                 "logo" -> logo = reader.nextString()
-                "country" -> country = reader.nextString()
+                "countries" -> countries = parseCountriesFromReader(reader)
+                "country" -> { if (countries.isBlank()) countries = parseCountriesFromReader(reader) }
                 "temporada" -> temporada = reader.nextInt()
                 "episodio" -> episodio = reader.nextInt()
                 "serie_name" -> serieName = reader.nextString()
@@ -490,7 +510,7 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
             id = id,
             providerId = providerId,
             logo = logo,
-            country = country,
+            countries = countries,
             temporada = temporada,
             episodio = episodio,
             serieName = serieName,

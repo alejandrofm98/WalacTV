@@ -268,10 +268,12 @@ class ComposeMainFragment : Fragment() {
         Log.d(TAG, "Restoring playback return state: mode=${state.mode}, selectedItemStableId=${state.selectedItemStableId}")
         currentMode = state.mode
         when (state.mode) {
-            MainMode.TV     -> ensureFiltersLoaded(ContentKind.CHANNEL)
-            MainMode.Movies -> ensureFiltersLoaded(ContentKind.MOVIE)
-            MainMode.Series -> ensureFiltersLoaded(ContentKind.SERIES)
-            else            -> Unit
+            MainMode.TV       -> ensureFiltersLoaded(ContentKind.CHANNEL)
+            MainMode.Discover -> {
+                ensureFiltersLoaded(ContentKind.MOVIE)
+                ensureFiltersLoaded(ContentKind.SERIES)
+            }
+            else              -> Unit
         }
         val homeItem = homeSections.asSequence()
             .flatMap { it.items.asSequence() }
@@ -312,6 +314,7 @@ class ComposeMainFragment : Fragment() {
         item: CatalogItem,
         itemIndex: Int,
     ) {
+        Log.d(TAG, "rememberHomeFocus: [$sectionIndex]'$sectionTitle' item[$itemIndex]='${item.title}' stableId=${item.stableId}")
         lastHomeFocusTarget = HomeFocusTarget(
             sectionIndex = sectionIndex,
             sectionTitle = sectionTitle,
@@ -329,7 +332,7 @@ class ComposeMainFragment : Fragment() {
 
     // ── Inner types ────────────────────────────────────────────────────────
 
-    internal enum class MainMode { Home, TV, Movies, Series, Events, Settings }
+    internal enum class MainMode { Home, TV, Discover, Events, Settings }
 
     internal data class NavItem(
         val icon: androidx.compose.ui.graphics.vector.ImageVector,
