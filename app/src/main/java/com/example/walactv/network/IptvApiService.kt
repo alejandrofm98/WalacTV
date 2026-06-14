@@ -83,6 +83,10 @@ interface IptvApiService {
     @GET("api/search")
     suspend fun search(
         @Query("q") query: String,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 50,
+        @Query("types") types: String? = null,
+        @Query("password") password: String? = null,
     ): Response<SearchResponse>
 
     // Favorites

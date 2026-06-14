@@ -22,6 +22,9 @@ import com.example.walactv.ui.compose.matchesByProviderId
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -43,11 +46,19 @@ class HomeViewModel @Inject constructor(
     private val _homeCatalog = MutableStateFlow<HomeCatalog?>(null)
     val homeCatalog: StateFlow<HomeCatalog?> = _homeCatalog.asStateFlow()
 
-    private val _homeSections = MutableStateFlow<List<BrowseSection>>(emptyList())
-    val homeSections: StateFlow<List<BrowseSection>> = _homeSections.asStateFlow()
-
     private val _continueWatchingSection = MutableStateFlow<BrowseSection?>(null)
     val continueWatchingSection: StateFlow<BrowseSection?> = _continueWatchingSection.asStateFlow()
+
+    private val _homeSections: StateFlow<List<BrowseSection>> = _homeCatalog
+        .combine(_continueWatchingSection) { catalog, cwSection ->
+            val base = catalog?.sections.orEmpty()
+            cwSection?.let { cw ->
+                if (base.isEmpty()) listOf(cw)
+                else listOf(base.first()) + cw + base.drop(1)
+            } ?: base
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val homeSections: StateFlow<List<BrowseSection>> = _homeSections
 
     private val _continueWatchingEntries = MutableStateFlow<Map<String, WatchProgressItem>>(emptyMap())
     val continueWatchingEntries: StateFlow<Map<String, WatchProgressItem>> = _continueWatchingEntries.asStateFlow()
@@ -200,20 +211,11 @@ class HomeViewModel @Inject constructor(
         _searchableItems.value = catalog.searchableItems
         CatalogMemory.searchableItems = catalog.searchableItems
         _channelLineup.value = catalog.searchableItems.filter { it.kind == ContentKind.CHANNEL }
-        rebuildHomeSections()
 
         if (_selectedHero.value == null || catalog.searchableItems.none { it.stableId == _selectedHero.value?.stableId }) {
             _selectedHero.value = defaultItemForMode()
         }
         loadContinueWatching()
-    }
-
-    fun rebuildHomeSections() {
-        val baseSections = _homeCatalog.value?.sections.orEmpty()
-        _homeSections.value = _continueWatchingSection.value?.let { cw ->
-            if (baseSections.isEmpty()) listOf(cw)
-            else listOf(baseSections.first()) + cw + baseSections.drop(1)
-        } ?: baseSections
     }
 
     // ── Continue watching ──────────────────────────────────────────────────
@@ -223,8 +225,16 @@ class HomeViewModel @Inject constructor(
         val searchableSnapshot = _searchableItems.value
         viewModelScope.launch {
             try {
-                val inProgressItems = watchProgressRepo.getContinueWatching()
-                val watchedItems = watchProgressRepo.getWatchedItems()
+                val inProgressResult = watchProgressRepo.getContinueWatching()
+                val watchedResult = watchProgressRepo.getWatchedItems()
+
+                val inProgressItems = inProgressResult.getOrDefault(emptyList())
+                val watchedItems = watchedResult.getOrDefault(emptyList())
+
+                if (inProgressResult.isFailure) {
+                    Log.w(TAG, "CW in-progress fetch failed[$requestVersion], keeping existing data: ${inProgressResult.exceptionOrNull()?.message}")
+                    return@launch
+                }
 
                 val entryMap = mutableMapOf<String, WatchProgressItem>()
 
@@ -267,8 +277,6 @@ class HomeViewModel @Inject constructor(
                 } else {
                     _continueWatchingSection.value = null
                 }
-
-                rebuildHomeSections()
 
             } catch (e: Exception) {
                 Log.w(TAG, "Could not load continue watching[$requestVersion]: ${e.message}", e)
@@ -444,7 +452,6 @@ class HomeViewModel @Inject constructor(
             }
             if (filtered.isEmpty()) null else section.copy(items = filtered)
         }
-        rebuildHomeSections()
     }
 
     fun upsertContinueWatchingEntry(item: WatchProgressItem) {
@@ -504,12 +511,10 @@ class HomeViewModel @Inject constructor(
         }
         _continueWatchingEntries.value = newEntryMap
         _continueWatchingSection.value = BrowseSection("Continuar viendo", catalogItems)
-        rebuildHomeSections()
     }
 
     fun resetCatalogState() {
         _homeCatalog.value = null
-        _homeSections.value = emptyList()
         _continueWatchingSection.value = null
         _continueWatchingEntries.value = emptyMap()
         _searchableItems.value = emptyList()

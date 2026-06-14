@@ -8,18 +8,18 @@ import javax.inject.Inject
 
 class WatchProgressRepository @Inject constructor(private val apiService: IptvApiService) {
 
-    suspend fun getContinueWatching(): List<WatchProgressItem> {
+    suspend fun getContinueWatching(): Result<List<WatchProgressItem>> {
         return try {
             val response = apiService.getWatchProgress(limit = 20)
             if (response.isSuccessful) {
-                response.body()?.items?.map { it.toDomain() } ?: emptyList()
+                Result.success(response.body()?.items?.map { it.toDomain() } ?: emptyList())
             } else {
                 Log.e(TAG, "Error fetching continue watching: ${response.code()}")
-                emptyList()
+                Result.failure(Exception("Error fetching continue watching: ${response.code()}"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching continue watching", e)
-            emptyList()
+            Result.failure(e)
         }
     }
 
@@ -38,18 +38,18 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
         }
     }
 
-    suspend fun getWatchedItems(): List<WatchProgressItem> {
+    suspend fun getWatchedItems(): Result<List<WatchProgressItem>> {
         return try {
             val response = apiService.getWatchedItems(limit = 200)
             if (response.isSuccessful) {
-                response.body()?.items?.map { it.toDomain() } ?: emptyList()
+                Result.success(response.body()?.items?.map { it.toDomain() } ?: emptyList())
             } else {
                 Log.e(TAG, "Error fetching watched items: ${response.code()}")
-                emptyList()
+                Result.failure(Exception("Error fetching watched items: ${response.code()}"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching watched items", e)
-            emptyList()
+            Result.failure(e)
         }
     }
 

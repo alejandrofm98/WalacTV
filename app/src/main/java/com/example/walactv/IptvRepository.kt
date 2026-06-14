@@ -9,6 +9,7 @@ import com.example.walactv.network.dto.CalendarEventDto
 import com.example.walactv.network.dto.CanalResueltoDto
 import com.example.walactv.network.dto.FilterOptionsResponse
 import com.example.walactv.network.dto.HomeCatalogResponse
+import com.example.walactv.network.dto.SearchResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -288,6 +289,36 @@ class IptvRepository @Inject constructor(context: Context) {
     }
 
     // ── Busqueda ──────────────────────────────────────────────────────────────
+
+    suspend fun search(
+        query: String,
+        page: Int = 1,
+        pageSize: Int = 50,
+        types: String? = null,
+    ): Pair<List<CatalogItem>, SearchResponse> = withContext(Dispatchers.IO) {
+        val password = CredentialStore.password().ifBlank { null }
+        val response = apiService.search(query, page, pageSize, types, password)
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+        val payload = response.body() ?: throw IllegalStateException("Empty response body")
+        val items = payload.items.map { it.toCatalogItem() }
+        val resolved = resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
+
+        val user = CredentialStore.username()
+        val pass = CredentialStore.password()
+        val withFallbacks = resolved.map { item ->
+            if (item.streamOptions.isNotEmpty()) return@map item
+            if (item.kind != ContentKind.CHANNEL && item.kind != ContentKind.EVENT) return@map item
+            val streamId = item.providerId?.takeIf { it.isNotBlank() } ?: item.stableId
+            if (streamId.isBlank()) return@map item
+            val fallbackUrl = "${BuildConfig.IPTV_BASE_URL}/live/$user/$pass/$streamId"
+            item.copy(
+                streamOptions = listOf(
+                    StreamOption(label = "Directo", url = fallbackUrl)
+                )
+            )
+        }
+        Pair(withFallbacks, payload)
+    }
 
     suspend fun fetchContentItem(kind: ContentKind, itemId: String): CatalogItem? = withContext(Dispatchers.IO) {
         if (itemId.isBlank() || kind == ContentKind.EVENT || kind == ContentKind.CHANNEL) return@withContext null

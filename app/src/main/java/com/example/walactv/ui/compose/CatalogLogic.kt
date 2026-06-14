@@ -39,10 +39,6 @@ internal fun ComposeMainFragment.updateStateFromCatalog(catalog: HomeCatalog) {
     viewModel.updateStateFromCatalog(catalog)
 }
 
-internal fun ComposeMainFragment.rebuildHomeSections() {
-    viewModel.rebuildHomeSections()
-}
-
 internal fun ComposeMainFragment.loadContinueWatching() {
     viewModel.loadContinueWatching()
 }
@@ -193,7 +189,21 @@ internal fun ComposeMainFragment.findSeriesMatch(
 internal fun buildEpisodeLabel(season: Int?, episode: Int?): String {
     val s = season?.let { "T${it}" } ?: ""
     val e = episode?.let { "E${it}" } ?: ""
-    return if (s.isNotBlank() && e.isNotBlank()) "$s • $e" else s + e
+    return if (s.isNotBlank() && e.isNotBlank()) "$s · $e" else s + e
+}
+
+internal fun formatDurationRemaining(positionMs: Long, durationMs: Long): String? {
+    if (durationMs <= 0 || positionMs <= 0) return null
+    val remainingMs = durationMs - positionMs
+    if (remainingMs <= 0) return null
+    val totalSeconds = remainingMs / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    return when {
+        hours > 0 -> "${hours}h ${minutes}m restantes"
+        minutes > 0 -> "${minutes}m restantes"
+        else -> null
+    }
 }
 
 // ── Filters (delegates to ViewModel) ────────────────────────────────────────
@@ -377,5 +387,4 @@ internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgress
         }
     }
     continueWatchingSection = BrowseSection("Continuar viendo", catalogItems)
-    rebuildHomeSections()
 }

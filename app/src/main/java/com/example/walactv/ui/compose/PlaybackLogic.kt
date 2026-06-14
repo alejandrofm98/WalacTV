@@ -352,12 +352,10 @@ internal fun ComposeMainFragment.navigateToChannelNumber(number: Int): Boolean {
 internal fun ComposeMainFragment.toggleFavorite(item: CatalogItem): Boolean {
     CatalogMemory.registerChannel(item)
     val result = channelStateStore.toggleFavorite(item)
-    rebuildHomeSections()
     scope.launch {
         runCatching { repository.updateChannelFavorite(item, result) }
             .onFailure {
                 channelStateStore.setFavorite(item, !result)
-                rebuildHomeSections()
                 Toast.makeText(requireContext(), "No se pudo actualizar favoritos", Toast.LENGTH_SHORT).show()
             }
     }

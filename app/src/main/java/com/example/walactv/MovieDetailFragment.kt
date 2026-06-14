@@ -345,12 +345,6 @@ fun MovieDetailScreen(
                         isPrimary = true,
                         onClick = onPlayClick
                     )
-                    ActionButton(
-                        text = "Volver",
-                        icon = Icons.Default.ArrowBack,
-                        isPrimary = false,
-                        onClick = onBackClick
-                    )
                 }
 
                 // Descripción

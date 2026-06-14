@@ -814,6 +814,8 @@ internal fun ContentSection(
 
                     if (section.title == "Continuar viendo") {
                         val wp = cwLookup[item]
+                        val remainingText = wp?.let { formatDurationRemaining(it.positionMs, it.durationMs) }
+                        val epBadge = item.subtitle.ifBlank { null }
                         ContinueWatchingCard(
                             fragment = fragment,
                             item = item,
@@ -821,6 +823,8 @@ internal fun ContentSection(
                             debugTag = "${section.title}[$index]",
                             progressPercent = wp?.progressPercent ?: 0,
                             isWatched = wp?.isWatched == true,
+                            timeRemainingText = remainingText,
+                            episodeBadge = epBadge,
                             onFocused = { focusedItem ->
                                 fragment.rememberHomeFocus(sectionIndex, section.title, focusedItem, index)
                                 onFocused(focusedItem)
@@ -1203,6 +1207,8 @@ internal fun ContinueWatchingCard(
     debugTag: String = "",
     progressPercent: Int = 0,
     isWatched: Boolean = false,
+    timeRemainingText: String? = null,
+    episodeBadge: String? = null,
     onFocused: (CatalogItem) -> Unit,
     onDeleteRequest: (CatalogItem) -> Unit,
 ) {
@@ -1213,7 +1219,7 @@ internal fun ContinueWatchingCard(
     var keyDownMillis by remember { mutableLongStateOf(0L) }
     var consumeClick by remember { mutableStateOf(false) }
 
-    Column(
+    Box(
         modifier = modifier
             .width(cardWidth)
             .clip(RoundedCornerShape(10.dp))
@@ -1225,9 +1231,7 @@ internal fun ContinueWatchingCard(
             )
             .onFocusChanged {
                 isFocused = it.isFocused
-                if (it.isFocused) {
-                    onFocused(item)
-                }
+                if (it.isFocused) onFocused(item)
             }
             .clickable { if (!consumeClick) fragment.handleCardClick(item, listOf(item)) }
             .onKeyEvent { event ->
@@ -1282,15 +1286,56 @@ internal fun ContinueWatchingCard(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .height(80.dp)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)),
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
                         ),
                     ),
             )
 
-            if (isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
+            if (isWatched) {
+                WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
+            } else {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp),
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    if (timeRemainingText != null) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                        ) {
+                            Text(
+                                text = timeRemainingText,
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    if (episodeBadge != null) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                        ) {
+                            Text(
+                                text = episodeBadge,
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
 
             if (progressPercent in 1..99) {
                 Box(
@@ -1308,37 +1353,6 @@ internal fun ContinueWatchingCard(
                     )
                 }
             }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(VOD_TEXT_AREA_HEIGHT)
-                .padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = item.resolveDisplayTitle(),
-                    color = IptvTextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 17.sp,
-                )
-            }
-            Text(
-                text = item.subtitle.ifBlank { "" },
-                color = IptvAccent.copy(alpha = 0.85f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }
