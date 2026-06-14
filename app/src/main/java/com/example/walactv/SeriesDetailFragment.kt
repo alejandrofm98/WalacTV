@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -235,15 +236,11 @@ fun SeriesDetailScreen(
     }
 
     var selectedSeason by remember { mutableIntStateOf(seasons.firstOrNull() ?: 1) }
-    var showSeasonDialog by remember { mutableStateOf(false) }
-    val seasonFocusRequester = remember { FocusRequester() }
+    val episodesListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(seasons) {
         selectedSeason = seasons.firstOrNull() ?: 1
-    }
-
-    val displayEpisodes = remember(selectedSeason, uniqueEpisodes) {
-        uniqueEpisodes.filter { (it.seasonNumber ?: 1) == selectedSeason }
     }
 
     if (isLoading) {
@@ -383,7 +380,7 @@ fun SeriesDetailScreen(
                         Row(
                             modifier = Modifier
                                 .onFocusChanged { playFocused = it.isFocused }
-                                .tvClickable { onEpisodeClick(displayEpisodes.firstOrNull() ?: allEpisodes.first(), allEpisodes, uniqueEpisodes) }
+                                .tvClickable { onEpisodeClick(uniqueEpisodes.firstOrNull { it.seasonNumber == selectedSeason } ?: allEpisodes.first(), allEpisodes, uniqueEpisodes) }
                                 .background(if (playFocused) Color.LightGray else Color.White, androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
                                 .padding(horizontal = 24.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -402,23 +399,38 @@ fun SeriesDetailScreen(
 
             if (seasons.isNotEmpty()) {
                 item {
-                    var btnFocused by remember { mutableStateOf(false) }
-                    Row(
-                        modifier = Modifier
-                            .onFocusChanged { btnFocused = it.isFocused }
-                            .focusRequester(seasonFocusRequester)
-                            .tvClickable { showSeasonDialog = true }
-                            .border(
-                                width = 2.dp,
-                                color = if (btnFocused) Color.White else Color.Transparent,
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-                            )
-                            .padding(vertical = 8.dp, horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Temporada $selectedSeason", color = Color.White, fontSize = 16.sp)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Color.White)
+                        items(seasons) { season ->
+                            val isSelected = season == selectedSeason
+                            var chipFocused by remember { mutableStateOf(false) }
+                            Text(
+                                text = "Temporada $season",
+                                color = when {
+                                    isSelected -> Color.Black
+                                    chipFocused -> Color.White
+                                    else -> Color.LightGray
+                                },
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier
+                                    .onFocusChanged { chipFocused = it.isFocused }
+                                    .tvClickable {
+                                        selectedSeason = season
+                                        val idx = uniqueEpisodes.indexOfFirst { it.seasonNumber == season }
+                                        if (idx >= 0) {
+                                            coroutineScope.launch { episodesListState.animateScrollToItem(idx) }
+                                        }
+                                    }
+                                    .background(
+                                        if (isSelected) Color.White else if (chipFocused) Color.White.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.1f),
+                                        RoundedCornerShape(20.dp)
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                     Spacer(Modifier.height(16.dp))
                 }
@@ -426,39 +438,27 @@ fun SeriesDetailScreen(
 
             item {
                 androidx.compose.foundation.lazy.LazyRow(
+                    state = episodesListState,
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(displayEpisodes, key = { it.stableId }) { ep ->
+                    items(uniqueEpisodes, key = { it.stableId }) { ep ->
                         val epContentId = ep.providerId ?: ep.stableId
                         val wp = progressMap[epContentId] ?: progressMap[epContentId.substringAfterLast(":")]
                         EpisodeCard(
                             item = ep,
                             watchProgress = wp,
                             onClick = { onEpisodeClick(ep, allEpisodes, uniqueEpisodes) },
-                            onFocus = { focusedEpisode = ep }
+                            onFocus = {
+                                focusedEpisode = ep
+                                val epSeason = ep.seasonNumber ?: 1
+                                if (epSeason != selectedSeason) {
+                                    selectedSeason = epSeason
+                                }
+                            }
                         )
                     }
                 }
-            }
-        }
-
-        if (showSeasonDialog) {
-            FilterDialog(
-                title = "Selecciona Temporada",
-                options = seasons.map { CatalogFilterOption(value = it.toString(), label = "Temporada $it") },
-                selectedOption = selectedSeason.toString(),
-                onOptionSelected = {
-                    selectedSeason = it.value.toIntOrNull() ?: 1
-                    showSeasonDialog = false
-                },
-                onDismiss = { showSeasonDialog = false }
-            )
-        }
-
-        LaunchedEffect(showSeasonDialog) {
-            if (!showSeasonDialog) {
-                runCatching { seasonFocusRequester.requestFocus() }
             }
         }
     }
