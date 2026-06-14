@@ -39,11 +39,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.runtime.Composable
@@ -74,7 +75,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -156,6 +156,10 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
 
     LaunchedEffect(fragment.homeSections) {
         if (fragment.homeSections.isEmpty()) return@LaunchedEffect
+        Log.d("HomeContent", "=== SECTIONS ORDER (${fragment.homeSections.size}) ===")
+        fragment.homeSections.forEachIndexed { i, s ->
+            Log.d("HomeContent", "  [$i] '${s.title}' items=${s.items.size}")
+        }
         if (fragment.selectedHero != null || fragment.pendingFocusItem != null) return@LaunchedEffect
         delay(200.milliseconds)
         runCatching { focusRequesters.firstOrNull()?.requestFocus() }
@@ -194,7 +198,6 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(IptvBackground)) {
         val screenHeight = maxHeight
         val heroHeight   = screenHeight * HOME_HERO_FRACTION
-        val rowZoneHeight = screenHeight - heroHeight
 
         // ── FIX: el backdrop ajusta su padding izquierdo dinámicamente
         // según si el rail está expandido o colapsado, eliminando la franja visible.
@@ -215,20 +218,18 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
                     .height(heroHeight),
             )
 
-            LazyColumn(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(rowZoneHeight),
-                contentPadding = PaddingValues(top = 0.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 24.dp),
             ) {
-                itemsIndexed(fragment.homeSections, key = { index, s -> "$index-${s.title}" }) { index, section ->
+                fragment.homeSections.forEachIndexed { index, section ->
                     ContentSection(
                         fragment = fragment,
                         section = section,
                         sectionIndex = index,
                         selfFocusRequester = focusRequesters[index],
-                        sectionHeight = rowZoneHeight,
                         onFocused = {
                             if (it.isHeroContent()) {
                                 Log.d("TMDB_HOME", "focus item=${it.tmdbDebug()}")
@@ -589,7 +590,6 @@ internal fun ContentSection(
     section: BrowseSection,
     sectionIndex: Int,
     selfFocusRequester: FocusRequester,
-    sectionHeight: Dp = 0.dp,
     onFocused: (CatalogItem) -> Unit,
     onLoadMore: ((BrowseSection, () -> Unit) -> Unit)? = null,
 ) {
@@ -599,6 +599,7 @@ internal fun ContentSection(
     val focusRequesters = remember(section.items.size) {
         List(section.items.size) { FocusRequester() }
     }
+    Log.d("HomeContent", "ContentSection[$sectionIndex] '${section.title}' items=${section.items.size} kinds=${section.items.map { it.kind }.distinct()}")
     // Memoize the continue-watching lookup to avoid recomputing per card
     val cwLookup = remember(section.items, fragment.continueWatchingEntries) {
         section.items.associateWith { item ->
@@ -724,23 +725,13 @@ internal fun ContentSection(
     }
 
     val isEventSection = section.items.firstOrNull()?.kind == ContentKind.EVENT
-    val columnModifier = if (sectionHeight > 0.dp) {
-        Modifier
-            .focusRequester(selfFocusRequester)
-            .height(sectionHeight)
-            .padding(horizontal = 32.dp)
-            .padding(top = if (isEventSection) 8.dp else 16.dp, bottom = if (isEventSection) 6.dp else 16.dp)
-            .onFocusChanged { state ->
-                if (BuildConfig.DEBUG) Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
-            }
-    } else {
-        Modifier
-            .focusRequester(selfFocusRequester)
-            .padding(horizontal = 32.dp)
-            .onFocusChanged { state ->
-                if (BuildConfig.DEBUG) Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
-            }
-    }
+    val columnModifier = Modifier
+        .focusRequester(selfFocusRequester)
+        .padding(horizontal = 32.dp)
+        .padding(top = if (isEventSection) 8.dp else 16.dp, bottom = if (isEventSection) 6.dp else 16.dp)
+        .onFocusChanged { state ->
+            if (BuildConfig.DEBUG) Log.d("FOCUS", "ContentSection '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
+        }
 
     Column(
         modifier = columnModifier,

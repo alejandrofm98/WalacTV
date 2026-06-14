@@ -312,6 +312,7 @@ class ComposeMainFragment : Fragment() {
         item: CatalogItem,
         itemIndex: Int,
     ) {
+        Log.d(TAG, "rememberHomeFocus: [$sectionIndex]'$sectionTitle' item[$itemIndex]='${item.title}' stableId=${item.stableId}")
         lastHomeFocusTarget = HomeFocusTarget(
             sectionIndex = sectionIndex,
             sectionTitle = sectionTitle,
