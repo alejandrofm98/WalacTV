@@ -29,6 +29,7 @@ import com.example.walactv.ui.compose.ensureFiltersLoaded
 import com.example.walactv.ui.compose.handleCompletedUpdateDownload
 import com.example.walactv.ui.compose.restoreCachedUpdateState
 import com.example.walactv.ui.compose.startUpdateDownload
+import com.example.walactv.ui.compose.upsertContinueWatchingEntry
 import com.example.walactv.ui.theme.WalacTVTheme
 import com.example.walactv.viewmodel.HomeViewModel
 import kotlinx.coroutines.CoroutineScope
@@ -139,6 +140,8 @@ class ComposeMainFragment : Fragment() {
 
         observeViewModel()
 
+        progressSavedCallback = { upsertContinueWatchingEntry(it) }
+
         return ComposeView(requireContext()).apply {
             setContent {
                 WalacTVTheme {
@@ -146,6 +149,11 @@ class ComposeMainFragment : Fragment() {
                 }
             }
         }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        progressSavedCallback = null
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -361,6 +369,8 @@ class ComposeMainFragment : Fragment() {
         internal const val TAG = "ComposeMainFragment"
         internal const val ALL_OPTION = "Todos"
         internal val EVENT_TIME_FORMAT get() = SimpleDateFormat("HH:mm", Locale.getDefault())
+        /** Callback que detail fragments usan para actualizar Continue Watching localmente */
+        internal var progressSavedCallback: ((WatchProgressItem) -> Unit)? = null
     }
 }
 

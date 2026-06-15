@@ -27,3 +27,12 @@ docs/
 index.html
 script.js
 styles.css
+
+# Build outputs
+androidApp/build/
+composeApp/build/
+desktopApp/build/
+*.deb
+
+# AI agent state
+.opencode/

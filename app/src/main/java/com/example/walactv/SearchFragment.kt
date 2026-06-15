@@ -175,6 +175,7 @@ class SearchFragment : Fragment() {
                 overlayLogoUrl = resolvedItem.preferredVodPosterUrl(),
                 isFavorite = channelStateStore.isFavorite(resolvedItem),
                 contentId = resolvedItem.providerId ?: resolvedItem.stableId,
+                onProgressSaved = ComposeMainFragment.progressSavedCallback,
                 unifiedStreamOptions = unifiedOptions,
                 onSelectUnifiedOption = if (resolvedItem.kind == ContentKind.MOVIE || resolvedItem.kind == ContentKind.SERIES) {
                     { selectedIndex ->

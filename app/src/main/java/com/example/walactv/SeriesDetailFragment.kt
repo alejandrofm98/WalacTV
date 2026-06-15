@@ -154,6 +154,7 @@ class SeriesDetailFragment : Fragment() {
             onPlayerClosed = {
                 view?.requestFocus()
             },
+            onProgressSaved = ComposeMainFragment.progressSavedCallback,
             unifiedStreamOptions = unifiedOptions,
             onSelectUnifiedOption = { selectedIndex ->
                 val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize

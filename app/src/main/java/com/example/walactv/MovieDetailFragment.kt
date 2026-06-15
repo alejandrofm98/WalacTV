@@ -142,7 +142,7 @@ class MovieDetailFragment : Fragment() {
             onPlayerClosed = {
                 view?.requestFocus()
             },
-            onProgressSaved = null,
+            onProgressSaved = ComposeMainFragment.progressSavedCallback,
             customHeaders = stream.headers,
             unifiedStreamOptions = unifiedOptions,
             onSelectUnifiedOption = { selectedIndex ->
