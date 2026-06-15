@@ -1,0 +1,99 @@
+CREATE TABLE ChannelEntity(
+    id TEXT NOT NULL PRIMARY KEY,
+    numero INTEGER,
+    providerId TEXT NOT NULL,
+    logo TEXT NOT NULL,
+    countries TEXT NOT NULL,
+    nombreNormalizado TEXT NOT NULL,
+    grupoNormalizado TEXT NOT NULL
+);
+
+CREATE INDEX index_ChannelEntity_nombreNormalizado ON ChannelEntity(nombreNormalizado);
+
+getAllPaged:
+SELECT * FROM ChannelEntity
+ORDER BY numero ASC
+LIMIT ? OFFSET ?;
+
+getByCountryPaged:
+SELECT * FROM ChannelEntity
+WHERE countries LIKE '%' || ? || '%'
+ORDER BY numero ASC
+LIMIT ? OFFSET ?;
+
+getByGroupPaged:
+SELECT * FROM ChannelEntity
+WHERE grupoNormalizado = ?
+ORDER BY numero ASC
+LIMIT ? OFFSET ?;
+
+getByCountryAndGroupPaged:
+SELECT * FROM ChannelEntity
+WHERE countries LIKE '%' || ? || '%' AND grupoNormalizado = ?
+ORDER BY numero ASC
+LIMIT ? OFFSET ?;
+
+search:
+SELECT * FROM ChannelEntity
+WHERE nombreNormalizado LIKE '%' || ? || '%'
+ORDER BY numero ASC
+LIMIT 100;
+
+searchByCountry:
+SELECT * FROM ChannelEntity
+WHERE nombreNormalizado LIKE '%' || ? || '%' AND countries LIKE '%' || ? || '%'
+ORDER BY numero ASC
+LIMIT 100;
+
+searchByGroup:
+SELECT * FROM ChannelEntity
+WHERE nombreNormalizado LIKE '%' || ? || '%' AND grupoNormalizado = ?
+ORDER BY numero ASC
+LIMIT 100;
+
+searchByCountryAndGroup:
+SELECT * FROM ChannelEntity
+WHERE nombreNormalizado LIKE '%' || ? || '%' AND countries LIKE '%' || ? || '%' AND grupoNormalizado = ?
+ORDER BY numero ASC
+LIMIT 100;
+
+getByIds:
+SELECT * FROM ChannelEntity
+WHERE id IN ?;
+
+getCount:
+SELECT COUNT(*) FROM ChannelEntity;
+
+getCountByCountryAndGroup:
+SELECT COUNT(*) FROM ChannelEntity
+WHERE countries LIKE '%' || ? || '%' AND grupoNormalizado = ?;
+
+getCountByCountry:
+SELECT COUNT(*) FROM ChannelEntity
+WHERE countries LIKE '%' || ? || '%';
+
+getCountByGroup:
+SELECT COUNT(*) FROM ChannelEntity
+WHERE grupoNormalizado = ?;
+
+getDistinctCountries:
+SELECT DISTINCT countries FROM ChannelEntity
+WHERE countries != ''
+ORDER BY countries;
+
+getDistinctGroups:
+SELECT DISTINCT grupoNormalizado FROM ChannelEntity
+WHERE grupoNormalizado != ''
+ORDER BY grupoNormalizado;
+
+getDistinctGroupsByCountry:
+SELECT DISTINCT grupoNormalizado FROM ChannelEntity
+WHERE countries LIKE '%' || ? || '%' AND grupoNormalizado != ''
+ORDER BY grupoNormalizado;
+
+insertAll:
+INSERT OR REPLACE INTO ChannelEntity(id, numero, providerId, logo, countries, nombreNormalizado, grupoNormalizado)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+deleteAll:
+DELETE FROM ChannelEntity;

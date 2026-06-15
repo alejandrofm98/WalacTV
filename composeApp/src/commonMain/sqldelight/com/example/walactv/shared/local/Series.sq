@@ -1,0 +1,65 @@
+CREATE TABLE SeriesEntity(
+    id TEXT NOT NULL PRIMARY KEY,
+    providerId TEXT NOT NULL,
+    logo TEXT NOT NULL,
+    countries TEXT NOT NULL,
+    temporada INTEGER NOT NULL,
+    episodio INTEGER NOT NULL,
+    serieName TEXT NOT NULL,
+    nombreNormalizado TEXT NOT NULL,
+    grupoNormalizado TEXT NOT NULL
+);
+
+CREATE INDEX index_SeriesEntity_serieName ON SeriesEntity(serieName);
+
+getAllPaged:
+SELECT * FROM SeriesEntity
+ORDER BY serieName ASC
+LIMIT ? OFFSET ?;
+
+getByCountryPaged:
+SELECT * FROM SeriesEntity
+WHERE countries LIKE '%' || ? || '%'
+ORDER BY serieName ASC
+LIMIT ? OFFSET ?;
+
+getByGroupPaged:
+SELECT * FROM SeriesEntity
+WHERE grupoNormalizado = ?
+ORDER BY serieName ASC
+LIMIT ? OFFSET ?;
+
+getByCountryAndGroupPaged:
+SELECT * FROM SeriesEntity
+WHERE countries LIKE '%' || ? || '%' AND grupoNormalizado = ?
+ORDER BY serieName ASC
+LIMIT ? OFFSET ?;
+
+search:
+SELECT * FROM SeriesEntity
+WHERE serieName LIKE '%' || ? || '%'
+LIMIT 500;
+
+getCount:
+SELECT COUNT(*) FROM SeriesEntity;
+
+getCountByCountry:
+SELECT COUNT(*) FROM SeriesEntity
+WHERE countries LIKE '%' || ? || '%';
+
+getDistinctCountries:
+SELECT DISTINCT countries FROM SeriesEntity
+WHERE countries != ''
+ORDER BY countries;
+
+getDistinctGroups:
+SELECT DISTINCT grupoNormalizado FROM SeriesEntity
+WHERE grupoNormalizado != ''
+ORDER BY grupoNormalizado;
+
+insertAll:
+INSERT OR REPLACE INTO SeriesEntity(id, providerId, logo, countries, temporada, episodio, serieName, nombreNormalizado, grupoNormalizado)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteAll:
+DELETE FROM SeriesEntity;

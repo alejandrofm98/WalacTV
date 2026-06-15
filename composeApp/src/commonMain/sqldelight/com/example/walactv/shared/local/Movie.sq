@@ -1,0 +1,60 @@
+CREATE TABLE MovieEntity(
+    id TEXT NOT NULL PRIMARY KEY,
+    providerId TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    logo TEXT NOT NULL,
+    countries TEXT NOT NULL,
+    nombreNormalizado TEXT NOT NULL,
+    grupoNormalizado TEXT NOT NULL
+);
+
+CREATE INDEX index_MovieEntity_nombreNormalizado ON MovieEntity(nombreNormalizado);
+
+getAllPaged:
+SELECT * FROM MovieEntity
+ORDER BY nombreNormalizado ASC
+LIMIT ? OFFSET ?;
+
+getByCountryPaged:
+SELECT * FROM MovieEntity
+WHERE countries LIKE '%' || ? || '%'
+ORDER BY nombreNormalizado ASC
+LIMIT ? OFFSET ?;
+
+getByGroupPaged:
+SELECT * FROM MovieEntity
+WHERE grupoNormalizado = ?
+ORDER BY nombreNormalizado ASC
+LIMIT ? OFFSET ?;
+
+getByCountryAndGroupPaged:
+SELECT * FROM MovieEntity
+WHERE countries LIKE '%' || ? || '%' AND grupoNormalizado = ?
+ORDER BY nombreNormalizado ASC
+LIMIT ? OFFSET ?;
+
+search:
+SELECT * FROM MovieEntity
+WHERE nombreNormalizado LIKE '%' || ? || '%'
+ORDER BY nombreNormalizado ASC
+LIMIT 100;
+
+getCount:
+SELECT COUNT(*) FROM MovieEntity;
+
+getDistinctCountries:
+SELECT DISTINCT countries FROM MovieEntity
+WHERE countries != ''
+ORDER BY countries;
+
+getDistinctGroups:
+SELECT DISTINCT grupoNormalizado FROM MovieEntity
+WHERE grupoNormalizado != ''
+ORDER BY grupoNormalizado;
+
+insertAll:
+INSERT OR REPLACE INTO MovieEntity(id, providerId, nombre, logo, countries, nombreNormalizado, grupoNormalizado)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+deleteAll:
+DELETE FROM MovieEntity;
