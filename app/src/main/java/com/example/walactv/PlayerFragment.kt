@@ -566,22 +566,32 @@ class PlayerFragment : Fragment() {
         }
     }
 
-    private fun saveWatchProgress() {
-        val exoPlayer = player ?: return
-        if (contentId.isBlank() || !isVodMode) return
+    private fun saveWatchProgress(forceSave: Boolean = false) {
+        val exoPlayer = player
+        Log.d(TAG, "saveWatchProgress: ENTER contentId='$contentId' isVodMode=$isVodMode player=${exoPlayer != null} lastSavedProgressMs=$lastSavedProgressMs forceSave=$forceSave")
+        if (exoPlayer == null) { Log.w(TAG, "saveWatchProgress: player is null, skipping"); return }
+        if (contentId.isBlank() || !isVodMode) { Log.w(TAG, "saveWatchProgress: contentId blank or not VOD, skipping"); return }
         val position = exoPlayer.currentPosition
         val duration = exoPlayer.duration
-        if (duration <= 0 || position <= 0) return
-        if (kotlin.math.abs(position - lastSavedProgressMs) < 5_000) return
+        Log.d(TAG, "saveWatchProgress: position=$position duration=$duration")
+        if (duration <= 0 || position <= 0) { Log.w(TAG, "saveWatchProgress: invalid position/duration, skipping"); return }
+        if (!forceSave) {
+            val delta = kotlin.math.abs(position - lastSavedProgressMs)
+            if (delta < 5_000) { Log.d(TAG, "saveWatchProgress: delta=$delta < 5000, skipping"); return }
+        }
         lastSavedProgressMs = position
+        Log.d(TAG, "saveWatchProgress: proceeding with save position=$position duration=$duration")
 
         val contentType = when (contentKind) {
             ContentKind.MOVIE -> "movie"
             ContentKind.SERIES -> "series"
-            else -> return
+            else -> { Log.w(TAG, "saveWatchProgress: unknown contentKind=$contentKind"); return }
         }
 
-        val repo = watchProgressRepo ?: return
+        val repo = watchProgressRepo
+        if (repo == null) { Log.w(TAG, "saveWatchProgress: watchProgressRepo is null, skipping"); return }
+        
+        Log.d(TAG, "saveWatchProgress: launching async save for contentId='$contentId' position=$position")
         
         // Construir el item de progreso localmente para actualización inmediata de UI
         val progressItem = WatchProgressItem(
@@ -601,20 +611,41 @@ class PlayerFragment : Fragment() {
         )
         
         // Actualizar UI inmediatamente (callback asíncrono para no bloquear el player)
-        onProgressSaved?.invoke(progressItem)
+        Log.d(TAG, "saveWatchProgress: calling onProgressSaved callback, onProgressSaved=${onProgressSaved != null}")
+        try {
+            onProgressSaved?.invoke(progressItem)
+            Log.d(TAG, "saveWatchProgress: onProgressSaved callback returned successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "saveWatchProgress: onProgressSaved callback threw exception", e)
+        }
         
         // Guardar en backend (asíncrono)
+        Log.d(TAG, "saveWatchProgress: launching lifecycleScope coroutine...")
         lifecycleScope.launch(Dispatchers.IO) {
-            repo.saveProgress(
-                contentId = contentId,
-                contentType = contentType,
-                positionMs = position,
-                durationMs = duration,
-                title = overlayTitle,
-                seriesName = currentSeriesEpisode?.seriesName,
-                seasonNumber = currentSeriesEpisode?.seasonNumber,
-                episodeNumber = currentSeriesEpisode?.episodeNumber,
-            )
+            Log.d(TAG, "saveWatchProgress: coroutine STARTED for contentId='$contentId'")
+            try {
+                repo.saveProgress(
+                    contentId = contentId,
+                    contentType = contentType,
+                    positionMs = position,
+                    durationMs = duration,
+                    title = overlayTitle,
+                    imageUrl = overlayLogoUrl,
+                    seriesName = currentSeriesEpisode?.seriesName,
+                    seasonNumber = currentSeriesEpisode?.seasonNumber,
+                    episodeNumber = currentSeriesEpisode?.episodeNumber,
+                )
+                Log.d(TAG, "saveWatchProgress: coroutine COMPLETED successfully for contentId='$contentId'")
+                // Verificar que el backend realmente guardó el item
+                val verifyItem = repo.getProgress(contentId)
+                if (verifyItem != null) {
+                    Log.d(TAG, "saveWatchProgress: VERIFY OK - backend returned item contentId=${verifyItem.contentId} position=${verifyItem.positionMs}")
+                } else {
+                    Log.w(TAG, "saveWatchProgress: VERIFY FAIL - backend returned null for contentId='$contentId' after successful PUT")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "saveWatchProgress: coroutine FAILED for contentId='$contentId'", e)
+            }
         }
 
         checkAndMarkWatched()
@@ -1571,13 +1602,18 @@ class PlayerFragment : Fragment() {
         closedByHost = true
         playerClosed = true
         releasePlayer()
+        Log.d(TAG, "closeFromHost: releasePlayer returned")
     }
 
     private fun releasePlayer(closeUi: Boolean = true, notifyHost: Boolean = true) {
-        Log.d(TAG, "releasePlayer: isReleasing=$isReleasing, closedByHost=$closedByHost, closeUi=$closeUi, notifyHost=$notifyHost")
+        Log.d(TAG, "releasePlayer: isReleasing=$isReleasing, closedByHost=$closedByHost, closeUi=$closeUi, notifyHost=$notifyHost, isVodMode=$isVodMode, contentId='$contentId', player=${player != null}")
 
-        if (isVodMode && contentId.isNotBlank()) {
-            saveWatchProgress()
+        val shouldSave = isVodMode && contentId.isNotBlank()
+        Log.d(TAG, "releasePlayer: shouldSave=$shouldSave (isVodMode=$isVodMode, contentId='$contentId')")
+        if (shouldSave) {
+            Log.d(TAG, "releasePlayer: calling saveWatchProgress(forceSave=true)...")
+            saveWatchProgress(forceSave = true)
+            Log.d(TAG, "releasePlayer: saveWatchProgress returned")
         }
 
         isReleasing = true

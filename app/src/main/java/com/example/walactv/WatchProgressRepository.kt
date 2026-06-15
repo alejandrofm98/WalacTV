@@ -10,15 +10,23 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
 
     suspend fun getContinueWatching(): Result<List<WatchProgressItem>> {
         return try {
+            Log.d(TAG, "getContinueWatching: CALLING API GET /api/watch-progress?limit=20")
             val response = apiService.getWatchProgress(limit = 20)
+            Log.d(TAG, "getContinueWatching: API RESPONSE code=${response.code()} isSuccessful=${response.isSuccessful}")
             if (response.isSuccessful) {
-                Result.success(response.body()?.items?.map { it.toDomain() } ?: emptyList())
+                val items = response.body()?.items ?: emptyList()
+                Log.d(TAG, "getContinueWatching: returned ${items.size} items")
+                items.forEachIndexed { i, dto ->
+                    Log.d(TAG, "getContinueWatching: item[$i] contentId=${dto.contentId} contentType=${dto.contentType} title=${dto.title} position=${dto.positionMs} isWatched=${dto.isWatched}")
+                }
+                Result.success(items.map { it.toDomain() })
             } else {
-                Log.e(TAG, "Error fetching continue watching: ${response.code()}")
+                val errorBody = response.errorBody()?.string()
+                Log.e(TAG, "getContinueWatching: FAILED code=${response.code()} error=$errorBody")
                 Result.failure(Exception("Error fetching continue watching: ${response.code()}"))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error fetching continue watching", e)
+            Log.e(TAG, "getContinueWatching: EXCEPTION", e)
             Result.failure(e)
         }
     }
@@ -75,14 +83,17 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
                 seasonNumber = seasonNumber,
                 episodeNumber = episodeNumber,
             )
+            Log.d(TAG, "saveProgress: CALLING API PUT /api/watch-progress/$contentId body=$body")
             val response = apiService.saveWatchProgress(contentId, body)
+            Log.d(TAG, "saveProgress: API RESPONSE code=${response.code()} isSuccessful=${response.isSuccessful}")
             if (response.isSuccessful) {
-                Log.d(TAG, "Progress saved: $contentId at ${positionMs}ms")
+                Log.d(TAG, "saveProgress: SUCCESS $contentId at ${positionMs}ms")
             } else {
-                Log.e(TAG, "Error saving progress for $contentId: ${response.code()}")
+                val errorBody = response.errorBody()?.string()
+                Log.e(TAG, "saveProgress: FAILED $contentId code=${response.code()} error=$errorBody")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving progress for $contentId", e)
+            Log.e(TAG, "saveProgress: EXCEPTION $contentId", e)
         }
     }
 

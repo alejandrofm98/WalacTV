@@ -328,6 +328,7 @@ internal fun ComposeMainFragment.findNextEventIndex(items: List<CatalogItem>): I
 }
 
 internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgressItem) {
+    Log.d("CW_UPSERT", "called: contentId=${item.contentId} contentType=${item.contentType} title=${item.title} position=${item.positionMs} seriesName=${item.seriesName}")
     val searchableSnapshot = searchableItems
     val previous = continueWatchingEntries[item.contentId]
         ?: continueWatchingEntries["${item.contentType}:${item.contentId}"]

@@ -292,11 +292,7 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
         showOptionsOnStart = showOptionsOnStart,
         overlayLogoUrl = item.preferredVodPosterUrl(),
         isFavorite = channelStateStore.isFavorite(favoriteTarget),
-        contentId = if (item.kind == ContentKind.SERIES) {
-            item.seriesKey ?: item.providerId ?: item.stableId
-        } else {
-            item.providerId ?: item.stableId
-        },
+        contentId = item.providerId ?: item.stableId,
         positionMs = positionMs,
         onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
         onProgressSaved = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {

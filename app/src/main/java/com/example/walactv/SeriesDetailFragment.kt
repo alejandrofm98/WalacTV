@@ -129,8 +129,8 @@ class SeriesDetailFragment : Fragment() {
             null
         }
 
-        val seriesContentId = episodeToPlay.seriesKey ?: episodeToPlay.providerId ?: episodeToPlay.stableId
-        Log.d(TAG, "SERIES_CONTENT_ID seriesKey=${episodeToPlay.seriesKey} providerId=${episodeToPlay.providerId} stableId=${episodeToPlay.stableId} -> $seriesContentId")
+        val seriesContentId = episodeToPlay.providerId ?: episodeToPlay.stableId
+        Log.d(TAG, "SERIES_CONTENT_ID providerId=${episodeToPlay.providerId} stableId=${episodeToPlay.stableId} -> $seriesContentId")
 
         val playerFragment = PlayerFragment()
         val unifiedOptions = episodeToPlay.streamOptions.toUnifiedOptions()

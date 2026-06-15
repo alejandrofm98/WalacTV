@@ -223,6 +223,7 @@ class HomeViewModel @Inject constructor(
     fun loadContinueWatching() {
         val requestVersion = ++continueWatchingRequestVersion
         val searchableSnapshot = _searchableItems.value
+        Log.d(TAG, "loadContinueWatching[$requestVersion]: START")
         viewModelScope.launch {
             try {
                 val inProgressResult = watchProgressRepo.getContinueWatching()
@@ -230,10 +231,15 @@ class HomeViewModel @Inject constructor(
 
                 val inProgressItems = inProgressResult.getOrDefault(emptyList())
                 val watchedItems = watchedResult.getOrDefault(emptyList())
+                Log.d(TAG, "loadContinueWatching[$requestVersion]: inProgress=${inProgressItems.size} watched=${watchedItems.size}")
 
                 if (inProgressResult.isFailure) {
                     Log.w(TAG, "CW in-progress fetch failed[$requestVersion], keeping existing data: ${inProgressResult.exceptionOrNull()?.message}")
                     return@launch
+                }
+
+                inProgressItems.forEach { wp ->
+                    Log.d(TAG, "loadContinueWatching[$requestVersion]: IN_PROGRESS contentId=${wp.contentId} type=${wp.contentType} title=${wp.title} pos=${wp.positionMs} dur=${wp.durationMs} isWatched=${wp.isWatched} seriesName=${wp.seriesName}")
                 }
 
                 val entryMap = mutableMapOf<String, WatchProgressItem>()
@@ -267,6 +273,11 @@ class HomeViewModel @Inject constructor(
                     .map { (_, entries) -> entries.maxByOrNull { it.lastWatchedAt }!! }
                     .sortedByDescending { it.lastWatchedAt }
 
+                Log.d(TAG, "loadContinueWatching[$requestVersion]: dedupedItems=${dedupedItems.size}")
+                dedupedItems.forEach { wp ->
+                    Log.d(TAG, "loadContinueWatching[$requestVersion]: DEDUPED contentId=${wp.contentId} title=${wp.title} pos=${wp.positionMs} seriesName=${wp.seriesName}")
+                }
+
                 if (dedupedItems.isNotEmpty()) {
                     val catalogItems = dedupedItems.map { wp ->
                         buildContinueWatchingItem(wp, searchableSnapshot).also { synthetic ->
@@ -274,8 +285,10 @@ class HomeViewModel @Inject constructor(
                         }
                     }
                     _continueWatchingSection.value = BrowseSection("Continuar viendo", catalogItems)
+                    Log.d(TAG, "loadContinueWatching[$requestVersion]: section SET with ${catalogItems.size} items")
                 } else {
                     _continueWatchingSection.value = null
+                    Log.d(TAG, "loadContinueWatching[$requestVersion]: section SET to null (no items)")
                 }
 
             } catch (e: Exception) {
