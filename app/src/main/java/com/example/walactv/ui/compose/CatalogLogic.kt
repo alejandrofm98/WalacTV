@@ -209,7 +209,11 @@ internal fun formatDurationRemaining(positionMs: Long, durationMs: Long): String
 // ── Filters (delegates to ViewModel) ────────────────────────────────────────
 
 internal fun ComposeMainFragment.ensureFiltersLoaded(kind: ContentKind, country: String? = null) {
-    viewModel.ensureFiltersLoaded(kind, country)
+    if (kind == ContentKind.CHANNEL) {
+        viewModel.loadChannelFilters()
+    } else {
+        viewModel.ensureFiltersLoaded(kind, country)
+    }
 }
 
 internal suspend fun ComposeMainFragment.ensureFiltersLoadedAwait(kind: ContentKind, country: String? = null) {

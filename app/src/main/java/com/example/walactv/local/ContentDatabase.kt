@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [ChannelEntity::class, MovieEntity::class, SeriesEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class ContentDatabase : RoomDatabase() {

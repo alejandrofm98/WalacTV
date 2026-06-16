@@ -41,6 +41,15 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
         private const val KEY_SERIES_TOTAL = "series_total"
 
         private const val BATCH_SIZE = 500
+
+        private val ALLOWED_CHANNEL_COUNTRIES = setOf("ES", "UK", "US", "WO")
+
+        private val CHANNEL_COUNTRY_NAMES = mapOf(
+            "ES" to "España",
+            "UK" to "Reino Unido",
+            "US" to "Estados Unidos",
+            "WO" to "Global",
+        )
     }
 
     data class ContentStats(
@@ -248,16 +257,23 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
                         "items" -> {
                             reader.beginArray()
                             var itemCount = 0
+                            var skippedCount = 0
                             while (reader.hasNext()) {
-                                batch.add(parseChannelObject(reader))
-                                totalCount++
+                                val entity = parseChannelObject(reader)
+                                val channelCountries = entity.countries.parseCountryList()
+                                if (channelCountries.any { it in ALLOWED_CHANNEL_COUNTRIES }) {
+                                    batch.add(entity)
+                                    totalCount++
+                                } else {
+                                    skippedCount++
+                                }
                                 itemCount++
                                 if (itemCount % 10000 == 0) {
-                                    Log.d(TAG, "syncChannels: read $itemCount items so far")
+                                    Log.d(TAG, "syncChannels: read $itemCount items so far, kept=$totalCount, skipped=$skippedCount")
                                 }
                             }
                             reader.endArray()
-                            Log.d(TAG, "syncChannels: finished items array, total=$totalCount")
+                            Log.d(TAG, "syncChannels: finished items array, parsed=$itemCount, kept=$totalCount, skipped=$skippedCount")
                         }
                         else -> {
                             reader.skipValue()
@@ -347,7 +363,7 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
             database.channelDao().getDistinctGroups()
         }
         com.example.walactv.CatalogFilters(
-            countries = allCountries.map { com.example.walactv.CatalogFilterOption(it, it) },
+            countries = allCountries.map { com.example.walactv.CatalogFilterOption(it, CHANNEL_COUNTRY_NAMES[it] ?: it) },
             groups = groups.map { com.example.walactv.CatalogFilterOption(it, it) }
         )
     }

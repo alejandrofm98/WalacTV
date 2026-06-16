@@ -15,11 +15,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Dispatchers
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -55,7 +57,7 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showChangelogDialog by remember { mutableStateOf(false) }
     val availableLanguages = listOf("ES" to "Español", "EN" to "Inglés")
-    val installedVersionLabel = fragment.installedAppVersion?.let { "${it.versionName} (${it.versionCode})" } ?: "Desconocida"
+    val installedVersionLabel = fragment.installedAppVersion?.let { it.versionName } ?: "Desconocida"
     val hasUpdate = fragment.availableUpdate?.let { evaluateAppUpdate(fragment.installedAppVersion ?: InstalledAppVersion("0", 0), it) != AppUpdateAvailability.UP_TO_DATE } == true
     val updateActionLabel = when { fragment.isUpdateDownloading -> "Descargando..."; fragment.isCheckingUpdates -> "Comprobando..."; hasUpdate -> "Descargar actualización"; else -> "Buscar actualizaciones" }
     val scope = rememberCoroutineScope()
@@ -77,17 +79,19 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
         ) {
             val selectedLanguageLabel = availableLanguages.find { it.first == preferredLanguage }?.second ?: "Español"
             SettingsRowClickable(
-                label = "Idioma de series",
+                label = "Idioma preferido",
                 value = selectedLanguageLabel,
                 modifier = Modifier.focusRequester(firstFocusRequester),
             ) { showLanguageDialog = true }
             SettingsRow("Version de la app", installedVersionLabel)
-            SettingsRow("Canales cargados", fragment.channelLineup.size.toString())
-            SettingsRow("Contenido indexado", fragment.searchableItems.size.toString())
-            fragment.updateErrorMessage?.let { Text(it, color = IptvLive, fontSize = 14.sp) }
+            val channelsCount by produceState(initialValue = -1) {
+                value = fragment.contentCacheManager.getChannelsTotalCount(null, null)
+            }
+            SettingsRow("Canales cargados", if (channelsCount >= 0) channelsCount.toString() else "...")
+            fragment.updateErrorMessage?.let { Text(it, color = IptvLive, fontSize = 14.sp, modifier = Modifier.focusable()) }
             val update = fragment.availableUpdate
-            if (hasUpdate && update != null) Text("Ultima version: v${update.latestVersionName}", color = IptvAccent, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            else if (update != null) Text("Actualizado a la ultima version", color = IptvOnline, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            if (hasUpdate && update != null) Text("Ultima version: v${update.latestVersionName}", color = IptvAccent, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.focusable())
+            else if (update != null) Text("Actualizado a la ultima version", color = IptvOnline, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.focusable())
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val changelogText = update?.changelog
                 if (!changelogText.isNullOrBlank()) {
@@ -155,7 +159,17 @@ internal fun SettingsRowClickable(label: String, value: String, modifier: Modifi
 
 @Composable
 internal fun SettingsRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+    var isFocused by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .background(if (isFocused) IptvFocusBg else Color.Transparent, RoundedCornerShape(8.dp))
+            .border(1.dp, if (isFocused) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(label, color = IptvTextPrimary, fontSize = 16.sp)
         Text(value, color = IptvTextMuted, fontSize = 16.sp)
     }
