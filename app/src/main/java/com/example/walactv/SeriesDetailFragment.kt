@@ -80,14 +80,14 @@ class SeriesDetailFragment : Fragment() {
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val seriesItemJson = arguments?.getString(ARG_SERIES_ITEM)
         val catalogItem = if (seriesItemJson != null) Gson().fromJson(seriesItemJson, CatalogItem::class.java) else null
-        val seriesName = catalogItem?.seriesName ?: catalogItem?.title ?: ""
+        val seriesIdentifier = catalogItem?.catalogId ?: catalogItem?.seriesName ?: catalogItem?.title ?: ""
 
-        Log.d(TAG, "SeriesDetailFragment: seriesName='$seriesName'")
+        Log.d(TAG, "SeriesDetailFragment: seriesIdentifier='$seriesIdentifier' catalogId=${catalogItem?.catalogId}")
         return ComposeView(requireContext()).apply {
             setContent {
                 WalacTVTheme {
                     SeriesDetailScreen(
-                        seriesName = seriesName,
+                        seriesName = seriesIdentifier,
                         initialSeriesItem = catalogItem,
                         repository = repository,
                         onBack = { requireActivity().onBackPressedDispatcher.onBackPressed() }

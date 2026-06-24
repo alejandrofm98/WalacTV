@@ -40,7 +40,7 @@ internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List
         openContinueWatchingItem(item, progress)
         return
     }
-    if (item.kind == ContentKind.SERIES && item.seriesName != null) {
+    if (item.kind == ContentKind.SERIES && (item.catalogId != null || item.seriesName != null)) {
         rememberPlaybackReturnState(item)
         val fragment = SeriesDetailFragment.newInstance(item)
         requireActivity().supportFragmentManager.beginTransaction()
@@ -104,7 +104,8 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         null
     }
     Log.d(TAG, "TMDB_CW_SERIES card=${cardItem.tmdbDebug()} progressSeries=${progress.seriesName} seriesProviderId=${progress.seriesProviderId} episode=${episode.tmdbDebug()}")
-    val seriesIdentifier = progress.seriesProviderId
+    val seriesIdentifier = episode?.catalogId
+        ?: progress.seriesProviderId
         ?: episode?.providerId
         ?: episode?.seriesName
         ?: episode?.title

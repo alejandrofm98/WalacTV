@@ -592,6 +592,7 @@ class IptvRepository @Inject constructor(context: Context) {
         }
         val rawId = (id?.toString() ?: episodeId?.toString() ?: channelId?.toString()).orEmpty()
         val providerIdStr = providerId?.toString()?.takeIf { it.isNotBlank() }
+        val catalogIdVal = rawId.takeIf { it.isNotBlank() }
         val stableIdValue = providerIdStr ?: rawId
         val stableId = if (kind == ContentKind.EVENT) stableIdValue else "${kind.name.lowercase()}:$stableIdValue"
 
@@ -653,6 +654,7 @@ class IptvRepository @Inject constructor(context: Context) {
 
         return CatalogItem(
             stableId = stableId,
+            catalogId = catalogIdVal,
             providerId = providerIdStr,
             title = tmdbTitleVal.ifBlank {
                 if (kind == ContentKind.CHANNEL) {

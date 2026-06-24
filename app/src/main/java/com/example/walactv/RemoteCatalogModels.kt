@@ -261,6 +261,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
     }
     val rawId = optCleanString("id").ifBlank { optCleanString("channel_id") }
     val providerId = optCleanString("provider_id").ifBlank { null }
+    val catalogIdVal = rawId.takeIf { it.isNotBlank() }
     val stableIdValue = providerId ?: rawId
     val stableId = if (kind == ContentKind.EVENT) stableIdValue else "${kind.name.lowercase()}:$stableIdValue"
     val streamUrl = optCleanString("stream_url")
@@ -391,6 +392,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
 
     return CatalogItem(
         stableId = stableId,
+        catalogId = catalogIdVal,
         providerId = providerId,
         title = tmdbTitle.ifBlank { buildRemoteDisplayTitle(kind, normalized.displayTitle, channelDisplayName) },
         normalizedTitle = nombreNormalizado.ifBlank { null },

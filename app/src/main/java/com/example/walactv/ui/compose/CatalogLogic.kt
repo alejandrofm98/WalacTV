@@ -55,7 +55,7 @@ internal suspend fun ComposeMainFragment.deleteAllSeriesProgress(seriesName: Str
         coroutineScope {
             continueWatchingEntries
                 .filter { (_, wp) -> wp.seriesName == seriesName }
-                .map { (_, wp) -> async { watchProgressRepo.deleteProgress(wp.contentId) } }
+                .map { (_, wp) -> async { watchProgressRepo.deleteProgress(wp.contentId.substringAfterLast(":")) } }
         }
     } catch (e: Exception) {
         Log.e(TAG, "Error deleting series progress for $seriesName", e)

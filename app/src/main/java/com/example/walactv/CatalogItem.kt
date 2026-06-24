@@ -4,6 +4,7 @@ import android.util.Log
 
 data class CatalogItem(
     val stableId: String,
+    val catalogId: String? = null,
     val providerId: String? = null,
     val title: String,
     val subtitle: String,

@@ -99,12 +99,17 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
 
     suspend fun deleteProgress(contentId: String) {
         try {
+            Log.d(TAG, "deleteProgress: CALLING API DELETE /api/watch-progress/$contentId")
             val response = apiService.deleteWatchProgress(contentId)
+            Log.d(TAG, "deleteProgress: API RESPONSE code=${response.code()} isSuccessful=${response.isSuccessful}")
             if (!response.isSuccessful) {
-                Log.e(TAG, "Error deleting progress for $contentId: ${response.code()}")
+                val errorBody = response.errorBody()?.string()
+                Log.e(TAG, "deleteProgress: FAILED code=${response.code()} error=$errorBody")
+            } else {
+                Log.d(TAG, "deleteProgress: SUCCESS $contentId deleted")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error deleting progress for $contentId", e)
+            Log.e(TAG, "deleteProgress: EXCEPTION for $contentId", e)
         }
     }
 

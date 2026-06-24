@@ -51,14 +51,20 @@ class HomeViewModel @Inject constructor(
 
     private val _homeSections: StateFlow<List<BrowseSection>> = _homeCatalog
         .combine(_continueWatchingSection) { catalog, cwSection ->
-            val base = catalog?.sections.orEmpty()
-            cwSection?.let { cw ->
-                if (base.isEmpty()) listOf(cw)
-                else listOf(base.first()) + cw + base.drop(1)
-            } ?: base
+            buildHomeSections(catalog, cwSection)
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val homeSections: StateFlow<List<BrowseSection>> = _homeSections
+
+    private fun buildHomeSections(
+        catalog: HomeCatalog?,
+        cwSection: BrowseSection?
+    ): List<BrowseSection> {
+        val base = catalog?.sections.orEmpty()
+        val eventSection = base.find { it.title == "Eventos de hoy" || it.items.firstOrNull()?.kind == ContentKind.EVENT }
+        val rest = if (eventSection != null) base - eventSection else base
+        return listOfNotNull(eventSection, cwSection) + rest
+    }
 
     private val _continueWatchingEntries = MutableStateFlow<Map<String, WatchProgressItem>>(emptyMap())
     val continueWatchingEntries: StateFlow<Map<String, WatchProgressItem>> = _continueWatchingEntries.asStateFlow()
@@ -453,15 +459,16 @@ class HomeViewModel @Inject constructor(
         contentId: String? = null,
         seriesName: String? = null,
     ) {
+        val normalizedId = contentId?.substringAfterLast(":")
         _continueWatchingEntries.value = _continueWatchingEntries.value
             .filterValues { wp ->
                 if (seriesName != null) wp.seriesName != seriesName
-                else wp.contentId != contentId
+                else wp.contentId.substringAfterLast(":") != normalizedId
             }
         _continueWatchingSection.value = _continueWatchingSection.value?.let { section ->
             val filtered = section.items.filter { item ->
                 if (seriesName != null) item.seriesName != seriesName
-                else item.providerId != contentId
+                else item.providerId?.substringAfterLast(":") != normalizedId
             }
             if (filtered.isEmpty()) null else section.copy(items = filtered)
         }

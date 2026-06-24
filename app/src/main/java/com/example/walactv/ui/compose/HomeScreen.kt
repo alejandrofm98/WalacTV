@@ -54,6 +54,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -150,8 +151,11 @@ private val StremioBringIntoViewSpec = object : BringIntoViewSpec {
 
 @Composable
 internal fun HomeContent(fragment: ComposeMainFragment) {
-    val focusRequesters = remember(fragment.homeSections.size) {
-        List(fragment.homeSections.size) { FocusRequester() }
+    val sectionFrMap = remember { mutableMapOf<String, FocusRequester>() }
+    LaunchedEffect(fragment.homeSections.map { it.title }) {
+        val titles = fragment.homeSections.map { it.title }.toSet()
+        sectionFrMap.keys.removeAll { it !in titles }
+        titles.forEach { title -> sectionFrMap.getOrPut(title) { FocusRequester() } }
     }
 
     LaunchedEffect(fragment.homeSections) {
@@ -162,7 +166,7 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         }
         if (fragment.selectedHero != null || fragment.pendingFocusItem != null) return@LaunchedEffect
         delay(200.milliseconds)
-        runCatching { focusRequesters.firstOrNull()?.requestFocus() }
+        runCatching { sectionFrMap.values.firstOrNull()?.requestFocus() }
     }
 
     LaunchedEffect(fragment.contentFocusTrigger) {
@@ -225,41 +229,44 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
                     .padding(bottom = 24.dp),
             ) {
                 fragment.homeSections.forEachIndexed { index, section ->
-                    ContentSection(
-                        fragment = fragment,
-                        section = section,
-                        sectionIndex = index,
-                        selfFocusRequester = focusRequesters[index],
-                        onFocused = {
-                            if (it.isHeroContent()) {
-                                Log.d("TMDB_HOME", "focus item=${it.tmdbDebug()}")
-                                fragment.selectedHero = it
-                            }
-                        },
-                        onLoadMore = if (section.contentType != null && (section.groupName != null || section.sectionTitle != null || section.year != null) && section.hasNextPage) {
-                            { sectionToLoad: BrowseSection, onDone: () -> Unit ->
-                                fragment.scope.launch {
-                                    try {
-                                        val pageSize = 24
-                                        val nextPage = sectionToLoad.currentPage + 1
-                                        val (newItems, hasNext) = fragment.repository.loadContentPage(
-                                            sectionToLoad.contentType!!, sectionToLoad.groupName, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
-                                        )
-                                        val actuallyHasNext = if (newItems.isEmpty()) false else hasNext
-                                        val updated = sectionToLoad.copy(
-                                            items = (sectionToLoad.items + newItems).distinctBy(CatalogItem::stableId),
-                                            currentPage = nextPage,
-                                            hasNextPage = actuallyHasNext
-                                        )
-                                        val idx = fragment.homeSections.indexOfFirst {
-                                            it.title == sectionToLoad.title && it.contentType == sectionToLoad.contentType
-                                        }
-                                        if (idx >= 0) fragment.homeSections = fragment.homeSections.toMutableList().also { it[idx] = updated }
-                                    } finally { onDone() }
+                    key(section.title) {
+                        val sectionFr = remember(section.title) { sectionFrMap.getOrPut(section.title) { FocusRequester() } }
+                        ContentSection(
+                            fragment = fragment,
+                            section = section,
+                            sectionIndex = index,
+                            selfFocusRequester = sectionFr,
+                            onFocused = {
+                                if (it.isHeroContent()) {
+                                    Log.d("TMDB_HOME", "focus item=${it.tmdbDebug()}")
+                                    fragment.selectedHero = it
                                 }
-                            }
-                        } else null,
-                    )
+                            },
+                            onLoadMore = if (section.contentType != null && (section.groupName != null || section.sectionTitle != null || section.year != null) && section.hasNextPage) {
+                                { sectionToLoad: BrowseSection, onDone: () -> Unit ->
+                                    fragment.scope.launch {
+                                        try {
+                                            val pageSize = 24
+                                            val nextPage = sectionToLoad.currentPage + 1
+                                            val (newItems, hasNext) = fragment.repository.loadContentPage(
+                                                sectionToLoad.contentType!!, sectionToLoad.groupName, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
+                                            )
+                                            val actuallyHasNext = if (newItems.isEmpty()) false else hasNext
+                                            val updated = sectionToLoad.copy(
+                                                items = (sectionToLoad.items + newItems).distinctBy(CatalogItem::stableId),
+                                                currentPage = nextPage,
+                                                hasNextPage = actuallyHasNext
+                                            )
+                                            val idx = fragment.homeSections.indexOfFirst {
+                                                it.title == sectionToLoad.title && it.contentType == sectionToLoad.contentType
+                                            }
+                                            if (idx >= 0) fragment.homeSections = fragment.homeSections.toMutableList().also { it[idx] = updated }
+                                        } finally { onDone() }
+                                    }
+                                }
+                            } else null,
+                        )
+                    }
                 }
             }
         }
@@ -271,13 +278,24 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
             item = item, isSeries = isSeries,
             onDismiss = { fragment.deleteContinueWatchingItem = null },
             onConfirm = {
-                val contentId = item.providerId.orEmpty().ifBlank { item.stableId.orEmpty().substringAfterLast(":") }
-                if (isSeries) fragment.removeContinueWatchingLocally(seriesName = item.seriesName ?: item.title)
-                else fragment.removeContinueWatchingLocally(contentId = contentId)
+                val normalizedId = item.providerId.orEmpty().ifBlank { item.stableId.orEmpty().substringAfterLast(":") }.substringAfterLast(":")
+                val remaining = fragment.continueWatchingSection?.items?.filter { it.stableId != item.stableId }
+                val nextFocus = remaining?.firstOrNull()
+                    ?: fragment.homeSections.firstOrNull { it.title != "Continuar viendo" }?.items?.firstOrNull()
+
+                fragment.removeContinueWatchingLocally(contentId = normalizedId)
+
+                if (nextFocus != null) {
+                    fragment.pendingFocusItem = nextFocus
+                    fragment.pendingFocusTrigger++
+                } else if (fragment.homeSections.isNotEmpty()) {
+                    fragment.pendingFocusItem = null
+                    fragment.pendingFocusTrigger++
+                }
                 fragment.deleteContinueWatchingItem = null
                 fragment.scope.launch {
-                    if (isSeries) fragment.deleteAllSeriesProgress(item.seriesName ?: item.title)
-                    else fragment.watchProgressRepo.deleteProgress(contentId)
+                    try { fragment.watchProgressRepo.deleteProgress(normalizedId) }
+                    catch (e: Exception) { Log.e(ComposeMainFragment.TAG, "deleteProgress error $normalizedId", e) }
                     fragment.loadContinueWatching()
                 }
             },
@@ -589,8 +607,11 @@ internal fun ContentSection(
     val lazyListState = rememberLazyListState()
     var isLoadingMore by remember { mutableStateOf(false) }
     var rowWidth by remember { mutableIntStateOf(0) }
-    val focusRequesters = remember(section.items.size) {
-        List(section.items.size) { FocusRequester() }
+    val itemFrMap = remember { mutableMapOf<String, FocusRequester>() }
+    LaunchedEffect(section.items.map { it.stableId }) {
+        val keys = section.items.map { it.stableId }.toSet()
+        itemFrMap.keys.removeAll { it !in keys }
+        keys.forEach { key -> itemFrMap.getOrPut(key) { FocusRequester() } }
     }
     Log.d("HomeContent", "ContentSection[$sectionIndex] '${section.title}' items=${section.items.size} kinds=${section.items.map { it.kind }.distinct()}")
     // Memoize the continue-watching lookup to avoid recomputing per card
@@ -621,7 +642,7 @@ internal fun ContentSection(
             if (index >= 0) {
                 lazyListState.scrollToItem(index)
                 delay(100.milliseconds)
-                focusRequesters.getOrNull(index)?.requestFocus()
+                section.items.getOrNull(index)?.stableId?.let { sid -> itemFrMap[sid] }?.requestFocus()
             }
         }
     }
@@ -638,7 +659,7 @@ internal fun ContentSection(
                 try {
                     lazyListState.scrollToItem(idx)
                     delay((80 * attempt).milliseconds)
-                    val fr = focusRequesters.getOrNull(idx)
+                    val fr = itemFrMap[targetId]
                     if (fr != null) {
                         fr.requestFocus()
                         Log.d("HomeContent", "Focus RESTORED: ${section.title}[$idx] on attempt $attempt")
@@ -646,19 +667,19 @@ internal fun ContentSection(
                         fragment.suppressEventAutoScroll = false
                         break
                     } else {
-                        Log.w("HomeContent", "FocusRequester[$idx] is null, retry...")
+                        Log.w("HomeContent", "FocusRequester for $targetId is null, retry...")
                     }
                 } catch (e: Exception) {
                     Log.w("HomeContent", "Focus restore FAILED attempt $attempt: ${e.message}")
                 }
             } else {
                 Log.d("HomeContent", "Item $targetId NOT FOUND in section '${section.title}'")
-                if (sectionIndex == 0 && section.items.isNotEmpty() && focusRequesters.isNotEmpty()) {
+                if (sectionIndex == 0 && section.items.isNotEmpty() && itemFrMap.isNotEmpty()) {
                     Log.d("HomeContent", "First section fallback: focusing first card")
                     runCatching {
                         lazyListState.scrollToItem(0)
                         delay(80.milliseconds)
-                        focusRequesters.first().requestFocus()
+                        section.items.firstOrNull()?.stableId?.let { sid -> itemFrMap[sid] }?.requestFocus()
                         fragment.pendingFocusItem = null
                         fragment.suppressEventAutoScroll = false
                     }
@@ -675,11 +696,11 @@ internal fun ContentSection(
             val initialIndex = if (section.items.firstOrNull()?.kind == ContentKind.EVENT) {
                 fragment.findNextEventIndex(section.items).takeIf { it >= 0 } ?: 0
             } else 0
-            Log.d("HomeContent", "Rail restore has no target, focusing initialIndex=$initialIndex section=${section.title} items=${section.items.size} requesters=${focusRequesters.size}")
+            Log.d("HomeContent", "Rail restore has no target, focusing initialIndex=$initialIndex section=${section.title} items=${section.items.size}")
             runCatching {
                 lazyListState.scrollToItem(initialIndex)
                 delay(80.milliseconds)
-                val requester = focusRequesters.getOrNull(initialIndex)
+                val requester = section.items.getOrNull(initialIndex)?.stableId?.let { sid -> itemFrMap[sid] }
                 if (requester == null) {
                     Log.w("HomeContent", "Home initial focus skipped: no requester for index $initialIndex section=${section.title}")
                 } else {
@@ -694,15 +715,11 @@ internal fun ContentSection(
         if (target.sectionTitle != section.title) return@LaunchedEffect
         Log.d("HomeContent", "Rail restore target section=${section.title} itemIndex=${target.itemIndex}")
 
-        val targetIndex = target.itemIndex
-            .takeIf { index -> section.items.getOrNull(index)?.stableId == target.itemStableId }
-            ?: section.items.indexOfFirst { it.stableId == target.itemStableId }
-        if (targetIndex < 0) return@LaunchedEffect
-
         runCatching {
-            lazyListState.scrollToItem(targetIndex)
+            val idx = section.items.indexOfFirst { it.stableId == target.itemStableId }
+            if (idx >= 0) lazyListState.scrollToItem(idx)
             delay(80.milliseconds)
-            focusRequesters.getOrNull(targetIndex)?.requestFocus()
+            itemFrMap[target.itemStableId]?.requestFocus()
             fragment.pendingHomeFocusTarget = null
         }.onFailure {
             Log.w("HomeContent", "Home focus restore failed: ${it.message}")
@@ -801,7 +818,8 @@ internal fun ContentSection(
                     },
             ) {
                 itemsIndexed(section.items, key = { _, item -> item.stableId }) { index, item ->
-                    val cardModifier = Modifier.focusRequester(focusRequesters[index])
+                    val fr = remember(item.stableId) { itemFrMap.getOrPut(item.stableId) { FocusRequester() } }
+                    val cardModifier = Modifier.focusRequester(fr)
 
                     if (section.title == "Continuar viendo") {
                         val wp = cwLookup[item]
@@ -1362,8 +1380,8 @@ internal fun DeleteConfirmationOverlay(
     else
         "¿Quieres eliminar \"${item.title}\" de tu historial de reproducción?"
 
-    val focusRequester = remember { FocusRequester() }
-    var selectedButton by remember { mutableIntStateOf(0) }
+                    val focusRequester = remember { FocusRequester() }
+                    var selectedButton by remember { mutableIntStateOf(2) }
 
     LaunchedEffect(focusRequester) {
         delay(50.milliseconds)
@@ -1409,7 +1427,7 @@ internal fun DeleteConfirmationOverlay(
                                 .background(if (selectedButton == 1) IptvFocusBg else Color.Transparent)
                                 .border(if (selectedButton == 1) 2.dp else 0.dp, if (selectedButton == 1) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
                                 .padding(horizontal = 18.dp, vertical = 10.dp)
-                                .clickable { onDismiss() },
+                                .tvClickable { onDismiss() },
                         ) {
                             Text("Cancelar", color = if (selectedButton == 1) IptvTextPrimary else IptvTextMuted, fontSize = 14.sp)
                         }
@@ -1420,7 +1438,7 @@ internal fun DeleteConfirmationOverlay(
                                 .background(if (selectedButton == 2) IptvLive.copy(alpha = 0.8f) else IptvLive)
                                 .border(if (selectedButton == 2) 2.dp else 0.dp, if (selectedButton == 2) IptvTextPrimary else Color.Transparent, RoundedCornerShape(8.dp))
                                 .padding(horizontal = 18.dp, vertical = 10.dp)
-                                .clickable { onConfirm() },
+                                .tvClickable { onConfirm() },
                         ) {
                             Text("Eliminar", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
