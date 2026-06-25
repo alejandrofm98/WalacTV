@@ -221,6 +221,70 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Skip segments overlay (intro, recap, credits) -->
+    <LinearLayout
+        android:id="@+id/skip_overlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="200dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/skip_intro"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:paddingHorizontal="28dp"
+            android:gravity="center"
+            android:text="@string/skip_intro"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textAllCaps="false"
+            android:focusable="true"
+            android:clickable="true"
+            android:background="@drawable/bg_skip_button"
+            android:visibility="gone"
+            android:nextFocusRight="@+id/skip_recap" />
+
+        <TextView
+            android:id="@+id/skip_recap"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="12dp"
+            android:paddingHorizontal="28dp"
+            android:gravity="center"
+            android:text="@string/skip_recap"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textAllCaps="false"
+            android:focusable="true"
+            android:clickable="true"
+            android:background="@drawable/bg_skip_button"
+            android:visibility="gone"
+            android:nextFocusLeft="@+id/skip_intro"
+            android:nextFocusRight="@+id/skip_credits" />
+
+        <TextView
+            android:id="@+id/skip_credits"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="12dp"
+            android:paddingHorizontal="28dp"
+            android:gravity="center"
+            android:text="@string/skip_credits"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textAllCaps="false"
+            android:focusable="true"
+            android:clickable="true"
+            android:background="@drawable/bg_skip_button"
+            android:visibility="gone"
+            android:nextFocusLeft="@+id/skip_recap" />
+
+    </LinearLayout>
+
     <!-- Error overlay container -->
     <androidx.compose.ui.platform.ComposeView
         android:id="@+id/error_overlay"

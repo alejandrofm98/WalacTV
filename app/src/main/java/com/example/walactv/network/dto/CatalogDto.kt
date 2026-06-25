@@ -36,6 +36,7 @@ data class CatalogItemDto(
     @SerializedName("season_number") val seasonNumber: Int? = null,
     @SerializedName("episode_number") val episodeNumber: Int? = null,
     @SerializedName("still_path") val stillPath: String? = null,
+    @SerializedName("imdb_id") val imdbId: String? = null,
     @SerializedName("air_date") val airDate: String? = null,
     @SerializedName("title_en") val titleEn: String? = null,
     @SerializedName("episode_type") val episodeType: String? = null,

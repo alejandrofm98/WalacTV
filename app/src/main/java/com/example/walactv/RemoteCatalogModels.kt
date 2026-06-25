@@ -425,6 +425,7 @@ private fun JSONObject.toCatalogItem(expectedKind: ContentKind? = null): Catalog
             ?: optDoubleValue("rating")?.toFloat(),
         voteCount = optInt("vote_count").takeIf { has("vote_count") },
         runtimeMinutes = optInt("runtime_minutes").takeIf { has("runtime_minutes") },
+        imdbId = optCleanString("imdb_id").ifBlank { null },
         genres = genresList,
         countries = countriesList,
         backdropUrl = backdropUrl,

@@ -19,6 +19,7 @@ data class WatchProgressDto(
     @SerializedName("series_provider_id") val seriesProviderId: String? = null,
     @SerializedName("season_number") val seasonNumber: Int? = null,
     @SerializedName("episode_number") val episodeNumber: Int? = null,
+    @SerializedName("imdb_id") val imdbId: String? = null,
     @SerializedName("last_watched_at") val lastWatchedAt: String? = null,
     @SerializedName("is_watched") val isWatched: Boolean? = null,
     val overview: String? = null,

@@ -133,6 +133,9 @@ class PlayerFragment : Fragment() {
         this.allSeriesEpisodes = allSeriesEpisodes
         this.currentEpisode = currentEpisode
         this.currentSeriesEpisode = currentEpisode
+        this.advancedToNext = false
+        this.currentSegments = null
+        this.segmentButtonsHidden = false
         this.streamOptionLabels = streamOptionLabels
         this.currentOptionIndex = currentOptionIndex
         this.liveOptionIndex = currentOptionIndex
@@ -187,6 +190,10 @@ class PlayerFragment : Fragment() {
     private lateinit var trackSelector: DefaultTrackSelector
 
     private var watchedMarked = false
+    private var advancedToNext = false
+    private var introDbRepository: IntroDbRepository? = null
+    private var currentSegments: IntroDbSegments? = null
+    private var segmentButtonsHidden = false
 
     private var errorState: PlaybackError? = null
     private var isRetrying: Boolean = false
@@ -238,6 +245,11 @@ class PlayerFragment : Fragment() {
         playerView.controllerShowTimeoutMs = VOD_CONTROLLER_TIMEOUT_MS
         playerView.controllerAutoShow = true
         playerView.requestFocus()
+
+        if (contentKind == ContentKind.SERIES) {
+            introDbRepository = (requireActivity().application as WalacApp).appComponent.introDbRepository
+            fetchIntroDbSegments()
+        }
 
         playerView.setShowNextButton(false)
         playerView.setShowPreviousButton(false)
@@ -503,6 +515,7 @@ class PlayerFragment : Fragment() {
         override fun run() {
             if (player != null && !isReleasing && isVodMode) {
                 updateVodTimeDisplay()
+                updateSkipButtons()
                 handler.postDelayed(this, 1000)
             }
         }
@@ -540,6 +553,7 @@ class PlayerFragment : Fragment() {
             nextBtn?.visibility = View.VISIBLE
             nextBtn?.setOnClickListener {
                 watchedMarked = false
+                advancedToNext = false
                 onNextEpisode?.invoke()
             }
         } else {
@@ -551,11 +565,14 @@ class PlayerFragment : Fragment() {
             prevBtn?.visibility = View.VISIBLE
             prevBtn?.setOnClickListener {
                 watchedMarked = false
+                advancedToNext = false
                 onPreviousEpisode?.invoke()
             }
         } else {
             prevBtn?.visibility = View.GONE
         }
+
+        bindSkipButtons()
 
         handler.removeCallbacks(timeUpdateRunnable)
         handler.post(timeUpdateRunnable)
@@ -651,7 +668,106 @@ class PlayerFragment : Fragment() {
         checkAndMarkWatched()
     }
 
-    // Nueva función — marca como visto si se ha llegado al 90%
+    private fun fetchIntroDbSegments() {
+        val episode = currentEpisode ?: return
+        val imdbId = episode.imdbId ?: return
+        val season = episode.seasonNumber ?: return
+        val ep = episode.episodeNumber ?: return
+        val repo = introDbRepository ?: return
+        segmentButtonsHidden = false
+        currentSegments = null
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val segments = repo.getSegments(imdbId, season, ep)
+            withContext(Dispatchers.Main) {
+                currentSegments = segments
+                Log.d(TAG, "IntroDB segments loaded: ${segments != null}")
+            }
+        }
+    }
+
+    private fun bindSkipButtons() {
+        val skipIntroBtn = playerView.findViewById<TextView>(R.id.skip_intro)
+        val skipRecapBtn = playerView.findViewById<TextView>(R.id.skip_recap)
+        val skipCreditsBtn = playerView.findViewById<TextView>(R.id.skip_credits)
+
+        skipIntroBtn?.setOnClickListener {
+            player?.let { p ->
+                val endMs = currentSegments?.intro?.endMs ?: return@setOnClickListener
+                segmentButtonsHidden = true
+                p.seekTo(endMs)
+            }
+        }
+
+        skipRecapBtn?.setOnClickListener {
+            player?.let { p ->
+                val endMs = currentSegments?.recap?.endMs ?: return@setOnClickListener
+                segmentButtonsHidden = true
+                p.seekTo(endMs)
+            }
+        }
+
+        skipCreditsBtn?.setOnClickListener {
+            player?.let { p ->
+                val endMs = currentSegments?.outro?.endMs ?: return@setOnClickListener
+                segmentButtonsHidden = true
+                p.seekTo(endMs)
+            }
+        }
+    }
+
+    private fun updateSkipButtons() {
+        if (segmentButtonsHidden) return
+        val segments = currentSegments ?: return
+        val exoPlayer = player ?: return
+        val position = exoPlayer.currentPosition
+        val isControllerVisible = playerView.isControllerFullyVisible
+
+        val overlay = playerView.findViewById<View>(R.id.skip_overlay) ?: return
+        val skipIntroBtn = playerView.findViewById<TextView>(R.id.skip_intro)
+        val skipRecapBtn = playerView.findViewById<TextView>(R.id.skip_recap)
+        val skipCreditsBtn = playerView.findViewById<TextView>(R.id.skip_credits)
+
+        val bufferMs = 3000L
+        var anyVisible = false
+
+        segments.intro?.let {
+            val endMs = it.endMs ?: return@let
+            if (position < endMs + bufferMs) {
+                skipIntroBtn?.visibility = View.VISIBLE
+                anyVisible = true
+            } else {
+                skipIntroBtn?.visibility = View.GONE
+            }
+        }
+
+        segments.recap?.let {
+            val endMs = it.endMs ?: return@let
+            if (position < endMs + bufferMs) {
+                skipRecapBtn?.visibility = View.VISIBLE
+                anyVisible = true
+            } else {
+                skipRecapBtn?.visibility = View.GONE
+            }
+        }
+
+        segments.outro?.let {
+            val startMs = it.startMs ?: return@let
+            if (position >= startMs) {
+                skipCreditsBtn?.visibility = View.VISIBLE
+                anyVisible = true
+            } else {
+                skipCreditsBtn?.visibility = View.GONE
+            }
+        }
+
+        if (isControllerVisible) {
+            overlay.visibility = View.VISIBLE
+        } else {
+            overlay.visibility = if (anyVisible) View.VISIBLE else View.GONE
+        }
+    }
+
     private fun checkAndMarkWatched() {
         if (watchedMarked || contentId.isBlank() || !isVodMode) return
         val exoPlayer = player ?: return
@@ -1711,7 +1827,17 @@ class PlayerFragment : Fragment() {
                     }
                 }
                 else -> {
-                    if (!isVodMode) {
+                    if (isVodMode) {
+                        if (!advancedToNext && !isReleasing && !isRetrying &&
+                            playbackState == Player.STATE_ENDED &&
+                            contentKind == ContentKind.SERIES && onNextEpisode != null
+                        ) {
+                            advancedToNext = true
+                            Log.d(TAG, "VOD STATE_ENDED: advancing to next episode")
+                            saveWatchProgress(forceSave = true)
+                            onNextEpisode?.invoke()
+                        }
+                    } else {
                         handler.removeCallbacks(positionWatchdog)
                         lastKnownPositionMs = Long.MIN_VALUE
                         stuckPositionCount = 0

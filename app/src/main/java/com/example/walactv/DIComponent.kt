@@ -20,6 +20,7 @@ interface AppComponent {
     val contentCacheManager: ContentCacheManager
     val channelStateStore: ChannelStateStore
     val homeViewModel: HomeViewModel
+    val introDbRepository: IntroDbRepository
 
     @Component.Factory
     interface Factory {

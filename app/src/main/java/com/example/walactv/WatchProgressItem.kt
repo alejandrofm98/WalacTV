@@ -12,6 +12,7 @@ data class WatchProgressItem(
     val seriesProviderId: String? = null,
     val seasonNumber: Int?,
     val episodeNumber: Int?,
+    val imdbId: String? = null,
     val lastWatchedAt: String,
     val isWatched: Boolean = false,
     val overview: String? = null,
