@@ -7,6 +7,8 @@ import com.example.walactv.BuildConfig
 import com.example.walactv.CatalogItem
 import com.example.walactv.ContentKind
 import com.example.walactv.StreamOption
+import com.example.walactv.cleanQualityLabels
+import com.example.walactv.extractQualityLabel
 
 @Entity(tableName = "channels", indices = [Index(value = ["nombreNormalizado"])])
 data class ChannelEntity(
@@ -59,10 +61,12 @@ fun ChannelEntity.toCatalogItem(username: String, password: String): CatalogItem
     val streamUrl = if (providerId.isNotBlank()) {
         buildChannelStreamUrl(providerId, username, password)
     } else ""
+    val cleanTitle = cleanQualityLabels(nombreNormalizado)
+    val quality = extractQualityLabel(nombreNormalizado)
     return CatalogItem(
         stableId = id,
         providerId = providerId,
-        title = nombreNormalizado,
+        title = cleanTitle,
         subtitle = "",
         description = "",
         imageUrl = logo,
@@ -71,7 +75,14 @@ fun ChannelEntity.toCatalogItem(username: String, password: String): CatalogItem
         badgeText = "",
         channelNumber = numero,
         countries = countries.parseCountryList(),
-        streamOptions = if (streamUrl.isNotBlank()) listOf(StreamOption(label = "Ver", url = streamUrl, providerId = providerId)) else emptyList()
+        streamOptions = if (streamUrl.isNotBlank()) listOf(
+            StreamOption(
+                label = nombreNormalizado,
+                url = streamUrl,
+                providerId = providerId,
+                quality = quality,
+            )
+        ) else emptyList()
     )
 }
 

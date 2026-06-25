@@ -20,6 +20,34 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
+internal val EVENT_QUALITY_ORDER = mapOf(
+    "UHD" to 7, "4K" to 6, "FHD" to 5, "HD" to 4, "SD" to 3,
+    "HEVC" to 3, "H265" to 3, "HQ" to 2, "LQ" to 1,
+)
+
+internal fun mergeChannelVariants(items: List<CatalogItem>): List<CatalogItem> {
+    val (channels, nonChannels) = items.partition { it.kind == ContentKind.CHANNEL }
+    Log.d("mergeChannels", "channels=${channels.size} nonChannels=${nonChannels.size}")
+    channels.forEachIndexed { i, c ->
+        Log.d("mergeChannels", "  channel[$i] title='${c.title}' group='${c.group}' stableId='${c.stableId}' streamOptions=${c.streamOptions.size}")
+    }
+    val merged = channels.groupBy { it.title to it.group }
+        .map { (key, groupItems) ->
+            Log.d("mergeChannels", "  group='$key' count=${groupItems.size}")
+            val representative = groupItems.first()
+            val mergedOptions = groupItems
+                .flatMap { it.streamOptions }
+                .distinctBy { it.url.takeIf { u -> u.isNotBlank() } ?: it.label }
+                .sortedWith(
+                    compareByDescending<StreamOption> { EVENT_QUALITY_ORDER[it.quality?.uppercase()?.trim()] ?: 0 }
+                        .thenBy { it.label }
+                )
+            representative.copy(streamOptions = mergedOptions)
+        }
+    Log.d("mergeChannels", "result=${nonChannels.size + merged.size} (${nonChannels.size} non + ${merged.size} merged)")
+    return nonChannels + merged
+}
+
 @Singleton
 class IptvRepository @Inject constructor(context: Context) {
 
@@ -459,22 +487,38 @@ class IptvRepository @Inject constructor(context: Context) {
         val user = CredentialStore.username()
         val pass = CredentialStore.password()
 
-        val streamOptions = dto.canalesResueltos
+        val resolvedCanales = dto.canalesResueltos
             .filter { !it.channelId.isNullOrBlank() || !it.providerId.isNullOrBlank() }
-            .distinctBy { it.channelId }
-            .map { canal ->
-                val url = if (!canal.streamUrl.isNullOrBlank()) {
-                    canal.streamUrl
-                } else {
-                    val streamId = canal.providerId?.takeIf { it.isNotBlank() } ?: canal.channelId
-                    "${BuildConfig.IPTV_BASE_URL}/live/$user/$pass/$streamId"
-                }
-                StreamOption(
-                    label = canal.sourceName ?: canal.displayName.orEmpty(),
-                    url = url,
-                    providerId = canal.providerId,
-                )
+            .sortedWith(
+                compareByDescending<CanalResueltoDto> { EVENT_QUALITY_ORDER[it.quality?.uppercase()?.trim()] ?: 0 }
+                    .thenBy { it.priority }
+            )
+            .distinctBy {
+                (it.channelId?.takeIf { c -> c.isNotBlank() } ?: it.providerId) to
+                    (it.quality?.uppercase()?.trim().orEmpty())
             }
+
+        val streamOptions = resolvedCanales.map { canal ->
+            val url = if (!canal.streamUrl.isNullOrBlank()) {
+                canal.streamUrl
+            } else {
+                val streamId = canal.providerId?.takeIf { it.isNotBlank() } ?: canal.channelId
+                "${BuildConfig.IPTV_BASE_URL}/live/$user/$pass/$streamId"
+            }
+            val base = (canal.displayName?.ifBlank { null } ?: canal.sourceName?.ifBlank { null }).orEmpty()
+            val quality = canal.quality?.trim().orEmpty()
+            val label = when {
+                quality.isBlank() -> base
+                base.contains(quality, ignoreCase = true) -> base
+                else -> "$base $quality"
+            }
+            StreamOption(
+                label = label,
+                url = url,
+                providerId = canal.providerId,
+                quality = canal.quality?.takeIf { it.isNotBlank() },
+            )
+        }
 
         if (streamOptions.isEmpty()) return null
 
@@ -489,7 +533,19 @@ class IptvRepository @Inject constructor(context: Context) {
         }
         val badgeText = dto.hora?.takeIf { it.isNotBlank() }.orEmpty()
         val imageUrl = dto.imagenEvento?.takeIf { it.isNotBlank() }.orEmpty()
-        val channelNames = dto.canalesOriginal.joinToString(" | ")
+        val channelNames = resolvedCanales
+            .map { c -> (c.displayName?.ifBlank { null } ?: c.sourceName?.ifBlank { null }).orEmpty() }
+            .map { cleanQualityLabels(it) }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase(Locale.ROOT) }
+            .joinToString(" | ")
+            .ifBlank {
+                dto.canalesOriginal
+                    .map { cleanQualityLabels(it) }
+                    .filter { it.isNotBlank() }
+                    .distinctBy { it.lowercase(Locale.ROOT) }
+                    .joinToString(" | ")
+            }
         val stableId = dto.id ?: "event_${dto.hora}_${dto.equipos}"
 
         return CatalogItem(
@@ -518,7 +574,12 @@ class IptvRepository @Inject constructor(context: Context) {
                 "channels" -> ContentKind.CHANNEL
                 else -> null
             }
-            val items = section.items.map { it.toCatalogItem(expectedKind) }
+            Log.d(TAG, "mapHome: section='${section.title}' contentType=$contentType expectedKind=$expectedKind items=${section.items.size}")
+            val mappedItems = section.items.map { it.toCatalogItem(expectedKind) }
+            val channelCount = mappedItems.count { it.kind == ContentKind.CHANNEL }
+            Log.d(TAG, "mapHome: section='${section.title}' channelCount=$channelCount of ${mappedItems.size}")
+            val items = if (channelCount > 0) mergeChannelVariants(mappedItems) else mappedItems
+            Log.d(TAG, "mapHome: section='${section.title}' afterMerge=${items.size}")
             val title = section.title.orEmpty()
             val sectionTitle = section.sectionTitle
                 ?: title.takeIf { t ->
@@ -658,8 +719,11 @@ class IptvRepository @Inject constructor(context: Context) {
             providerId = providerIdStr,
             title = tmdbTitleVal.ifBlank {
                 if (kind == ContentKind.CHANNEL) {
-                    channelDisplayName?.replace(Regex("^\\s*\\d{1,5}\\s+"), "")?.trim()
+                    val channelTitle = channelDisplayName?.replace(Regex("^\\s*\\d{1,5}\\s+"), "")?.trim()
                         .orEmpty().ifBlank { normalized.displayTitle }
+                    val cleaned = cleanQualityLabels(channelTitle)
+                    Log.d(TAG, "toCatalogItem CHANNEL: rawTitle='${rawTitle}' channelDisplayName='$channelDisplayName' channelTitle='$channelTitle' cleaned='$cleaned' kind=$kind expectedKind=$expectedKind")
+                    cleaned
                 } else {
                     normalized.displayTitle
                 }
@@ -692,8 +756,11 @@ class IptvRepository @Inject constructor(context: Context) {
                 ) +
                     streams.orEmpty().mapNotNull { s ->
                         s.url.takeIf { !it.isNullOrBlank() }?.let {
+                            val base = s.label ?: "Ver"
+                            val q = s.quality?.trim().orEmpty()
+                            val label = if (q.isBlank() || base.contains(q, ignoreCase = true)) base else "$base $q"
                             StreamOption(
-                                label = s.label ?: "Ver",
+                                label = label,
                                 url = it,
                                 providerId = s.providerId,
                                 language = s.country,

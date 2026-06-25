@@ -93,6 +93,14 @@ class PagedContentLoader(
                 Log.w(TAG, "loadPage($kind, page=$page): removed $removed duplicate items")
             }
 
+            if (kind == ContentKind.CHANNEL) {
+                val beforeMerge = cache.size
+                val merged = com.example.walactv.mergeChannelVariants(cache.toList())
+                cache.clear()
+                cache.addAll(merged)
+                Log.d(TAG, "loadPage($kind, page=$page): merged channels: $beforeMerge → ${cache.size}")
+            }
+
             loadedPages.add(page)
             Log.d(TAG, "loadPage($kind, page=$page): cache.size=${cache.size}, loadedPages=$loadedPages")
         } catch (e: Exception) {

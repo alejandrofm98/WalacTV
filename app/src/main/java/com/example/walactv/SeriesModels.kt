@@ -11,12 +11,12 @@ private val QUALITY_ORDER = mapOf(
     "UHD" to 7, "4K" to 6, "FHD" to 5, "HD" to 4, "SD" to 3, "HQ" to 2, "LQ" to 1,
 )
 
-private fun extractQualityLabel(title: String): String? {
+internal fun extractQualityLabel(title: String): String? {
     val match = QUALITY_REGEX.find(title) ?: return null
     return (match.groupValues[1].ifBlank { match.groupValues[2] }).uppercase().ifBlank { null }
 }
 
-private fun cleanQualityLabels(title: String): String {
+internal fun cleanQualityLabels(title: String): String {
     var cleaned = QUALITY_REGEX.replace(title, " ")
     cleaned = cleaned.replace(Regex("\\s*\\[\\s*\\]\\s*"), " ")
     cleaned = cleaned.replace(Regex("\\s*\\(\\s*\\)\\s*"), " ")
