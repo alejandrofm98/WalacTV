@@ -142,11 +142,7 @@ class IptvRepository @Inject constructor(context: Context) {
                 val eventsDeferred = async {
                     safeSectionLoad("eventos") { fetchEventSections() }
                 }
-                val remoteDeferred = async {
-                    runCatching { fetchRemoteHomeCatalog() }
-                        .onFailure { Log.e(TAG, "Fallo cargando home remota", it) }
-                        .getOrDefault(HomeCatalog(emptyList(), emptyList(), null))
-                }
+                val remoteDeferred = async { fetchRemoteHomeCatalog() }
 
                 val eventSections = eventsDeferred.await()
                     .map { s -> s.copy(items = resolveStreamTemplates(s.items)) }
@@ -157,7 +153,7 @@ class IptvRepository @Inject constructor(context: Context) {
                     searchableItems = (eventSections.flatMap(BrowseSection::items) + remote.searchableItems)
                         .distinctBy(CatalogItem::stableId),
                     favoriteItems = remote.favoriteItems,
-                ).also { memoryHomeCatalog = it }
+                ).also { if (remote.sections.isNotEmpty()) memoryHomeCatalog = it }
             }
         }
 

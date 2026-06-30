@@ -165,6 +165,8 @@ class HomeViewModel @Inject constructor(
                 if (results.any { it.isFailure }) {
                     _contentSyncState.value = ContentSyncState.ERROR
                     _contentSyncError.value = "Error al sincronizar contenido"
+                    if (!_isLoaded.value) _errorMessage.value = "Error al sincronizar contenido"
+                    return@launch
                 } else {
                     _currentSyncLabel.value = "Sincronización completada"
                     _currentSyncCount.value = 0
@@ -181,7 +183,7 @@ class HomeViewModel @Inject constructor(
                     _isLoaded.value = true
                 }
                 .onFailure {
-                    if (!_isLoaded.value) _errorMessage.value = it.message ?: "Error al cargar la aplicacion"
+                    _errorMessage.value = it.message ?: "Error al cargar la aplicacion"
                 }
         }
     }

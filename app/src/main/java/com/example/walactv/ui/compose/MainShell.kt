@@ -37,6 +37,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.example.walactv.BuildConfig
 import com.example.walactv.ComposeMainFragment
+import com.example.walactv.ComposeMainFragment.ContentSyncState
 import com.example.walactv.ComposeMainFragment.MainMode
 import com.example.walactv.ContentKind
 import com.example.walactv.R
@@ -52,11 +53,13 @@ internal fun ComposeRoot(fragment: ComposeMainFragment) {
     Box(modifier = Modifier.fillMaxSize().background(IptvBackground)) {
         with(fragment) {
             when {
-                mandatoryUpdate != null -> MandatoryUpdateScreen(fragment, mandatoryUpdate!!)
-                !isSignedIn             -> LoginScreen(fragment)
-                errorMessage != null    -> ErrorScreen(fragment, errorMessage.orEmpty())
-                !isLoaded               -> LoadingScreen()
-                else                    -> MainShell(fragment)
+                mandatoryUpdate != null                           -> MandatoryUpdateScreen(fragment, mandatoryUpdate!!)
+                !isSignedIn                                      -> LoginScreen(fragment)
+                errorMessage != null                             -> ErrorScreen(fragment, errorMessage.orEmpty())
+                contentSyncState == ContentSyncState.ERROR && !isLoaded ->
+                    ErrorScreen(fragment, contentSyncError ?: "Error al sincronizar contenido")
+                !isLoaded                                        -> LoadingScreen()
+                else                                             -> MainShell(fragment)
             }
         }
     }
@@ -332,7 +335,7 @@ internal fun ErrorScreen(fragment: ComposeMainFragment, message: String) {
             Spacer(Modifier.height(10.dp))
             Text(message, color = IptvTextMuted, fontSize = 18.sp)
             Spacer(Modifier.height(24.dp))
-            FocusButton(label = "Reintentar", icon = Icons.Outlined.PlayArrow) { fragment.viewModel.startLoad() }
+            FocusButton(label = "Reintentar", icon = Icons.Outlined.PlayArrow) { fragment.viewModel.startLoad(forceRefresh = true) }
         }
     }
 }
