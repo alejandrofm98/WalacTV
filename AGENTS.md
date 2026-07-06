@@ -188,6 +188,45 @@ El backend busca por UUID, tmdb_id O provider_id.
 - Cambios en dependencias: `./gradlew :app:build`
 - Cambios en playback: verificar en dispositivo con D-pad
 
+### Proceso de release a GitHub
+
+Para publicar una nueva version en GitHub Releases:
+
+1. **Bumpear version** en `app/build.gradle.kts` linea 20:
+   ```kotlin
+   val appVersionName = "X.YY"
+   ```
+   El `versionCode` se calcula automaticamente (`major * 100 + minor`).
+
+2. **Buildear APK release** (requiere signing configurado en `local.properties`):
+   ```bash
+   ./gradlew :app:assembleRelease
+   ```
+   El APK queda en `app/build/outputs/apk/release/app-release.apk`.
+   **IMPORTANTE**: subir siempre `app-release.apk`, nunca `app-debug.apk`.
+
+3. **Commitear y taggear**:
+   ```bash
+   git add app/build.gradle.kts
+   git commit -m "chore: bump version to X.YY"
+   git tag vX.YY
+   git push origin HEAD --tags
+   ```
+
+4. **Crear GitHub Release** con `gh`:
+   ```bash
+   gh release create vX.YY app/build/outputs/apk/release/app-release.apk \
+     --title "vX.YY" \
+     --notes "## vX.YY
+   ### Features
+   - ...
+   ### Bug fixes
+   - ..." \
+     --latest
+   ```
+   Los notes deben resumir los commits desde el tag anterior.
+   Usar `git log v{anterior}..HEAD --oneline --no-merges` para listarlos.
+
 ## 5. Guia de fuentes
 
 ### Layout y UI

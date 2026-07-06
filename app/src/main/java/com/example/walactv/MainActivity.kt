@@ -83,7 +83,15 @@ class MainActivity : FragmentActivity() {
         val fragmentManager = supportFragmentManager
         Log.d(TAG, "handleCentralizedBack: START backStackCount=${fragmentManager.backStackEntryCount}")
 
-        // ── 0. IME abierto (search) → cerrar sin navegar ─────────────────────
+        // ── 0. Search visible → cerrar búsqueda ───────────────────────────────
+        val searchFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? SearchFragment
+        if (searchFragment != null) {
+            Log.d(TAG, "handleCentralizedBack: SearchFragment visible, popping")
+            fragmentManager.popBackStack()
+            return true
+        }
+
+        // ── 1. IME abierto → cerrar sin navegar ──────────────────────────────
         val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
         val accepting = imm.isAcceptingText()
         val isActive = imm.isActive
@@ -96,7 +104,7 @@ class MainActivity : FragmentActivity() {
             return true
         }
 
-        // ── 1. Player visible → preguntar al fragment primero ────────────────
+        // ── 2. Player visible → preguntar al fragment primero ────────────────
         val container = findViewById<FrameLayout>(R.id.player_container)
         val playerFragment = fragmentManager.findFragmentByTag("player_fragment") as? PlayerFragment
         if (container != null && container.isVisible &&
@@ -125,14 +133,6 @@ class MainActivity : FragmentActivity() {
             return true
         }
 
-        // ── 2. Search visible → cerrar búsqueda ───────────────────────────────
-        val searchFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? SearchFragment
-        if (searchFragment != null) {
-            Log.d(TAG, "handleCentralizedBack: SearchFragment visible, popping")
-            fragmentManager.popBackStack()
-            return true
-        }
-
         // ── 3. Hay fragmentos en el back stack (SeriesDetail…) → pop ─────────
         if (fragmentManager.backStackEntryCount > 0) {
             Log.d(TAG, "handleCentralizedBack: popping back stack (count=${fragmentManager.backStackEntryCount})")
@@ -142,7 +142,7 @@ class MainActivity : FragmentActivity() {
             return true
         }
 
-        // ── 3. Sin player ni back stack → gestión de modos de navegación ─────
+        // ── 4. Sin player ni back stack → gestión de modos de navegación ─────
         val composeFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
             ?: run {
                 Log.d(TAG, "handleCentralizedBack: no ComposeMainFragment found")
