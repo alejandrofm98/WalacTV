@@ -28,7 +28,7 @@ import com.example.walactv.ui.compose.defaultItemForMode
 import com.example.walactv.ui.compose.ensureFiltersLoaded
 import com.example.walactv.ui.compose.handleCompletedUpdateDownload
 import com.example.walactv.ui.compose.restoreCachedUpdateState
-import com.example.walactv.ui.compose.startUpdateDownload
+import com.example.walactv.ui.compose.startUpdateFlowIfReady
 import com.example.walactv.ui.compose.upsertContinueWatchingEntry
 import com.example.walactv.ui.theme.WalacTVTheme
 import com.example.walactv.viewmodel.HomeViewModel
@@ -95,6 +95,7 @@ class ComposeMainFragment : Fragment() {
     internal var updateErrorMessage by mutableStateOf<String?>(null)
     internal var isCheckingUpdates by mutableStateOf(false)
     internal var isUpdateDownloading by mutableStateOf(false)
+    internal var hasCheckedForUpdates by mutableStateOf(false)
     internal var pendingInstallPermission by mutableStateOf(false)
 
     enum class ContentSyncState { IDLE, CHECKING, SYNCING, READY, ERROR }
@@ -138,6 +139,14 @@ class ComposeMainFragment : Fragment() {
         isSignedIn = repository.hasStoredCredentials()
         loginUsername = repository.currentUsername()
 
+        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        ContextCompat.registerReceiver(
+            requireContext(),
+            updateDownloadReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+
         observeViewModel()
 
         progressSavedCallback = { upsertContinueWatchingEntry(it) }
@@ -152,8 +161,9 @@ class ComposeMainFragment : Fragment() {
     }
 
     override fun onDestroyView() {
-        super.onDestroyView()
+        runCatching { requireContext().unregisterReceiver(updateDownloadReceiver) }
         progressSavedCallback = null
+        super.onDestroyView()
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -230,29 +240,13 @@ class ComposeMainFragment : Fragment() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-        ContextCompat.registerReceiver(
-            requireContext(),
-            updateDownloadReceiver,
-            filter,
-            ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
-    }
-
     override fun onResume() {
         super.onResume()
         if (pendingInstallPermission && canRequestPackageInstalls()) {
             pendingInstallPermission = false
-            startUpdateDownload(mandatoryUpdate ?: availableUpdate)
+            startUpdateFlowIfReady()
         }
         if (isSignedIn && isLoaded) viewModel.refreshEvents()
-    }
-
-    override fun onStop() {
-        runCatching { requireContext().unregisterReceiver(updateDownloadReceiver) }
-        super.onStop()
     }
 
     override fun onDestroy() {

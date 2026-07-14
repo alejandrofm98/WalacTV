@@ -71,6 +71,13 @@ private fun LoginField(value: String, label: String, hidden: Boolean, onValueCha
 @Composable
 internal fun MandatoryUpdateScreen(fragment: ComposeMainFragment, updateInfo: AppUpdateInfo) {
     val installed = fragment.installedAppVersion
+
+    LaunchedEffect(updateInfo.latestVersionCode) {
+        if (!fragment.isUpdateDownloading) {
+            fragment.startUpdateFlow(updateInfo)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier.width(700.dp).background(IptvSurface, RoundedCornerShape(12.dp))
@@ -85,11 +92,11 @@ internal fun MandatoryUpdateScreen(fragment: ComposeMainFragment, updateInfo: Ap
             Text(fragment.updateStatusMessage, color = IptvAccent, fontSize = 15.sp)
             fragment.updateErrorMessage?.let { Text(it, color = IptvLive, fontSize = 14.sp) }
             if (fragment.isUpdateDownloading) Text("La descarga esta en curso. Al terminar se abrira el instalador.", color = IptvTextMuted, fontSize = 14.sp)
-            FocusButton(label = if (fragment.isUpdateDownloading) "Descargando..." else "Descargar actualizacion", icon = Icons.Outlined.PlayArrow) {
-                if (!fragment.isUpdateDownloading) fragment.startUpdateFlow()
-            }
             FocusButton(label = if (fragment.isCheckingUpdates) "Comprobando..." else "Reintentar", icon = Icons.Outlined.History) {
-                if (!fragment.isCheckingUpdates) fragment.checkForAppUpdates(showToast = true)
+                if (!fragment.isCheckingUpdates) {
+                    fragment.hasCheckedForUpdates = false
+                    fragment.checkForAppUpdates(showToast = true)
+                }
             }
         }
     }

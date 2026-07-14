@@ -30,3 +30,5 @@ object PreferencesManager {
         return if (normalized in SUPPORTED_LANGUAGES) normalized else "ES"
     }
 }
+
+fun isAudioSelectorEnabled(audioTrackCount: Int): Boolean = audioTrackCount > 1

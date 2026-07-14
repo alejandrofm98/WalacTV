@@ -46,8 +46,7 @@ fun parseAppUpdateInfo(json: String, fetchedAtMillis: Long = System.currentTimeM
 
 fun evaluateAppUpdate(installed: InstalledAppVersion, remote: AppUpdateInfo): AppUpdateAvailability {
     return when {
-        installed.versionCode < remote.minSupportedCode -> AppUpdateAvailability.REQUIRED
-        installed.versionCode < remote.latestVersionCode -> AppUpdateAvailability.OPTIONAL
+        installed.versionCode < remote.latestVersionCode -> AppUpdateAvailability.REQUIRED
         else -> AppUpdateAvailability.UP_TO_DATE
     }
 }

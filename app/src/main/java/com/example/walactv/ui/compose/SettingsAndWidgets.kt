@@ -2,7 +2,6 @@ package com.example.walactv.ui.compose
 
 import android.util.Log
 import android.widget.ImageView
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,7 +46,6 @@ import com.example.walactv.InstalledAppVersion
 import com.example.walactv.PreferencesManager
 import com.example.walactv.evaluateAppUpdate
 import com.example.walactv.ui.theme.*
-import kotlinx.coroutines.launch
 
 // ── Settings screen ────────────────────────────────────────────────────────
 
@@ -59,8 +57,6 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
     val availableLanguages = listOf("ES" to "Español", "EN" to "Inglés")
     val installedVersionLabel = fragment.installedAppVersion?.let { it.versionName } ?: "Desconocida"
     val hasUpdate = fragment.availableUpdate?.let { evaluateAppUpdate(fragment.installedAppVersion ?: InstalledAppVersion("0", 0), it) != AppUpdateAvailability.UP_TO_DATE } == true
-    val updateActionLabel = when { fragment.isUpdateDownloading -> "Descargando..."; fragment.isCheckingUpdates -> "Comprobando..."; hasUpdate -> "Descargar actualización"; else -> "Buscar actualizaciones" }
-    val scope = rememberCoroutineScope()
     val firstFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(fragment.contentFocusTrigger) {
@@ -90,33 +86,20 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
             SettingsRow("Canales cargados", if (channelsCount >= 0) channelsCount.toString() else "...")
             fragment.updateErrorMessage?.let { Text(it, color = IptvLive, fontSize = 14.sp, modifier = Modifier.focusable()) }
             val update = fragment.availableUpdate
-            if (hasUpdate && update != null) Text("Ultima version: v${update.latestVersionName}", color = IptvAccent, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.focusable())
-            else if (update != null) Text("Actualizado a la ultima version", color = IptvOnline, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.focusable())
+            val statusText = when {
+                fragment.isUpdateDownloading -> "Descargando actualizacion..."
+                fragment.isCheckingUpdates -> "Buscando actualizaciones..."
+                hasUpdate && update != null -> "Nueva version disponible: v${update.latestVersionName}"
+                update != null -> "Aplicacion actualizada"
+                else -> "No comprobado"
+            }
+            Text(statusText, color = if (hasUpdate) IptvAccent else IptvOnline, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.focusable())
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val changelogText = update?.changelog
                 if (!changelogText.isNullOrBlank()) {
                     FocusButton(label = "Ver novedades", icon = Icons.Outlined.Info, modifier = Modifier.weight(1f)) { showChangelogDialog = true }
                 }
-                FocusButton(label = updateActionLabel, icon = Icons.Outlined.PlayArrow, modifier = Modifier.weight(1f)) {
-                    if (!fragment.isUpdateDownloading && !fragment.isCheckingUpdates) {
-                        scope.launch {
-                            fragment.isCheckingUpdates = true
-                            val remoteUpdate = runCatching { fragment.appUpdateRepository.fetchRemoteUpdate() }.getOrNull()
-                            if (remoteUpdate != null) { fragment.appUpdateRepository.cacheUpdate(remoteUpdate); fragment.availableUpdate = remoteUpdate }
-                            val installed = fragment.installedAppVersion
-                            val latest = remoteUpdate ?: fragment.availableUpdate
-                            fragment.isCheckingUpdates = false
-                            if (latest == null || installed == null || evaluateAppUpdate(installed, latest) == AppUpdateAvailability.UP_TO_DATE) {
-                                Toast.makeText(fragment.requireContext(), "Ya tienes la última versión instalada", Toast.LENGTH_SHORT).show()
-                            } else {
-                                fragment.startUpdateFlow()
-                            }
-                        }
-                    }
-                }
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                FocusButton(label = "Cerrar sesion", icon = Icons.Outlined.Settings) { fragment.performSignOut() }
+                FocusButton(label = "Cerrar sesion", icon = Icons.Outlined.Settings, modifier = Modifier.weight(1f)) { fragment.performSignOut() }
             }
         }
     }

@@ -7,15 +7,15 @@ import org.junit.Test
 class AppUpdateLogicTest {
 
     @Test
-    fun `parses valid remote update payload`() {
+    fun `parses valid GitHub release payload`() {
         val info = parseAppUpdateInfo(
             """
             {
-              "latestVersionName": "1.1.0",
-              "latestVersionCode": 5,
-              "minSupportedCode": 4,
-              "apkUrl": "https://example.com/WalacTV-1.1.0.apk",
-              "changelog": "Mejoras"
+              "tag_name": "v1.1.0",
+              "body": "Mejoras",
+              "assets": [
+                { "browser_download_url": "https://example.com/WalacTV-1.1.0.apk" }
+              ]
             }
             """.trimIndent(),
             fetchedAtMillis = 123L,
@@ -23,20 +23,38 @@ class AppUpdateLogicTest {
 
         requireNotNull(info)
         assertEquals("1.1.0", info.latestVersionName)
-        assertEquals(5, info.latestVersionCode)
-        assertEquals(4, info.minSupportedCode)
+        assertEquals(101, info.latestVersionCode)
+        assertEquals(1, info.minSupportedCode)
+        assertEquals("https://example.com/WalacTV-1.1.0.apk", info.apkUrl)
+        assertEquals("Mejoras", info.changelog)
         assertEquals(123L, info.fetchedAtMillis)
     }
 
     @Test
-    fun `rejects payload with invalid version ranges`() {
+    fun `rejects payload without tag name or apk`() {
         val info = parseAppUpdateInfo(
             """
             {
-              "latestVersionName": "1.1.0",
-              "latestVersionCode": 4,
-              "minSupportedCode": 5,
-              "apkUrl": "https://example.com/WalacTV-1.1.0.apk"
+              "body": "Mejoras",
+              "assets": [
+                { "browser_download_url": "https://example.com/WalacTV-1.1.0.zip" }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        assertNull(info)
+    }
+
+    @Test
+    fun `rejects payload with malformed version tag`() {
+        val info = parseAppUpdateInfo(
+            """
+            {
+              "tag_name": "v0",
+              "assets": [
+                { "browser_download_url": "https://example.com/WalacTV-0.apk" }
+              ]
             }
             """.trimIndent(),
         )
@@ -60,7 +78,7 @@ class AppUpdateLogicTest {
     }
 
     @Test
-    fun `returns optional when newer version exists but current is still supported`() {
+    fun `returns required when newer version exists`() {
         val installed = InstalledAppVersion(versionName = "1.0.0", versionCode = 4)
         val remote = AppUpdateInfo(
             latestVersionName = "1.1.0",
@@ -71,7 +89,7 @@ class AppUpdateLogicTest {
             fetchedAtMillis = 1L,
         )
 
-        assertEquals(AppUpdateAvailability.OPTIONAL, evaluateAppUpdate(installed, remote))
+        assertEquals(AppUpdateAvailability.REQUIRED, evaluateAppUpdate(installed, remote))
     }
 
     @Test

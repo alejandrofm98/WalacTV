@@ -21,13 +21,27 @@ internal fun ComposeMainFragment.restoreCachedUpdateState() {
     val cachedUpdate = appUpdateRepository.loadCachedUpdate() ?: return
     availableUpdate = cachedUpdate
     when (evaluateAppUpdate(installed, cachedUpdate)) {
-        AppUpdateAvailability.REQUIRED  -> { mandatoryUpdate = cachedUpdate; updateStatusMessage = "Actualizacion obligatoria disponible" }
-        AppUpdateAvailability.OPTIONAL  -> { mandatoryUpdate = null; updateStatusMessage = "Nueva version ${cachedUpdate.latestVersionName} disponible" }
-        AppUpdateAvailability.UP_TO_DATE -> { mandatoryUpdate = null; updateStatusMessage = "Aplicacion actualizada" }
+        AppUpdateAvailability.REQUIRED -> {
+            mandatoryUpdate = cachedUpdate
+            updateStatusMessage = "Actualizacion obligatoria disponible"
+            startUpdateFlowIfReady()
+        }
+        AppUpdateAvailability.UP_TO_DATE -> {
+            mandatoryUpdate = null
+            updateStatusMessage = "Aplicacion actualizada"
+        }
+        AppUpdateAvailability.OPTIONAL -> {
+            mandatoryUpdate = cachedUpdate
+            updateStatusMessage = "Actualizacion obligatoria disponible"
+            startUpdateFlowIfReady()
+        }
     }
 }
 
 internal fun ComposeMainFragment.checkForAppUpdates(showToast: Boolean = false) {
+    if (hasCheckedForUpdates || isUpdateDownloading) return
+    hasCheckedForUpdates = true
+
     scope.launch {
         isCheckingUpdates = true
         updateErrorMessage = null
@@ -37,6 +51,7 @@ internal fun ComposeMainFragment.checkForAppUpdates(showToast: Boolean = false) 
             updateStatusMessage = if (mandatoryUpdate != null) "Actualizacion obligatoria pendiente" else "No se pudo comprobar"
             if (showToast) Toast.makeText(requireContext(), updateStatusMessage, Toast.LENGTH_LONG).show()
             isCheckingUpdates = false
+            if (mandatoryUpdate != null) startUpdateFlowIfReady()
             return@launch
         }
 
@@ -44,18 +59,35 @@ internal fun ComposeMainFragment.checkForAppUpdates(showToast: Boolean = false) 
         availableUpdate = remoteUpdate
 
         when (evaluateAppUpdate(installedAppVersion ?: return@launch, remoteUpdate)) {
-            AppUpdateAvailability.REQUIRED  -> { mandatoryUpdate = remoteUpdate; updateStatusMessage = "Actualizacion obligatoria disponible" }
-            AppUpdateAvailability.OPTIONAL  -> { mandatoryUpdate = null; updateStatusMessage = "Nueva version ${remoteUpdate.latestVersionName} disponible" }
-            AppUpdateAvailability.UP_TO_DATE -> { mandatoryUpdate = null; updateStatusMessage = "Aplicacion actualizada" }
+            AppUpdateAvailability.REQUIRED -> {
+                mandatoryUpdate = remoteUpdate
+                updateStatusMessage = "Actualizacion obligatoria disponible"
+                startUpdateFlowIfReady()
+            }
+            AppUpdateAvailability.UP_TO_DATE -> {
+                mandatoryUpdate = null
+                updateStatusMessage = "Aplicacion actualizada"
+            }
+            AppUpdateAvailability.OPTIONAL -> {
+                mandatoryUpdate = remoteUpdate
+                updateStatusMessage = "Actualizacion obligatoria disponible"
+                startUpdateFlowIfReady()
+            }
         }
         if (showToast) Toast.makeText(requireContext(), updateStatusMessage, Toast.LENGTH_SHORT).show()
         isCheckingUpdates = false
     }
 }
 
-@SuppressLint("QueryPermissionsNeeded")
-internal fun ComposeMainFragment.startUpdateFlow() {
+internal fun ComposeMainFragment.startUpdateFlowIfReady() {
     val updateInfo = mandatoryUpdate ?: availableUpdate ?: return
+    if (isUpdateDownloading) return
+    startUpdateFlow(updateInfo)
+}
+
+@SuppressLint("QueryPermissionsNeeded")
+internal fun ComposeMainFragment.startUpdateFlow(updateInfo: AppUpdateInfo? = null) {
+    val info = updateInfo ?: mandatoryUpdate ?: availableUpdate ?: return
     if (!canRequestPackageInstalls()) {
         pendingInstallPermission = true
         updateStatusMessage = "Permite instalar apps desconocidas para continuar"
@@ -67,7 +99,7 @@ internal fun ComposeMainFragment.startUpdateFlow() {
         }
         return
     }
-    startUpdateDownload(updateInfo)
+    startUpdateDownload(info)
 }
 
 internal fun ComposeMainFragment.canRequestPackageInstalls(): Boolean =
