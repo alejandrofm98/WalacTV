@@ -59,7 +59,7 @@ class ComposeMainFragment : Fragment() {
     internal var homeSections by mutableStateOf<List<BrowseSection>>(emptyList())
     internal var continueWatchingSection by mutableStateOf<BrowseSection?>(null)
     internal var continueWatchingEntries by mutableStateOf<Map<String, WatchProgressItem>>(emptyMap())
-    internal var deleteContinueWatchingItem by mutableStateOf<CatalogItem?>(null)
+    internal var continueWatchingMenuItem by mutableStateOf<CatalogItem?>(null)
     internal var searchableItems by mutableStateOf<List<CatalogItem>>(emptyList())
     internal var channelLineup by mutableStateOf<List<CatalogItem>>(emptyList())
     internal var channelFilters by mutableStateOf(CatalogFilters())

@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.Fragment
 import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.bumptech.glide.Glide
@@ -65,9 +67,22 @@ class SeriesDetailFragment : Fragment() {
         private const val TAG = "SeriesDetailFragment"
         private const val PLAYER_FRAGMENT_TAG = "player_fragment"
         private const val ARG_SERIES_ITEM = "series_item"
+        private const val ARG_SERIES_ID = "series_id"
+        private const val ARG_INITIAL_SEASON = "initial_season"
+        private const val ARG_INITIAL_EPISODE = "initial_episode"
         
-        fun newInstance(item: CatalogItem) = SeriesDetailFragment().apply {
-            arguments = Bundle().apply { putString(ARG_SERIES_ITEM, Gson().toJson(item)) }
+        fun newInstance(
+            item: CatalogItem,
+            seriesId: String? = null,
+            initialSeason: Int? = null,
+            initialEpisode: Int? = null,
+        ) = SeriesDetailFragment().apply {
+            arguments = Bundle().apply {
+                putString(ARG_SERIES_ITEM, Gson().toJson(item))
+                if (!seriesId.isNullOrBlank()) putString(ARG_SERIES_ID, seriesId)
+                if (initialSeason != null) putInt(ARG_INITIAL_SEASON, initialSeason)
+                if (initialEpisode != null) putInt(ARG_INITIAL_EPISODE, initialEpisode)
+            }
         }
     }
 
@@ -80,14 +95,23 @@ class SeriesDetailFragment : Fragment() {
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val seriesItemJson = arguments?.getString(ARG_SERIES_ITEM)
         val catalogItem = if (seriesItemJson != null) Gson().fromJson(seriesItemJson, CatalogItem::class.java) else null
-        val seriesIdentifier = catalogItem?.catalogId ?: catalogItem?.seriesName ?: catalogItem?.title ?: ""
+        val seriesId = arguments?.getString(ARG_SERIES_ID)
+        val initialSeason = arguments?.getInt(ARG_INITIAL_SEASON)
+        val initialEpisode = arguments?.getInt(ARG_INITIAL_EPISODE)
+        val seriesIdentifier = seriesId?.ifBlank { null }
+            ?: catalogItem?.seriesName?.ifBlank { null }
+            ?: catalogItem?.title
+            ?: ""
 
-        Log.d(TAG, "SeriesDetailFragment: seriesIdentifier='$seriesIdentifier' catalogId=${catalogItem?.catalogId}")
+        Log.d(TAG, "SeriesDetailFragment: seriesIdentifier='$seriesIdentifier' seriesId=$seriesId initialSeason=$initialSeason initialEpisode=$initialEpisode")
         return ComposeView(requireContext()).apply {
             setContent {
                 WalacTVTheme {
                     SeriesDetailScreen(
                         seriesName = seriesIdentifier,
+                        seriesId = seriesId,
+                        initialSeason = initialSeason,
+                        initialEpisode = initialEpisode,
                         initialSeriesItem = catalogItem,
                         repository = repository,
                         onBack = { requireActivity().onBackPressedDispatcher.onBackPressed() }
@@ -189,6 +213,9 @@ class SeriesDetailFragment : Fragment() {
 @Composable
 fun SeriesDetailScreen(
     seriesName: String,
+    seriesId: String? = null,
+    initialSeason: Int? = null,
+    initialEpisode: Int? = null,
     initialSeriesItem: CatalogItem?,
     repository: IptvRepository,
     onBack: () -> Unit,
@@ -200,11 +227,18 @@ fun SeriesDetailScreen(
 
     val context = LocalContext.current
     val preferredLanguage = remember { PreferencesManager.getPreferredLanguageOrDefault() }
+    val loadKey = seriesId ?: seriesName
+    val backFocusRequester = remember { FocusRequester() }
+    val episodeFocusRequester = remember { FocusRequester() }
 
-    val allEpisodesState = produceState<List<CatalogItem>>(initialValue = emptyList(), seriesName) {
+    val allEpisodesState = produceState<List<CatalogItem>>(initialValue = emptyList(), loadKey) {
         try {
             loadError = null
-            val episodes = repository.loadSeriesEpisodes(seriesName)
+            val episodes = if (!seriesId.isNullOrBlank()) {
+                repository.loadSeriesEpisodesById(seriesId)
+            } else {
+                repository.loadSeriesEpisodes(seriesName)
+            }
             if (episodes.isEmpty()) {
                 loadError = "No se encontraron episodios para '$seriesName'"
             }
@@ -236,12 +270,46 @@ fun SeriesDetailScreen(
         uniqueEpisodes.mapNotNull { it.seasonNumber }.distinct().sorted()
     }
 
-    var selectedSeason by remember { mutableIntStateOf(seasons.firstOrNull() ?: 1) }
+    var selectedSeason by remember { mutableIntStateOf(initialSeason ?: seasons.firstOrNull() ?: 1) }
     val episodesListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val seasonsListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(seasons) {
-        selectedSeason = seasons.firstOrNull() ?: 1
+        if (initialSeason == null) {
+            selectedSeason = seasons.firstOrNull() ?: 1
+        }
+    }
+
+    LaunchedEffect(allEpisodes, initialSeason, initialEpisode) {
+        val episodes = allEpisodes.uniqueSeriesEpisodes(preferredLanguage)
+        if (episodes.isEmpty()) return@LaunchedEffect
+        if (initialSeason == null || initialEpisode == null) {
+            delay(50.milliseconds)
+            backFocusRequester.requestFocus()
+            return@LaunchedEffect
+        }
+        val targetIndex = episodes.indexOfFirst {
+            it.seasonNumber == initialSeason && it.episodeNumber == initialEpisode
+        }
+        if (targetIndex >= 0) {
+            selectedSeason = initialSeason
+            val seasonIndex = seasons.indexOf(initialSeason)
+            delay(50.milliseconds)
+            if (seasonIndex >= 0) seasonsListState.scrollToItem(seasonIndex)
+            episodesListState.scrollToItem(targetIndex)
+            runCatching { episodeFocusRequester.requestFocus() }
+            focusedEpisode = episodes[targetIndex]
+        } else {
+            backFocusRequester.requestFocus()
+        }
+    }
+
+    LaunchedEffect(selectedSeason) {
+        val seasonIndex = seasons.indexOf(selectedSeason)
+        if (seasonIndex >= 0) {
+            seasonsListState.scrollToItem(seasonIndex)
+        }
     }
 
     if (isLoading) {
@@ -326,6 +394,7 @@ fun SeriesDetailScreen(
             item {
                 Row(
                     modifier = Modifier
+                        .focusRequester(backFocusRequester)
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
                         .tvClickable { onBack() }
                         .padding(8.dp),
@@ -401,6 +470,7 @@ fun SeriesDetailScreen(
             if (seasons.isNotEmpty()) {
                 item {
                     androidx.compose.foundation.lazy.LazyRow(
+                        state = seasonsListState,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -422,7 +492,7 @@ fun SeriesDetailScreen(
                                         selectedSeason = season
                                         val idx = uniqueEpisodes.indexOfFirst { it.seasonNumber == season }
                                         if (idx >= 0) {
-                                            coroutineScope.launch { episodesListState.animateScrollToItem(idx) }
+                                            coroutineScope.launch { episodesListState.scrollToItem(idx) }
                                         }
                                     }
                                     .background(
@@ -446,6 +516,7 @@ fun SeriesDetailScreen(
                     items(uniqueEpisodes, key = { it.stableId }) { ep ->
                         val epContentId = ep.providerId ?: ep.stableId
                         val wp = progressMap[epContentId] ?: progressMap[epContentId.substringAfterLast(":")]
+                        val isInitial = ep.seasonNumber == initialSeason && ep.episodeNumber == initialEpisode
                         EpisodeCard(
                             item = ep,
                             watchProgress = wp,
@@ -456,7 +527,8 @@ fun SeriesDetailScreen(
                                 if (epSeason != selectedSeason) {
                                     selectedSeason = epSeason
                                 }
-                            }
+                            },
+                            modifier = if (isInitial) Modifier.focusRequester(episodeFocusRequester) else Modifier,
                         )
                     }
                 }
@@ -471,6 +543,7 @@ fun EpisodeCard(
     watchProgress: WatchProgressItem? = null,
     onClick: () -> Unit,
     onFocus: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
@@ -479,7 +552,7 @@ fun EpisodeCard(
     val hasProgress = progressPercent in 1..99 && !isWatched
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(240.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
             .onFocusChanged { 

@@ -100,6 +100,7 @@ internal fun ComposeMainFragment.buildContinueWatchingItem(
         description = matched.description.cleanDisplayText().ifBlank { wp.title },
         imageUrl = matched.imageUrl.ifBlank { wp.imageUrl },
         seriesName = matched.seriesName.cleanDisplayText().ifBlank { wp.seriesName.orEmpty() }.ifBlank { null },
+        seriesProviderId = wp.seriesProviderId,
     ) ?: wp.toCatalogItemFallback(
         stableId = fallbackStableId,
         subtitle = subtitle,
@@ -130,6 +131,7 @@ private fun WatchProgressItem.toCatalogItemFallback(
         group = "Continuar viendo",
         badgeText = if (kind == ContentKind.MOVIE) "Pelicula" else "Serie",
         seriesName = seriesName,
+        seriesProviderId = seriesProviderId,
         seasonNumber = seasonNumber,
         episodeNumber = episodeNumber,
         streamOptions = emptyList(),
@@ -293,7 +295,7 @@ internal fun ComposeMainFragment.defaultItemForMode(
 internal fun ComposeMainFragment.openSearch() {
     isRailExpanded = false
     requireActivity().supportFragmentManager.beginTransaction()
-        .replace(R.id.main_browse_fragment, SearchFragment.newInstance(searchableItems))
+        .add(R.id.main_browse_fragment, SearchFragment.newInstance(searchableItems))
         .addToBackStack("SearchFragment")
         .commit()
 }

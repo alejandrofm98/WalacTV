@@ -137,8 +137,6 @@ class MainActivity : FragmentActivity() {
         if (fragmentManager.backStackEntryCount > 0) {
             Log.d(TAG, "handleCentralizedBack: popping back stack (count=${fragmentManager.backStackEntryCount})")
             fragmentManager.popBackStack()
-            val composeFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
-            composeFragment?.onSearchBackPressed()
             return true
         }
 

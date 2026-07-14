@@ -74,6 +74,38 @@ internal fun ComposeMainFragment.openContinueWatchingItem(cardItem: CatalogItem,
     }
 }
 
+internal fun ComposeMainFragment.openContinueWatchingFromStart(cardItem: CatalogItem, progress: WatchProgressItem) {
+    openContinueWatchingItem(cardItem, progress.copy(positionMs = 0L))
+}
+
+internal fun ComposeMainFragment.openContinueWatchingDetails(cardItem: CatalogItem, progress: WatchProgressItem) {
+    rememberPlaybackReturnState(cardItem)
+    when (progress.contentType) {
+        "movie" -> {
+            val fragment = MovieDetailFragment.newInstance(cardItem)
+            requireActivity().supportFragmentManager.beginTransaction()
+                .replace(R.id.main_browse_fragment, fragment)
+                .addToBackStack("MovieDetailFragment")
+                .commit()
+        }
+        "series" -> {
+            val seriesId = cardItem.seriesProviderId?.ifBlank { null }
+                ?: progress.seriesProviderId?.ifBlank { null }
+            val fragment = SeriesDetailFragment.newInstance(
+                item = cardItem,
+                seriesId = seriesId,
+                initialSeason = progress.seasonNumber,
+                initialEpisode = progress.episodeNumber,
+            )
+            requireActivity().supportFragmentManager.beginTransaction()
+                .replace(R.id.main_browse_fragment, fragment)
+                .addToBackStack("SeriesDetailFragment")
+                .commit()
+        }
+        else -> Log.w(TAG, "Unsupported continue watching type for details: ${progress.contentType}")
+    }
+}
+
 private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: CatalogItem, progress: WatchProgressItem) {
     val item = try {
         repository.fetchContentItem(ContentKind.MOVIE, progress.contentId)
@@ -320,6 +352,67 @@ internal fun ComposeMainFragment.launchPlayerFragment(playerFragment: PlayerFrag
     container.isFocusable = true
     container.isFocusableInTouchMode = true
     runCatching { container.requestFocus() }
+}
+
+internal fun ComposeMainFragment.markContinueWatchingAsWatched(cardItem: CatalogItem, progress: WatchProgressItem) {
+    val normalizedId = cardItem.providerId.orEmpty().ifBlank { cardItem.stableId.substringAfterLast(":") }.substringAfterLast(":")
+    setPendingFocusAfterCwRemoval(cardItem.stableId)
+    scope.launch {
+        val success = try {
+            watchProgressRepo.markAsWatched(normalizedId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error marking as watched $normalizedId", e)
+            false
+        }
+        withContext(Dispatchers.Main) {
+            if (success) {
+                Toast.makeText(requireContext(), R.string.cw_mark_watched_success, Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(requireContext(), R.string.cw_mark_watched_error, Toast.LENGTH_SHORT).show()
+            }
+        }
+        loadContinueWatching()
+    }
+}
+
+internal fun ComposeMainFragment.clearContinueWatchingProgress(cardItem: CatalogItem) {
+    val normalizedId = cardItem.providerId.orEmpty().ifBlank { cardItem.stableId.substringAfterLast(":") }.substringAfterLast(":")
+    setPendingFocusAfterCwRemoval(cardItem.stableId)
+    removeContinueWatchingLocally(contentId = normalizedId)
+    scope.launch {
+        try { watchProgressRepo.deleteProgress(normalizedId) }
+        catch (e: Exception) { Log.e(TAG, "deleteProgress error $normalizedId", e) }
+        loadContinueWatching()
+    }
+}
+
+private fun ComposeMainFragment.setPendingFocusAfterCwRemoval(removedStableId: String) {
+    val cwSection = continueWatchingSection
+    val cwItems = cwSection?.items
+    if (!cwItems.isNullOrEmpty()) {
+        val removedIndex = cwItems.indexOfFirst { it.stableId == removedStableId }
+        val nextCwItem = when {
+            removedIndex in 0 until cwItems.lastIndex -> cwItems[removedIndex + 1]
+            removedIndex == cwItems.lastIndex && cwItems.size > 1 -> cwItems[removedIndex - 1]
+            else -> null
+        }
+        if (nextCwItem != null) {
+            pendingFocusItem = nextCwItem
+            pendingFocusTrigger++
+            return
+        }
+    }
+
+    val fallbackItem = homeSections
+        .filter { it.title != "Continuar viendo" }
+        .firstNotNullOfOrNull { it.items.firstOrNull() }
+    if (fallbackItem != null) {
+        pendingFocusItem = fallbackItem
+        pendingFocusTrigger++
+    } else {
+        pendingFocusItem = null
+        pendingFocusTrigger++
+    }
 }
 
 // ── Channel navigation ─────────────────────────────────────────────────────

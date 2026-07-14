@@ -79,6 +79,14 @@ interface IptvApiService {
         @Query("password") password: String? = null,
     ): Response<SeriesEpisodesResponse>
 
+    @GET("api/series/by-id/{series_id}/episodes")
+    suspend fun getSeriesEpisodesById(
+        @Path("series_id") seriesId: String,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 100,
+        @Query("password") password: String? = null,
+    ): Response<SeriesEpisodesResponse>
+
     // Search
     @GET("api/search")
     suspend fun search(

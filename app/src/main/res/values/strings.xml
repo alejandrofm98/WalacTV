@@ -53,4 +53,11 @@
     <string name="skip_intro">Saltar introduccion</string>
     <string name="skip_recap">Saltar resumen</string>
     <string name="skip_credits">Saltar creditos</string>
+    <string name="cw_menu_title">Opciones</string>
+    <string name="cw_menu_go_to_details">Ir a detalles</string>
+    <string name="cw_menu_play_from_start">Empezar desde el principio</string>
+    <string name="cw_menu_mark_watched">Marcar como vista</string>
+    <string name="cw_menu_clear_progress">Limpiar progreso</string>
+    <string name="cw_mark_watched_error">No se pudo marcar como vista</string>
+    <string name="cw_mark_watched_success">Marcada como vista</string>
 </resources>

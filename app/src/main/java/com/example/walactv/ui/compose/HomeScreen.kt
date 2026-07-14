@@ -74,6 +74,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -87,6 +88,8 @@ import com.example.walactv.BrowseSection
 import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
+import com.example.walactv.R
+import com.example.walactv.WatchProgressItem
 import com.example.walactv.isVodContent
 import com.example.walactv.preferredCardImageUrl
 import com.example.walactv.preferredVodPosterUrl
@@ -272,34 +275,18 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         }
     }
 
-    fragment.deleteContinueWatchingItem?.let { item ->
-        val isSeries = item.kind == ContentKind.SERIES
-        DeleteConfirmationOverlay(
-            item = item, isSeries = isSeries,
-            onDismiss = { fragment.deleteContinueWatchingItem = null },
-            onConfirm = {
-                val normalizedId = item.providerId.orEmpty().ifBlank { item.stableId.orEmpty().substringAfterLast(":") }.substringAfterLast(":")
-                val remaining = fragment.continueWatchingSection?.items?.filter { it.stableId != item.stableId }
-                val nextFocus = remaining?.firstOrNull()
-                    ?: fragment.homeSections.firstOrNull { it.title != "Continuar viendo" }?.items?.firstOrNull()
-
-                fragment.removeContinueWatchingLocally(contentId = normalizedId)
-
-                if (nextFocus != null) {
-                    fragment.pendingFocusItem = nextFocus
-                    fragment.pendingFocusTrigger++
-                } else if (fragment.homeSections.isNotEmpty()) {
-                    fragment.pendingFocusItem = null
-                    fragment.pendingFocusTrigger++
-                }
-                fragment.deleteContinueWatchingItem = null
-                fragment.scope.launch {
-                    try { fragment.watchProgressRepo.deleteProgress(normalizedId) }
-                    catch (e: Exception) { Log.e(ComposeMainFragment.TAG, "deleteProgress error $normalizedId", e) }
-                    fragment.loadContinueWatching()
-                }
-            },
-        )
+    fragment.continueWatchingMenuItem?.let { item ->
+        val progress = fragment.continueWatchingEntries[item.stableId]
+        if (progress != null) {
+            ContinueWatchingOptionsMenu(
+                fragment = fragment,
+                item = item,
+                progress = progress,
+                onDismiss = { fragment.continueWatchingMenuItem = null },
+            )
+        } else {
+            fragment.continueWatchingMenuItem = null
+        }
     }
 }
 
@@ -838,7 +825,7 @@ internal fun ContentSection(
                                 fragment.rememberHomeFocus(sectionIndex, section.title, focusedItem, index)
                                 onFocused(focusedItem)
                             },
-                            onDeleteRequest = { fragment.deleteContinueWatchingItem = it },
+                            onMenuRequest = { fragment.continueWatchingMenuItem = it },
                         )
                     } else {
                         val wp = cwLookup[item]
@@ -1219,7 +1206,7 @@ internal fun ContinueWatchingCard(
     timeRemainingText: String? = null,
     episodeBadge: String? = null,
     onFocused: (CatalogItem) -> Unit,
-    onDeleteRequest: (CatalogItem) -> Unit,
+    onMenuRequest: (CatalogItem) -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
@@ -1264,7 +1251,7 @@ internal fun ContinueWatchingCard(
                             val elapsed = event.nativeKeyEvent.eventTime - keyDownMillis
                             if (elapsed >= 800L) {
                                 consumeClick = true
-                                onDeleteRequest(item)
+                                onMenuRequest(item)
                                 true
                             } else {
                                 consumeClick = false
@@ -1366,24 +1353,26 @@ internal fun ContinueWatchingCard(
     }
 }
 
-// ── Delete confirmation dialog ─────────────────────────────────────────────
+// ── Continue watching options menu ─────────────────────────────────────────
 
 @Composable
-internal fun DeleteConfirmationOverlay(
+internal fun ContinueWatchingOptionsMenu(
+    fragment: ComposeMainFragment,
     item: CatalogItem,
-    isSeries: Boolean,
+    progress: WatchProgressItem,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
 ) {
-    val dialogMessage = if (isSeries)
-        "¿Quieres eliminar toda la serie \"${item.seriesName ?: item.title}\" de tu historial de reproducción?"
-    else
-        "¿Quieres eliminar \"${item.title}\" de tu historial de reproducción?"
+    val options = listOf(
+        stringResource(R.string.cw_menu_go_to_details),
+        stringResource(R.string.cw_menu_play_from_start),
+        stringResource(R.string.cw_menu_mark_watched),
+        stringResource(R.string.cw_menu_clear_progress),
+    )
 
-                    val focusRequester = remember { FocusRequester() }
-                    var selectedButton by remember { mutableIntStateOf(2) }
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(focusRequester) {
+    LaunchedEffect(Unit) {
         delay(50.milliseconds)
         try { focusRequester.requestFocus() } catch (_: Exception) {}
     }
@@ -1393,16 +1382,32 @@ internal fun DeleteConfirmationOverlay(
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
     ) {
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
                 .focusRequester(focusRequester)
                 .focusable()
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (event.key) {
-                        Key.DirectionLeft  -> { selectedButton = 1; true }
-                        Key.DirectionRight -> { selectedButton = 2; true }
+                        Key.DirectionUp -> {
+                            selectedIndex = (selectedIndex - 1).coerceAtLeast(0)
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            selectedIndex = (selectedIndex + 1).coerceAtMost(options.lastIndex)
+                            true
+                        }
                         Key.DirectionCenter,
-                        Key.Enter -> { when (selectedButton) { 1 -> onDismiss(); 2 -> onConfirm() }; true }
+                        Key.Enter -> {
+                            when (selectedIndex) {
+                                0 -> fragment.openContinueWatchingDetails(item, progress)
+                                1 -> fragment.openContinueWatchingFromStart(item, progress)
+                                2 -> fragment.markContinueWatchingAsWatched(item, progress)
+                                3 -> fragment.clearContinueWatchingProgress(item)
+                            }
+                            onDismiss()
+                            true
+                        }
                         Key.Back,
                         Key.Escape -> { onDismiss(); true }
                         else -> false
@@ -1412,35 +1417,56 @@ internal fun DeleteConfirmationOverlay(
         ) {
             Box(
                 modifier = Modifier
-                    .width(420.dp)
+                    .width(380.dp)
                     .background(Color(0xFF1A1A2E), RoundedCornerShape(16.dp))
                     .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(16.dp))
-                    .padding(28.dp),
+                    .padding(24.dp),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("Eliminar de Continuar viendo", color = IptvTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text(dialogMessage, color = IptvTextMuted, fontSize = 14.sp, lineHeight = 20.sp)
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        stringResource(R.string.cw_menu_title),
+                        color = IptvTextPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        item.title,
+                        color = IptvTextMuted,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    options.forEachIndexed { index, label ->
+                        val isSelected = index == selectedIndex
                         Box(
                             modifier = Modifier
+                                .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (selectedButton == 1) IptvFocusBg else Color.Transparent)
-                                .border(if (selectedButton == 1) 2.dp else 0.dp, if (selectedButton == 1) IptvFocusBorder else Color.Transparent, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 18.dp, vertical = 10.dp)
-                                .tvClickable { onDismiss() },
+                                .background(if (isSelected) IptvFocusBg else Color.Transparent)
+                                .border(
+                                    width = if (isSelected) 2.dp else 0.dp,
+                                    color = if (isSelected) IptvFocusBorder else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                                .tvClickable {
+                                    val currentProgress = progress ?: return@tvClickable
+                                    when (index) {
+                                        0 -> fragment.openContinueWatchingDetails(item, currentProgress)
+                                        1 -> fragment.openContinueWatchingFromStart(item, currentProgress)
+                                        2 -> fragment.markContinueWatchingAsWatched(item, currentProgress)
+                                        3 -> fragment.clearContinueWatchingProgress(item)
+                                    }
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                         ) {
-                            Text("Cancelar", color = if (selectedButton == 1) IptvTextPrimary else IptvTextMuted, fontSize = 14.sp)
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selectedButton == 2) IptvLive.copy(alpha = 0.8f) else IptvLive)
-                                .border(if (selectedButton == 2) 2.dp else 0.dp, if (selectedButton == 2) IptvTextPrimary else Color.Transparent, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 18.dp, vertical = 10.dp)
-                                .tvClickable { onConfirm() },
-                        ) {
-                            Text("Eliminar", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                label,
+                                color = if (isSelected) IptvTextPrimary else IptvTextMuted,
+                                fontSize = 15.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            )
                         }
                     }
                 }

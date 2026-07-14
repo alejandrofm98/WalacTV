@@ -398,6 +398,48 @@ class IptvRepository @Inject constructor(context: Context) {
             resolved
         }
 
+    suspend fun loadSeriesEpisodesById(seriesId: String): List<CatalogItem> =
+        withContext(Dispatchers.IO) {
+            if (seriesId.isBlank()) {
+                Log.w(TAG, "loadSeriesEpisodesById: seriesId is blank, returning empty")
+                return@withContext emptyList()
+            }
+            Log.d(TAG, "loadSeriesEpisodesById: loading episodes for seriesId='$seriesId'")
+            val items = mutableListOf<CatalogItem>()
+            var page = 1
+            do {
+                val response = try {
+                    apiService.getSeriesEpisodesById(
+                        seriesId = seriesId,
+                        page = page,
+                        pageSize = 100,
+                        password = CredentialStore.password().ifBlank { null },
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "loadSeriesEpisodesById: HTTP error for '$seriesId' page $page: ${e.message}")
+                    break
+                }
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "loadSeriesEpisodesById: HTTP ${response.code()} for '$seriesId' page $page")
+                    break
+                }
+                val body = response.body()
+                val dtos = if (body != null) {
+                    body.items.ifEmpty { body.episodes }
+                } else {
+                    emptyList()
+                }
+                val parsed = dtos.map { it.toCatalogItem(ContentKind.SERIES) }
+                Log.d(TAG, "loadSeriesEpisodesById: page $page returned ${parsed.size} items")
+                items += parsed
+                page++
+                if (parsed.size < 100) break
+            } while (true)
+            val resolved = resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
+            Log.d(TAG, "loadSeriesEpisodesById: total ${resolved.size} episodes after deduplication")
+            resolved
+        }
+
     // ── Content pagination for home sections ───────────────────────────────────
 
     suspend fun loadContentPage(
