@@ -32,6 +32,9 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE nombreNormalizado LIKE '%' || :query || '%' AND countries LIKE '%' || :country || '%' AND grupoNormalizado = :group ORDER BY numero ASC LIMIT 100")
     suspend fun searchByCountryAndGroup(query: String, country: String, group: String): List<ChannelEntity>
 
+    @Query("SELECT * FROM channels WHERE id = :id")
+    suspend fun getById(id: String): ChannelEntity?
+
     @Query("SELECT * FROM channels WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<String>): List<ChannelEntity>
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -718,11 +719,11 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
 
 @Composable
 internal fun DiscoverContent(fragment: ComposeMainFragment) {
-    var selectedTab by remember { mutableStateOf(ContentKind.MOVIE) }
+    var selectedTab by rememberSaveable { mutableStateOf(ContentKind.MOVIE) }
     val gridColumns = 5
-    var selectedCountry by remember { mutableStateOf(ALL_OPTION) }
-    var selectedGenre by remember { mutableStateOf(ALL_OPTION) }
-    var searchQuery by remember { mutableStateOf("") }
+    var selectedCountry by rememberSaveable { mutableStateOf(ALL_OPTION) }
+    var selectedGenre by rememberSaveable { mutableStateOf(ALL_OPTION) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var showTypeDialog by remember { mutableStateOf(false) }
     var showCountryDialog by remember { mutableStateOf(false) }
     var showGenreDialog by remember { mutableStateOf(false) }
@@ -733,16 +734,10 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
         CatalogFilterOption(ContentKind.SERIES.name, "Series"),
     )
 
-    val loader = remember(selectedTab) {
-        PagedContentLoader(
-            fragment.contentCacheManager,
-            fragment.repository,
-            selectedTab
-        )
-    }
-    var displayItems by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
-    var totalCount by remember { mutableIntStateOf(0) }
-    var currentPage by remember { mutableIntStateOf(0) }
+    val loader = fragment.discoverLoaders.getValue(selectedTab)
+    var displayItems by remember { mutableStateOf(loader.getDisplayItems()) }
+    var totalCount by remember { mutableIntStateOf(loader.getTotalCount()) }
+    var currentPage by rememberSaveable { mutableIntStateOf(0) }
     var isLoadingPage by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     val pageSize = 50
@@ -770,13 +765,25 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
         }
     }
 
-    LaunchedEffect(selectedTab, selectedCountry) { selectedGenre = ALL_OPTION }
+    // Only reset genre when the country/tab filter actually changes, not on restoration.
+    var previousFilterKey by remember { mutableStateOf(selectedTab to selectedCountry) }
+    LaunchedEffect(selectedTab, selectedCountry) {
+        val newKey = selectedTab to selectedCountry
+        if (newKey != previousFilterKey) {
+            selectedGenre = ALL_OPTION
+            previousFilterKey = newKey
+        }
+    }
 
-    var lastLoadKey by remember { mutableStateOf("") }
+    var lastLoadKey by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(selectedTab, selectedCountry, selectedGenre, searchQuery) {
         val key = "$selectedTab|$selectedCountry|$selectedGenre|$searchQuery"
-        if (key == lastLoadKey) return@LaunchedEffect
+        Log.d("DiscoverFocus", "load effect: key=$key lastLoadKey=$lastLoadKey loaderItems=${loader.getDisplayItems().size}")
+        if (key == lastLoadKey && loader.getDisplayItems().isNotEmpty()) {
+            Log.d("DiscoverFocus", "load effect: skipping (key matches, loader has items)")
+            return@LaunchedEffect
+        }
         Log.d("DiscoverContent", "filter changed: key=$key, reloading")
         loader.clear(); currentPage = 0; isLoadingPage = false
         if (searchQuery.isNotBlank()) {
@@ -835,18 +842,60 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     }
 
     val displayItemsForGrid = remember(displayItems) { displayItems }
+    val previousRequesters = remember { mutableListOf<FocusRequester>() }
     val itemFocusRequesters = remember(displayItemsForGrid.size) {
-        List(displayItemsForGrid.size) { FocusRequester() }
+        val newList = MutableList(displayItemsForGrid.size) { FocusRequester() }
+        for (i in previousRequesters.indices) {
+            if (i < newList.size) {
+                newList[i] = previousRequesters[i]
+            }
+        }
+        previousRequesters.clear()
+        previousRequesters.addAll(newList)
+        newList
     }
 
     LaunchedEffect(fragment.contentFocusTrigger) {
-        if (fragment.contentFocusTrigger == 0 || displayItemsForGrid.isEmpty()) return@LaunchedEffect
+        Log.d("DiscoverFocus", "contentFocusTrigger effect FIRED: trigger=${fragment.contentFocusTrigger} displayItemsSize=${displayItemsForGrid.size} loaderSize=${loader.getDisplayItems().size} focusedId=${fragment.discoverFocusedItemStableId} forceFocus=$forceFocusFirstItem locked=${fragment.discoverFocusLocked}")
+        // Unlock focus updates now that we're back in Discover composition.
+        fragment.discoverFocusLocked = false
+        if (fragment.contentFocusTrigger == 0) return@LaunchedEffect
         if (forceFocusFirstItem) return@LaunchedEffect
-        Log.d("MainShellFocus", "discover contentFocusTrigger searchQuery='$searchQuery' -> focusing first item")
-        runCatching {
-            lazyGridState.scrollToItem(0)
-            delay(80.milliseconds)
-            itemFocusRequesters.firstOrNull()?.requestFocus()
+        // Give the grid time to lay out before scrolling/requesting focus.
+        delay(300.milliseconds)
+        // Re-read items from the loader to avoid stale composition captures.
+        val items = loader.getDisplayItems()
+        Log.d("DiscoverFocus", "after delay: loaderItems=${items.size} displayItemsForGrid=${displayItemsForGrid.size}")
+        if (items.isEmpty()) return@LaunchedEffect
+        val focusedStableId = fragment.discoverFocusedItemStableId
+        val index = focusedStableId?.let { id ->
+            items.indexOfFirst { it.stableId == id }
+        } ?: -1
+        Log.d("DiscoverFocus", "focus restore: focusedId=$focusedStableId index=$index itemsSize=${items.size} requestersSize=${itemFocusRequesters.size}")
+        if (index >= 0) {
+            for (attempt in 1..4) {
+                try {
+                    Log.d("DiscoverFocus", "attempt $attempt: scrollToItem($index)")
+                    lazyGridState.scrollToItem(index)
+                    delay((100 * attempt).milliseconds)
+                    val fr = itemFocusRequesters.getOrNull(index)
+                    Log.d("DiscoverFocus", "attempt $attempt: requester=${fr != null} gridFirstVisible=${lazyGridState.firstVisibleItemIndex} gridTotal=${lazyGridState.layoutInfo.totalItemsCount}")
+                    if (fr != null) {
+                        fr.requestFocus()
+                        Log.d("DiscoverFocus", "discover focus RESTORED: index=$index id=$focusedStableId on attempt $attempt")
+                        break
+                    }
+                } catch (e: Exception) {
+                    Log.w("DiscoverFocus", "discover focus restore FAILED attempt $attempt: ${e.message}")
+                }
+            }
+        } else {
+            Log.d("DiscoverFocus", "discover no saved focus, focusing first item")
+            runCatching {
+                lazyGridState.scrollToItem(0)
+                delay(80.milliseconds)
+                itemFocusRequesters.firstOrNull()?.requestFocus()
+            }
         }
     }
 
@@ -942,6 +991,10 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
                         modifier = Modifier.focusRequester(itemFocusRequesters[index]),
                         narrowCard = true,
                         onFocused = {
+                            if (!fragment.discoverFocusLocked) {
+                                fragment.discoverFocusedItemStableId = item.stableId
+                            }
+                            Log.d("DiscoverFocus", "onFocused: index=$index stableId=${item.stableId} title=${item.title} locked=${fragment.discoverFocusLocked}")
                             fragment.contentFocusCanOpenRail = index % gridColumns == 0
                             fragment.selectedHero = item
                         }) {
@@ -977,6 +1030,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
                 displayItems = emptyList()
                 currentPage = 0
                 lastLoadKey = ""
+                fragment.discoverFocusedItemStableId = null
             }
             showTypeDialog = false
         },

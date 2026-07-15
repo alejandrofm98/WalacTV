@@ -29,15 +29,8 @@ class PagedContentLoader(
     fun isCurrentlyLoading(): Boolean = isLoading
 
     suspend fun loadPage(page: Int, country: String?, group: String? = null, genre: String? = null) {
-        if (loadedPages.contains(page)) {
-            Log.d(TAG, "loadPage($kind, page=$page): already loaded, skipping")
-            return
-        }
-        if (isLoading) {
-            Log.w(TAG, "loadPage($kind, page=$page): another load in progress, skipping")
-            return
-        }
-
+        // Check filter change FIRST: if the country/genre changed, the cached pages are
+        // stale, so clear loadedPages before the "already loaded" short-circuit below.
         if (country != lastCountry || genre != lastGenre) {
             Log.d(TAG, "loadPage($kind, page=$page): filter changed (country: $lastCountry→$country, genre: $lastGenre→$genre), clearing cache")
             cache.clear()
@@ -45,6 +38,15 @@ class PagedContentLoader(
             lastCountry = country
             lastGenre = genre
             isSearchMode = false
+        }
+
+        if (loadedPages.contains(page)) {
+            Log.d(TAG, "loadPage($kind, page=$page): already loaded, skipping")
+            return
+        }
+        if (isLoading) {
+            Log.w(TAG, "loadPage($kind, page=$page): another load in progress, skipping")
+            return
         }
 
         isLoading = true
@@ -163,6 +165,31 @@ class PagedContentLoader(
                 else -> 0
             }
         }
+    }
+
+    suspend fun loadUntilFound(targetStableId: String, country: String?, group: String?): Int {
+        clear()
+        refreshTotalCount(country, group)
+        if (totalCount <= 0) return -1
+
+        var page = 0
+        val maxPages = (totalCount + pageSize - 1) / pageSize
+        while (page < maxPages) {
+            if (isCurrentlyLoading()) {
+                kotlinx.coroutines.delay(50)
+                continue
+            }
+            loadPage(page, country, group)
+            val index = cache.indexOfFirst { it.stableId == targetStableId }
+            if (index >= 0) {
+                Log.d(TAG, "loadUntilFound($targetStableId): found at index $index on page $page")
+                return index
+            }
+            if (cache.isEmpty()) break
+            page++
+        }
+        Log.d(TAG, "loadUntilFound($targetStableId): not found within $maxPages pages")
+        return -1
     }
 
     fun clear() {

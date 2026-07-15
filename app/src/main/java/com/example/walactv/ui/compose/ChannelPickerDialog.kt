@@ -1,22 +1,25 @@
 package com.example.walactv.ui.compose
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.LiveTv
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +35,7 @@ import com.example.walactv.CatalogItem
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.ContentKind
 import com.example.walactv.local.PagedContentLoader
+import com.example.walactv.local.parseCountryList
 import com.example.walactv.ui.theme.*
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -41,6 +45,8 @@ import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
 private const val ALL_OPTION = "Todos"
+private const val FAVORITES_VALUE = "__favs__"
+private const val TAG = "ChannelPickerDialog"
 
 @Composable
 internal fun ChannelPickerDialog(
@@ -56,13 +62,15 @@ internal fun ChannelPickerDialog(
     onChannelSelected: (CatalogItem) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var selectedCountryIndex by remember { mutableIntStateOf(0) }
+    var selectedGroupIndex by remember { mutableIntStateOf(0) }
     var selectedIndex by remember { mutableIntStateOf(0) }
     var activePanel by remember { mutableIntStateOf(2) }
 
     val channelListState = rememberLazyListState()
     val groupListState = rememberLazyListState()
-    val listFocusRequester = remember { FocusRequester() }
-    val groupFocusRequester = remember { FocusRequester() }
+    val countryListState = rememberLazyListState()
+    val dialogFocusRequester = remember { FocusRequester() }
     val dialogScope = rememberCoroutineScope()
 
     val loader = remember { PagedContentLoader(fragment.contentCacheManager, fragment.repository, ContentKind.CHANNEL) }
@@ -70,6 +78,7 @@ internal fun ChannelPickerDialog(
     var currentPage by remember { mutableIntStateOf(0) }
     var isLoadingPage by remember { mutableStateOf(false) }
     var totalCount by remember { mutableIntStateOf(0) }
+    var isInitialLoading by remember { mutableStateOf(false) }
     val pageSize = 50
 
     val countryOptions = remember(fragment.channelFilters) {
@@ -85,43 +94,126 @@ internal fun ChannelPickerDialog(
         val country = currentCountry.takeUnless { it == ALL_OPTION }
         val groups = if (country != null) {
             fragment.contentCacheManager.getChannelsByCountry(country)
-                .distinctBy { it.grupoNormalizado }.filter { it.grupoNormalizado.isNotBlank() }
+                .distinctBy { it.grupoNormalizado }
+                .filter { it.grupoNormalizado.isNotBlank() }
                 .map { CatalogFilterOption(it.grupoNormalizado, it.grupoNormalizado) }
         } else {
-            fragment.channelFilters.groups.distinctBy { it.value }.filter { it.value != "Favorites" && it.value != "Favoritos" }
+            fragment.channelFilters.groups
+                .distinctBy { it.value }
+                .filter { it.value != "Favorites" && it.value != "Favoritos" }
         }
         groupOptions = buildList {
             add(CatalogFilterOption(ALL_OPTION, "Todas las categorías"))
-            add(CatalogFilterOption("__favs__", "⭐ Favoritos"))
+            add(CatalogFilterOption(FAVORITES_VALUE, "⭐ Favoritos"))
             addAll(groups)
         }
     }
 
-    LaunchedEffect(currentCountry, currentGroup, searchQuery, showFavorites) {
-        loader.clear(); currentPage = 0; isLoadingPage = false
-        when {
-            searchQuery.isNotBlank() -> {
-                val country = currentCountry.takeUnless { it == ALL_OPTION }
-                val group = currentGroup.takeUnless { it == ALL_OPTION }
-                loader.loadSearch(searchQuery, country, group); displayChannels = loader.getDisplayItems(); totalCount = displayChannels.size
+    LaunchedEffect(countryOptions, currentCountry) {
+        selectedCountryIndex = countryOptions.indexOfFirst { it.value == currentCountry }.coerceAtLeast(0)
+    }
+
+    LaunchedEffect(groupOptions, currentGroup, showFavorites) {
+        selectedGroupIndex = groupOptions.indexOfFirst { option ->
+            when (option.value) {
+                FAVORITES_VALUE -> showFavorites
+                ALL_OPTION -> !showFavorites && currentGroup == ALL_OPTION
+                else -> !showFavorites && currentGroup == option.value
             }
-            showFavorites -> {
-                val favs = runCatching { fragment.repository.loadFavoriteChannels() }.getOrDefault(emptyList())
-                displayChannels = favs.sortedBy { it.channelNumber ?: Int.MAX_VALUE }; totalCount = displayChannels.size
+        }.coerceAtLeast(0)
+    }
+
+    suspend fun performLoad() {
+        try {
+            loader.clear(); currentPage = 0; isLoadingPage = false
+            when {
+                searchQuery.isNotBlank() -> {
+                    val country = currentCountry.takeUnless { it == ALL_OPTION }
+                    val group = currentGroup.takeUnless { it == ALL_OPTION }
+                    loader.loadSearch(searchQuery, country, group)
+                    displayChannels = loader.getDisplayItems()
+                    totalCount = displayChannels.size
+                }
+                showFavorites -> {
+                    val favs = runCatching { fragment.repository.loadFavoriteChannels() }.getOrDefault(emptyList())
+                    displayChannels = favs.sortedBy { it.channelNumber ?: Int.MAX_VALUE }
+                    totalCount = displayChannels.size
+                }
+                else -> {
+                    val country = currentCountry.takeUnless { it == ALL_OPTION }
+                    val group = currentGroup.takeUnless { it == ALL_OPTION }
+                    loader.refreshTotalCount(country, group)
+                    totalCount = loader.getTotalCount()
+                    val currentChannel = fragment.currentItem
+                    if (currentChannel != null && currentChannel.kind == ContentKind.CHANNEL) {
+                        val foundIndex = loader.loadUntilFound(currentChannel.stableId, country, group)
+                        if (foundIndex >= 0) {
+                            selectedIndex = foundIndex
+                            activePanel = 2
+                        } else {
+                            loader.loadPage(0, country, group)
+                            selectedIndex = 0
+                        }
+                    } else {
+                        loader.loadPage(0, country, group)
+                        selectedIndex = 0
+                    }
+                    displayChannels = loader.getDisplayItems()
+                }
             }
-            else -> {
-                val country = currentCountry.takeUnless { it == ALL_OPTION }
-                val group = currentGroup.takeUnless { it == ALL_OPTION }
-                loader.refreshTotalCount(country, group); totalCount = loader.getTotalCount()
-                loader.loadPage(0, country, group); displayChannels = loader.getDisplayItems()
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "performLoad failed", e)
+            displayChannels = emptyList()
+            totalCount = 0
+        } finally {
+            isInitialLoading = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        isInitialLoading = true
+        if (fragment.currentItem?.kind == ContentKind.CHANNEL) {
+            val currentChannel = fragment.currentItem ?: return@LaunchedEffect
+            val entity = fragment.contentCacheManager.getChannelById(currentChannel.stableId)
+            if (entity != null) {
+                val channelCountries = entity.countries.parseCountryList()
+                val targetCountry = channelCountries.firstOrNull { c -> countryOptions.any { it.value == c } } ?: ALL_OPTION
+                val targetGroup = entity.grupoNormalizado.takeIf { it.isNotBlank() } ?: ALL_OPTION
+                if (currentCountry != targetCountry) {
+                    onCountryChange(targetCountry)
+                }
+                if (currentGroup != targetGroup && targetCountry != ALL_OPTION) {
+                    onGroupChange(targetGroup)
+                }
+                if (showFavorites) onFavoritesChange(false)
             }
         }
-        selectedIndex = fragment.currentItem?.let { c -> displayChannels.indexOfFirst { it.stableId == c.stableId }.coerceAtLeast(0) } ?: 0
+        dialogScope.launch {
+            delay(80.milliseconds)
+            dialogFocusRequester.requestFocus()
+        }
+    }
+
+    LaunchedEffect(currentCountry, currentGroup, searchQuery, showFavorites) {
+        performLoad()
     }
 
     LaunchedEffect(selectedIndex, displayChannels.size) {
         if (selectedIndex in displayChannels.indices) {
-            delay(10.milliseconds); channelListState.scrollToItem(selectedIndex)
+            delay(10.milliseconds)
+            channelListState.scrollToItem(selectedIndex)
+        }
+    }
+
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotBlank()) selectedIndex = 0
+    }
+
+    LaunchedEffect(activePanel) {
+        when (activePanel) {
+            0 -> if (countryOptions.isNotEmpty()) countryListState.scrollToItem(selectedCountryIndex)
+            1 -> if (groupOptions.isNotEmpty()) groupListState.scrollToItem(selectedGroupIndex)
+            2 -> if (selectedIndex in displayChannels.indices) channelListState.scrollToItem(selectedIndex)
         }
     }
 
@@ -142,49 +234,166 @@ internal fun ChannelPickerDialog(
             }
     }
 
-    val panelBg = Color(0xFF0D0D1E).copy(alpha = 0.92f)
-    val activePanelBg = Color(0xFF13132B).copy(alpha = 0.96f)
-    val selectedItemBg = Color(0xFF2A2A6E).copy(alpha = 0.85f)
-    val dividerColor = Color(0xFF2D2D60).copy(alpha = 0.6f)
+    val panelBg = IptvSurface.copy(alpha = 0.92f)
+    val activePanelBg = IptvCard.copy(alpha = 0.96f)
+    val selectedItemBg = IptvFocusBg.copy(alpha = 0.55f)
+    val dividerColor = IptvSurfaceVariant.copy(alpha = 0.7f)
     val accentColor = IptvAccent
-    val borderGlow = Color(0xFF4444AA).copy(alpha = 0.5f)
+
+    val alphaCountry = animateFloatAsState(targetValue = if (activePanel == 0) 1f else 0.85f, label = "countryAlpha")
+    val alphaGroup = animateFloatAsState(targetValue = if (activePanel == 1) 1f else 0.85f, label = "groupAlpha")
+    val alphaChannels = animateFloatAsState(targetValue = if (activePanel == 2) 1f else 0.85f, label = "channelsAlpha")
 
     Box(
-        modifier = Modifier.fillMaxSize(0.90f)
-            .background(Color(0xFF080818).copy(alpha = 0.88f), RoundedCornerShape(16.dp))
-            .border(1.dp, borderGlow, RoundedCornerShape(16.dp)),
+        modifier = Modifier
+            .fillMaxSize(0.92f)
+            .shadow(24.dp, RoundedCornerShape(20.dp), clip = false)
+            .background(IptvBackground.copy(alpha = 0.95f), RoundedCornerShape(20.dp))
+            .border(2.dp, IptvSurfaceVariant, RoundedCornerShape(20.dp))
+            .focusRequester(dialogFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (activePanel) {
+                    0 -> when (event.key) {
+                        Key.DirectionUp -> {
+                            if (selectedCountryIndex > 0) selectedCountryIndex--
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            if (selectedCountryIndex < countryOptions.size - 1) selectedCountryIndex++
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            activePanel = 1
+                            true
+                        }
+                        Key.Enter, Key.DirectionCenter -> {
+                            countryOptions.getOrNull(selectedCountryIndex)?.let { option ->
+                                onCountryChange(option.value)
+                                onGroupChange(ALL_OPTION)
+                                onFavoritesChange(false)
+                                selectedGroupIndex = 0
+                                activePanel = 1
+                            }
+                            true
+                        }
+                        Key.Back, Key.Escape -> {
+                            onDismiss()
+                            true
+                        }
+                        else -> false
+                    }
+                    1 -> when (event.key) {
+                        Key.DirectionUp -> {
+                            if (selectedGroupIndex > 0) selectedGroupIndex--
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            if (selectedGroupIndex < groupOptions.size - 1) selectedGroupIndex++
+                            true
+                        }
+                        Key.DirectionLeft -> {
+                            activePanel = 0
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            activePanel = 2
+                            true
+                        }
+                        Key.Enter, Key.DirectionCenter -> {
+                            groupOptions.getOrNull(selectedGroupIndex)?.let { option ->
+                                if (option.value == FAVORITES_VALUE) {
+                                    onFavoritesChange(true)
+                                } else {
+                                    onFavoritesChange(false)
+                                    onGroupChange(option.value)
+                                }
+                                selectedIndex = 0
+                            }
+                            true
+                        }
+                        Key.Back, Key.Escape -> {
+                            activePanel = 0
+                            true
+                        }
+                        else -> false
+                    }
+                    2 -> when (event.key) {
+                        Key.DirectionUp -> {
+                            if (selectedIndex > 0) selectedIndex--
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            if (selectedIndex < displayChannels.size - 1) selectedIndex++
+                            true
+                        }
+                        Key.DirectionLeft -> {
+                            activePanel = 1
+                            true
+                        }
+                        Key.Enter, Key.DirectionCenter -> {
+                            displayChannels.getOrNull(selectedIndex)?.let { onChannelSelected(it) }
+                            true
+                        }
+                        Key.Back, Key.Escape -> {
+                            onDismiss()
+                            true
+                        }
+                        else -> false
+                    }
+                    else -> false
+                }
+            },
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
             // Country panel
             Column(
-                modifier = Modifier.width(200.dp).fillMaxHeight()
-                    .background(if (activePanel == 0) activePanelBg else panelBg, RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
+                modifier = Modifier
+                    .width(220.dp)
+                    .fillMaxHeight()
+                    .background(activePanelBg.copy(alpha = alphaCountry.value), RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp))
+                    .border(
+                        width = if (activePanel == 0) 2.dp else 0.dp,
+                        color = if (activePanel == 0) accentColor.copy(alpha = 0.6f) else Color.Transparent,
+                        shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp)
+                    )
             ) {
-                Box(modifier = Modifier.fillMaxWidth().background(Color(0xFF1A1A40).copy(alpha = 0.7f), RoundedCornerShape(topStart = 16.dp)).padding(horizontal = 16.dp, vertical = 14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("🌍", fontSize = 16.sp)
-                        Text("País", color = if (activePanel == 0) accentColor else IptvTextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                PanelHeader(
+                    title = "País",
+                    isActive = activePanel == 0,
+                    shape = RoundedCornerShape(topStart = 20.dp),
+                    icon = {
+                        Icon(
+                            Icons.Outlined.Public,
+                            contentDescription = null,
+                            tint = if (activePanel == 0) IptvAccent else IptvTextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-                }
+                )
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(dividerColor))
-                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    items(countryOptions, key = { "c_${it.value}" }) { option ->
-                        val isSelected = currentCountry == option.value
-                        Box(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) selectedItemBg else Color.Transparent)
-                                .border(if (isSelected) 1.dp else 0.dp, if (isSelected) accentColor.copy(alpha = 0.5f) else Color.Transparent, RoundedCornerShape(8.dp))
-                                .clickable {
-                                    onCountryChange(option.value); onGroupChange(ALL_OPTION); onFavoritesChange(false); activePanel = 1
-                                    dialogScope.launch { delay(50.milliseconds); runCatching { groupFocusRequester.requestFocus() } }
-                                }
-                                .padding(horizontal = 12.dp, vertical = 9.dp)
-                        ) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                if (isSelected) Box(modifier = Modifier.size(6.dp).background(accentColor, RoundedCornerShape(50))) else Spacer(modifier = Modifier.size(6.dp))
-                                Text(option.label, color = if (isSelected) IptvTextPrimary else IptvTextMuted, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                LazyColumn(
+                    state = countryListState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(countryOptions, key = { _, item -> "c_${item.value}" }) { index, option ->
+                        val isSelected = index == selectedCountryIndex
+                        PanelListItem(
+                            label = option.label,
+                            isSelected = isSelected,
+                            isActivePanel = activePanel == 0,
+                            onClick = {
+                                selectedCountryIndex = index
+                                onCountryChange(option.value)
+                                onGroupChange(ALL_OPTION)
+                                onFavoritesChange(false)
+                                selectedGroupIndex = 0
+                                activePanel = 1
                             }
-                        }
+                        )
                     }
                 }
             }
@@ -192,33 +401,53 @@ internal fun ChannelPickerDialog(
             Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(dividerColor))
 
             // Category panel
-            Column(modifier = Modifier.width(210.dp).fillMaxHeight().background(if (activePanel == 1) activePanelBg else panelBg)) {
-                Box(modifier = Modifier.fillMaxWidth().background(Color(0xFF1A1A40).copy(alpha = 0.7f)).padding(horizontal = 16.dp, vertical = 14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("📂", fontSize = 16.sp)
-                        Text("Categoría", color = if (activePanel == 1) accentColor else IptvTextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Column(
+                modifier = Modifier
+                    .width(240.dp)
+                    .fillMaxHeight()
+                    .background(activePanelBg.copy(alpha = alphaGroup.value))
+                    .border(
+                        width = if (activePanel == 1) 2.dp else 0.dp,
+                        color = if (activePanel == 1) accentColor.copy(alpha = 0.6f) else Color.Transparent,
+                        shape = RoundedCornerShape(0.dp)
+                    )
+            ) {
+                PanelHeader(
+                    title = "Categoría",
+                    isActive = activePanel == 1,
+                    icon = {
+                        Text(
+                            "📂",
+                            fontSize = 18.sp,
+                            modifier = Modifier.padding(end = 2.dp)
+                        )
                     }
-                }
+                )
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(dividerColor))
-                LazyColumn(state = groupListState, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    items(groupOptions, key = { "g_${it.value}" }) { option ->
-                        val isSelected = if (option.value == "__favs__") showFavorites else (!showFavorites && currentGroup == option.value)
-                        Box(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) selectedItemBg else Color.Transparent)
-                                .border(if (isSelected) 1.dp else 0.dp, if (isSelected) accentColor.copy(alpha = 0.5f) else Color.Transparent, RoundedCornerShape(8.dp))
-                                .clickable {
-                                    if (option.value == "__favs__") onFavoritesChange(true) else { onFavoritesChange(false); onGroupChange(option.value) }
-                                    selectedIndex = 0; activePanel = 2
-                                    dialogScope.launch { delay(50.milliseconds); runCatching { listFocusRequester.requestFocus() } }
+                LazyColumn(
+                    state = groupListState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(groupOptions, key = { _, item -> "g_${item.value}" }) { index, option ->
+                        val isSelected = index == selectedGroupIndex
+                        PanelListItem(
+                            label = option.label,
+                            isSelected = isSelected,
+                            isActivePanel = activePanel == 1,
+                            onClick = {
+                                selectedGroupIndex = index
+                                if (option.value == FAVORITES_VALUE) {
+                                    onFavoritesChange(true)
+                                } else {
+                                    onFavoritesChange(false)
+                                    onGroupChange(option.value)
                                 }
-                                .padding(horizontal = 12.dp, vertical = 9.dp)
-                        ) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                if (isSelected) Box(modifier = Modifier.size(6.dp).background(accentColor, RoundedCornerShape(50))) else Spacer(modifier = Modifier.size(6.dp))
-                                Text(option.label, color = if (isSelected) IptvTextPrimary else IptvTextMuted, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                selectedIndex = 0
+                                activePanel = 2
                             }
-                        }
+                        )
                     }
                 }
             }
@@ -227,68 +456,236 @@ internal fun ChannelPickerDialog(
 
             // Channels panel
             Column(
-                modifier = Modifier.weight(1f).fillMaxHeight()
-                    .background(if (activePanel == 2) activePanelBg else panelBg, RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(activePanelBg.copy(alpha = alphaChannels.value), RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
+                    .border(
+                        width = if (activePanel == 2) 2.dp else 0.dp,
+                        color = if (activePanel == 2) accentColor.copy(alpha = 0.6f) else Color.Transparent,
+                        shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp)
+                    )
             ) {
-                Box(modifier = Modifier.fillMaxWidth().background(Color(0xFF1A1A40).copy(alpha = 0.7f), RoundedCornerShape(topEnd = 16.dp)).padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(IptvSurfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(topEnd = 20.dp))
+                        .padding(horizontal = 18.dp, vertical = 14.dp)
+                ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = if (activePanel == 2) accentColor else IptvTextSecondary, modifier = Modifier.size(16.dp))
-                        Text("Canales", color = if (activePanel == 2) accentColor else IptvTextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = if (activePanel == 2) accentColor else IptvTextSecondary, modifier = Modifier.size(18.dp))
+                        Text("Canales", color = if (activePanel == 2) IptvTextPrimary else IptvTextSecondary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.weight(1f))
-                        Text(if (searchQuery.isNotBlank()) "${displayChannels.size}" else if (showFavorites) "${displayChannels.size} ⭐" else "$totalCount", color = IptvTextMuted, fontSize = 11.sp)
+                        val countText = when {
+                            searchQuery.isNotBlank() -> "${displayChannels.size} resultados"
+                            showFavorites -> "${displayChannels.size} ⭐"
+                            else -> "$totalCount canales"
+                        }
+                        Text(countText, color = IptvTextMuted, fontSize = 12.sp)
                     }
                 }
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(dividerColor))
-                Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth().focusable()
-                        .onFocusChanged { if (it.hasFocus) activePanel = 2 }
-                        .onPreviewKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            when (event.key) {
-                                Key.DirectionUp    -> { if (selectedIndex > 0) selectedIndex--; true }
-                                Key.DirectionDown  -> { if (selectedIndex < displayChannels.size - 1) selectedIndex++; true }
-                                Key.DirectionLeft  -> { activePanel = 1; true }
-                                Key.Enter, Key.DirectionCenter -> { displayChannels.getOrNull(selectedIndex)?.let { onChannelSelected(it) }; true }
-                                Key.Back, Key.Escape -> { onDismiss(); true }
-                                else -> false
-                            }
+                if (isInitialLoading) {
+                    Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                        Text("Cargando guía...", color = IptvTextMuted, fontSize = 16.sp)
+                    }
+                } else if (displayChannels.isEmpty() && !isLoadingPage) {
+                    Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                        Text(
+                            if (searchQuery.isNotBlank()) "Sin resultados" else "No hay canales disponibles",
+                            color = IptvTextMuted,
+                            fontSize = 16.sp
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        state = channelListState,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(displayChannels.size, key = { displayChannels[it].stableId }) { index ->
+                            val item = displayChannels[index]
+                            ChannelListItem(
+                                item = item,
+                                isHighlighted = index == selectedIndex,
+                                isPlaying = fragment.currentItem?.stableId == item.stableId,
+                                onClick = { onChannelSelected(item) }
+                            )
                         }
-                ) {
-                    if (displayChannels.isEmpty() && !isLoadingPage) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(if (searchQuery.isNotBlank()) "Sin resultados" else "No hay canales disponibles", color = IptvTextMuted, fontSize = 14.sp)
-                        }
-                    } else {
-                        LazyColumn(state = channelListState, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            items(displayChannels.size, key = { displayChannels[it].stableId }) { index ->
-                                val item = displayChannels[index]
-                                val isHighlighted = index == selectedIndex
-                                val isPlaying = fragment.currentItem?.stableId == item.stableId
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                                        .background(when { isPlaying && isHighlighted -> accentColor.copy(alpha = 0.28f); isPlaying -> accentColor.copy(alpha = 0.14f); isHighlighted -> selectedItemBg; else -> Color.Transparent })
-                                        .border(if (isPlaying || isHighlighted) 1.dp else 0.dp, when { isPlaying -> accentColor.copy(alpha = 0.7f); isHighlighted -> IptvFocusBorder.copy(alpha = 0.6f); else -> Color.Transparent }, RoundedCornerShape(8.dp))
-                                        .clickable { onChannelSelected(item) }.padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    item.channelNumber?.let { num ->
-                                        Text(num.toString().padStart(3, ' '), color = if (isPlaying) accentColor else IptvTextMuted.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(26.dp), textAlign = TextAlign.End)
-                                    } ?: Box(modifier = Modifier.width(26.dp))
-                                    Box(modifier = Modifier.size(34.dp).background(Color(0xFF1A1A40).copy(alpha = 0.8f), RoundedCornerShape(6.dp)).clip(RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-                                        if (item.imageUrl.isNotBlank()) RemoteImage(url = item.imageUrl, width = 64, height = 64, scaleType = FIT_CENTER)
-                                        else Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = IptvTextMuted.copy(alpha = 0.4f), modifier = Modifier.size(16.dp))
-                                    }
-                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                                        Text(item.title, color = when { isPlaying -> accentColor; isHighlighted -> IptvTextPrimary; else -> IptvTextSecondary }, fontSize = 13.sp, fontWeight = if (isHighlighted || isPlaying) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (item.group.isNotBlank()) Text(item.group, color = IptvTextMuted.copy(alpha = 0.5f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                    if (isPlaying) Box(modifier = Modifier.background(IptvLive.copy(alpha = 0.85f), RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 2.dp)) { Text("▶", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold) }
-                                }
+                        if (isLoadingPage) item {
+                            Box(modifier = Modifier.fillMaxWidth().padding(18.dp), contentAlignment = Alignment.Center) {
+                                Text("Cargando...", color = IptvTextMuted, fontSize = 13.sp)
                             }
-                            if (isLoadingPage) item { Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { Text("Cargando...", color = IptvTextMuted, fontSize = 12.sp) } }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PanelHeader(
+    title: String,
+    isActive: Boolean,
+    shape: RoundedCornerShape = RoundedCornerShape(0.dp),
+    icon: @Composable (() -> Unit)? = null,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(IptvSurfaceVariant.copy(alpha = 0.5f), shape)
+            .padding(horizontal = 18.dp, vertical = 16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            icon?.invoke()
+            if (icon != null) Spacer(Modifier.width(10.dp))
+            Text(title, color = if (isActive) IptvTextPrimary else IptvTextSecondary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun PanelListItem(
+    label: String,
+    isSelected: Boolean,
+    isActivePanel: Boolean,
+    onClick: () -> Unit,
+) {
+    val bgColor = when {
+        isSelected && isActivePanel -> IptvAccent.copy(alpha = 0.25f)
+        isSelected -> IptvFocusBg.copy(alpha = 0.35f)
+        else -> Color.Transparent
+    }
+    val borderColor = when {
+        isSelected && isActivePanel -> IptvAccent.copy(alpha = 0.8f)
+        isSelected -> IptvFocusBorder.copy(alpha = 0.5f)
+        else -> Color.Transparent
+    }
+    val textColor = when {
+        isSelected && isActivePanel -> IptvTextPrimary
+        isSelected -> IptvTextPrimary
+        else -> IptvTextSecondary
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
+            .border(1.5.dp, borderColor, RoundedCornerShape(10.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 11.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .background(if (isSelected) IptvAccent else Color.Transparent, RoundedCornerShape(50))
+            )
+            Text(
+                label,
+                color = textColor,
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChannelListItem(
+    item: CatalogItem,
+    isHighlighted: Boolean,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+) {
+    val accentColor = IptvAccent
+    val bgColor = when {
+        isPlaying && isHighlighted -> accentColor.copy(alpha = 0.22f)
+        isPlaying -> accentColor.copy(alpha = 0.12f)
+        isHighlighted -> IptvFocusBg.copy(alpha = 0.65f)
+        else -> Color.Transparent
+    }
+    val borderColor = when {
+        isPlaying -> IptvAccent.copy(alpha = 0.9f)
+        isHighlighted -> IptvFocusBorder.copy(alpha = 0.8f)
+        else -> Color.Transparent
+    }
+    val titleColor = when {
+        isPlaying -> IptvAccent
+        isHighlighted -> IptvTextPrimary
+        else -> IptvTextSecondary
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
+            .border(1.5.dp, borderColor, RoundedCornerShape(10.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (item.channelNumber != null) {
+            Text(
+                item.channelNumber.toString().padStart(3, ' '),
+                color = if (isPlaying) IptvAccent else IptvTextMuted.copy(alpha = 0.6f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.width(30.dp),
+                textAlign = TextAlign.End
+            )
+        } else {
+            Box(modifier = Modifier.width(30.dp))
+        }
+
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(IptvSurfaceVariant.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (item.imageUrl.isNotBlank()) {
+                RemoteImage(url = item.imageUrl, width = 80, height = 80, scaleType = FIT_CENTER)
+            } else {
+                Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = IptvTextMuted.copy(alpha = 0.4f), modifier = Modifier.size(18.dp))
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+            Text(
+                item.title,
+                color = titleColor,
+                fontSize = 14.sp,
+                fontWeight = if (isHighlighted || isPlaying) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (item.group.isNotBlank()) {
+                Text(
+                    item.group,
+                    color = IptvTextMuted.copy(alpha = 0.6f),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        if (isPlaying) {
+            Box(
+                modifier = Modifier
+                    .background(IptvLive.copy(alpha = 0.9f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
+            ) {
+                Text("EN DIRECTO", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

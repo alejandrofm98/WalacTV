@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.fragment.app.Fragment
 import com.example.walactv.local.ContentCacheManager
+import com.example.walactv.local.PagedContentLoader
 import com.example.walactv.ui.compose.ComposeRoot
 import com.example.walactv.ui.compose.canRequestPackageInstalls
 import com.example.walactv.ui.compose.changeMode
@@ -68,6 +69,15 @@ class ComposeMainFragment : Fragment() {
     internal var channelFilterCountry by mutableStateOf<String?>(null)
     internal var movieFilterCountry by mutableStateOf<String?>(null)
     internal var seriesFilterCountry by mutableStateOf<String?>(null)
+    internal val discoverLoaders: Map<ContentKind, PagedContentLoader> by lazy {
+        mapOf(
+            ContentKind.MOVIE to PagedContentLoader(contentCacheManager, repository, ContentKind.MOVIE),
+            ContentKind.SERIES to PagedContentLoader(contentCacheManager, repository, ContentKind.SERIES),
+        )
+    }
+    internal var discoverFocusedItemStableId by mutableStateOf<String?>(null)
+    internal var discoverFocusLocked by mutableStateOf(false)
+
     internal var selectedHero by mutableStateOf<CatalogItem?>(null)
     internal var pendingFocusItem by mutableStateOf<CatalogItem?>(null)
     internal var pendingFocusTrigger by mutableIntStateOf(0)
@@ -268,6 +278,7 @@ class ComposeMainFragment : Fragment() {
         val state = playbackReturnState ?: return
         playbackReturnState = null
         Log.d(TAG, "Restoring playback return state: mode=${state.mode}, selectedItemStableId=${state.selectedItemStableId}")
+        Log.d("DiscoverFocus", "restorePlaybackReturnState: mode=${state.mode} selectedItemStableId=${state.selectedItemStableId} discoverFocusedId=$discoverFocusedItemStableId contentFocusTrigger=$contentFocusTrigger")
         currentMode = state.mode
         when (state.mode) {
             MainMode.TV       -> ensureFiltersLoaded(ContentKind.CHANNEL)

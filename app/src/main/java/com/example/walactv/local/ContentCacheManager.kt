@@ -310,6 +310,12 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
 
     // ── Local queries ──────────────────────────────────────────────────
 
+    suspend fun getChannelById(id: String): ChannelEntity? = withContext(Dispatchers.IO) {
+        val result = database.channelDao().getById(id)
+        Log.d(TAG, "getChannelById($id): found=${result != null}")
+        result
+    }
+
     suspend fun getChannelsByCountry(country: String): List<ChannelEntity> = withContext(Dispatchers.IO) {
         val result = database.channelDao().getByCountryPaged(country, Int.MAX_VALUE, 0)
         Log.d(TAG, "getChannelsByCountry($country): returning ${result.size} entities")

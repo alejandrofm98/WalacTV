@@ -6,6 +6,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.content.Context
 import android.widget.EditText
+import androidx.appcompat.widget.AppCompatEditText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,7 +55,7 @@ internal const val COUNTRY_FILTER_DIALOG_TITLE = "Selecciona pais"
 // ─────────────────────────────────────────────────────────────────────────────
 // BackInterceptingEditText — captura Back/Esc ANTES de que el IME lo toque
 // ─────────────────────────────────────────────────────────────────────────────
-class BackInterceptingEditText(context: Context) : EditText(context) {
+class BackInterceptingEditText(context: Context) : AppCompatEditText(context) {
     var onBackPressed: (() -> Unit)? = null
 
     override fun onKeyPreIme(keyCode: Int, event: android.view.KeyEvent?): Boolean {
