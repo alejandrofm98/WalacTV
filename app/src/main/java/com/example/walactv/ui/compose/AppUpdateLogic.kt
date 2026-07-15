@@ -1,20 +1,26 @@
 package com.example.walactv.ui.compose
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import com.example.walactv.AppUpdateAvailability
 import com.example.walactv.AppUpdateInfo
 import com.example.walactv.ComposeMainFragment
 import com.example.walactv.evaluateAppUpdate
 import kotlinx.coroutines.launch
+import java.io.File
 
 internal fun ComposeMainFragment.restoreCachedUpdateState() {
     val installed = installedAppVersion ?: return
@@ -108,18 +114,49 @@ internal fun ComposeMainFragment.canRequestPackageInstalls(): Boolean =
 
 internal fun ComposeMainFragment.startUpdateDownload(updateInfo: AppUpdateInfo?) {
     val info = updateInfo ?: return
+    val context = requireContext()
+
+    val notificationPermissionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    } else {
+        true
+    }
+
+    // En Android 13+ el permiso de notificaciones es necesario para mostrarla;
+    // si no lo tenemos, ocultamos la notificación para que el downloadmanager
+    // encole la descarga igualmente.
+    val notificationVisibility = if (notificationPermissionGranted) {
+        DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+    } else {
+        DownloadManager.Request.VISIBILITY_HIDDEN
+    }
+
     val request = DownloadManager.Request(info.apkUrl.toUri())
         .setTitle("WalacTV ${info.latestVersionName}")
         .setDescription("Descargando actualizacion")
         .setMimeType("application/vnd.android.package-archive")
-        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        .setDestinationInExternalFilesDir(requireContext(), Environment.DIRECTORY_DOWNLOADS, "WalacTV-${info.latestVersionName}.apk")
+        .setNotificationVisibility(notificationVisibility)
+        .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "WalacTV-${info.latestVersionName}.apk")
 
-    val dm = requireContext().getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-    pendingUpdateDownloadId = dm.enqueue(request)
+    val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    val downloadId = try {
+        dm.enqueue(request)
+    } catch (e: Exception) {
+        Log.e(ComposeMainFragment.TAG, "Fallo al encolar la descarga de la actualizacion: ${e.message}", e)
+        -1L
+    }
+
+    if (downloadId == -1L) {
+        isUpdateDownloading = false
+        updateErrorMessage = "No se pudo iniciar la descarga. Revisa el permiso de instalacion."
+        updateStatusMessage = "Error al iniciar la descarga"
+        return
+    }
+
+    pendingUpdateDownloadId = downloadId
     isUpdateDownloading = true
     updateStatusMessage = "Descargando actualizacion ${info.latestVersionName}"
-    Toast.makeText(requireContext(), updateStatusMessage, Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, updateStatusMessage, Toast.LENGTH_SHORT).show()
 }
 
 internal fun ComposeMainFragment.handleCompletedUpdateDownload(downloadId: Long) {
@@ -130,11 +167,18 @@ internal fun ComposeMainFragment.handleCompletedUpdateDownload(downloadId: Long)
         when (cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
             DownloadManager.STATUS_SUCCESSFUL -> {
                 isUpdateDownloading = false; pendingUpdateDownloadId = null
-                val uri = dm.getUriForDownloadedFile(downloadId)
-                if (uri != null) launchApkInstaller(uri) else updateErrorMessage = "La descarga termino pero no se pudo abrir el APK"
+                val localUri = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
+                val updateInfo = mandatoryUpdate ?: availableUpdate
+                if (updateInfo != null && localUri != null) {
+                    launchApkInstaller(localUri, updateInfo.latestVersionName)
+                } else {
+                    updateErrorMessage = "La descarga termino pero no se pudo abrir el APK"
+                }
             }
             DownloadManager.STATUS_FAILED -> {
                 isUpdateDownloading = false; pendingUpdateDownloadId = null
+                val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                Log.e(ComposeMainFragment.TAG, "Descarga de actualizacion fallida. Reason: $reason")
                 updateErrorMessage = "No se pudo descargar la actualizacion"
                 updateStatusMessage = "Error al descargar la actualizacion"
             }
@@ -142,15 +186,37 @@ internal fun ComposeMainFragment.handleCompletedUpdateDownload(downloadId: Long)
     }
 }
 
-internal fun ComposeMainFragment.launchApkInstaller(apkUri: Uri) {
+internal fun ComposeMainFragment.launchApkInstaller(localUri: String, versionName: String) {
+    val context = requireContext()
+
+    // Preferimos el archivo de destino conocido para servirlo a traves de FileProvider.
+    val apkFile = if (versionName.isNotBlank()) {
+        File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "WalacTV-${versionName}.apk")
+    } else {
+        localUri.takeIf { it.startsWith("file://") }?.let { File(Uri.parse(it).path ?: "") }
+    }
+
+    if (apkFile == null || !apkFile.exists()) {
+        Log.e(ComposeMainFragment.TAG, "APK descargado no encontrado en ${apkFile?.absolutePath}")
+        updateErrorMessage = "No se encontro el APK descargado"
+        return
+    }
+
     val contentUri = try {
-        val file = java.io.File(apkUri.path ?: return)
-        androidx.core.content.FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.fileprovider", file)
-    } catch (_: Exception) { apkUri }
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
+    } catch (e: Exception) {
+        Log.e(ComposeMainFragment.TAG, "No se pudo crear el content URI para el APK: ${e.message}", e)
+        updateErrorMessage = "No se pudo abrir el APK"
+        return
+    }
+
     val intent = Intent(Intent.ACTION_VIEW).apply {
         setDataAndType(contentUri, "application/vnd.android.package-archive")
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    runCatching { startActivity(intent) }.onFailure { updateErrorMessage = "No se pudo abrir el instalador" }
+    runCatching { startActivity(intent) }.onFailure { e ->
+        Log.e(ComposeMainFragment.TAG, "No se pudo abrir el instalador: ${e.message}", e)
+        updateErrorMessage = "No se pudo abrir el instalador"
+    }
 }
