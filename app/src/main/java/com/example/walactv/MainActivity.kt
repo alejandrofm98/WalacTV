@@ -136,9 +136,6 @@ class MainActivity : FragmentActivity() {
         // ── 3. Hay fragmentos en el back stack (SeriesDetail…) → pop ─────────
         if (fragmentManager.backStackEntryCount > 0) {
             Log.d(TAG, "handleCentralizedBack: popping back stack (count=${fragmentManager.backStackEntryCount})")
-            Log.d("DiscoverFocus", "backStack pop: backStackEntryCount=${fragmentManager.backStackEntryCount}")
-            val composeFragment = fragmentManager.findFragmentById(R.id.main_browse_fragment) as? ComposeMainFragment
-            Log.d("DiscoverFocus", "backStack pop: composeFragment found=${composeFragment != null} contentFocusTrigger=${composeFragment?.contentFocusTrigger} discoverFocusedId=${composeFragment?.discoverFocusedItemStableId}")
             fragmentManager.popBackStack()
             return true
         }

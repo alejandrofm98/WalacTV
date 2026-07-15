@@ -278,7 +278,6 @@ class ComposeMainFragment : Fragment() {
         val state = playbackReturnState ?: return
         playbackReturnState = null
         Log.d(TAG, "Restoring playback return state: mode=${state.mode}, selectedItemStableId=${state.selectedItemStableId}")
-        Log.d("DiscoverFocus", "restorePlaybackReturnState: mode=${state.mode} selectedItemStableId=${state.selectedItemStableId} discoverFocusedId=$discoverFocusedItemStableId contentFocusTrigger=$contentFocusTrigger")
         currentMode = state.mode
         when (state.mode) {
             MainMode.TV       -> ensureFiltersLoaded(ContentKind.CHANNEL)

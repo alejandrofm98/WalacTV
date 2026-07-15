@@ -779,9 +779,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
 
     LaunchedEffect(selectedTab, selectedCountry, selectedGenre, searchQuery) {
         val key = "$selectedTab|$selectedCountry|$selectedGenre|$searchQuery"
-        Log.d("DiscoverFocus", "load effect: key=$key lastLoadKey=$lastLoadKey loaderItems=${loader.getDisplayItems().size}")
         if (key == lastLoadKey && loader.getDisplayItems().isNotEmpty()) {
-            Log.d("DiscoverFocus", "load effect: skipping (key matches, loader has items)")
             return@LaunchedEffect
         }
         Log.d("DiscoverContent", "filter changed: key=$key, reloading")
@@ -856,7 +854,6 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     }
 
     LaunchedEffect(fragment.contentFocusTrigger) {
-        Log.d("DiscoverFocus", "contentFocusTrigger effect FIRED: trigger=${fragment.contentFocusTrigger} displayItemsSize=${displayItemsForGrid.size} loaderSize=${loader.getDisplayItems().size} focusedId=${fragment.discoverFocusedItemStableId} forceFocus=$forceFocusFirstItem locked=${fragment.discoverFocusLocked}")
         // Unlock focus updates now that we're back in Discover composition.
         fragment.discoverFocusLocked = false
         if (fragment.contentFocusTrigger == 0) return@LaunchedEffect
@@ -865,32 +862,27 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
         delay(300.milliseconds)
         // Re-read items from the loader to avoid stale composition captures.
         val items = loader.getDisplayItems()
-        Log.d("DiscoverFocus", "after delay: loaderItems=${items.size} displayItemsForGrid=${displayItemsForGrid.size}")
         if (items.isEmpty()) return@LaunchedEffect
         val focusedStableId = fragment.discoverFocusedItemStableId
         val index = focusedStableId?.let { id ->
             items.indexOfFirst { it.stableId == id }
         } ?: -1
-        Log.d("DiscoverFocus", "focus restore: focusedId=$focusedStableId index=$index itemsSize=${items.size} requestersSize=${itemFocusRequesters.size}")
         if (index >= 0) {
             for (attempt in 1..4) {
                 try {
-                    Log.d("DiscoverFocus", "attempt $attempt: scrollToItem($index)")
                     lazyGridState.scrollToItem(index)
                     delay((100 * attempt).milliseconds)
                     val fr = itemFocusRequesters.getOrNull(index)
-                    Log.d("DiscoverFocus", "attempt $attempt: requester=${fr != null} gridFirstVisible=${lazyGridState.firstVisibleItemIndex} gridTotal=${lazyGridState.layoutInfo.totalItemsCount}")
                     if (fr != null) {
                         fr.requestFocus()
-                        Log.d("DiscoverFocus", "discover focus RESTORED: index=$index id=$focusedStableId on attempt $attempt")
+                        Log.d("MainShellFocus", "discover focus RESTORED: index=$index id=$focusedStableId on attempt $attempt")
                         break
                     }
                 } catch (e: Exception) {
-                    Log.w("DiscoverFocus", "discover focus restore FAILED attempt $attempt: ${e.message}")
+                    Log.w("MainShellFocus", "discover focus restore FAILED attempt $attempt: ${e.message}")
                 }
             }
         } else {
-            Log.d("DiscoverFocus", "discover no saved focus, focusing first item")
             runCatching {
                 lazyGridState.scrollToItem(0)
                 delay(80.milliseconds)
@@ -994,7 +986,6 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
                             if (!fragment.discoverFocusLocked) {
                                 fragment.discoverFocusedItemStableId = item.stableId
                             }
-                            Log.d("DiscoverFocus", "onFocused: index=$index stableId=${item.stableId} title=${item.title} locked=${fragment.discoverFocusLocked}")
                             fragment.contentFocusCanOpenRail = index % gridColumns == 0
                             fragment.selectedHero = item
                         }) {

@@ -36,13 +36,11 @@ private const val TAG = "PlaybackLogic"
 
 internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List<CatalogItem> = emptyList()) {
     Log.d(TAG, "TMDB_CLICK item=${item.tmdbDebug()} lineupSize=${lineup.size}")
-    Log.d("DiscoverFocus", "handleCardClick: stableId=${item.stableId} kind=${item.kind} mode=$currentMode discoverFocusedId=$discoverFocusedItemStableId")
     // Lock focus updates so onFocused doesn't overwrite the saved ID when the
     // grid recomposes during the fragment transition.
     if (currentMode == ComposeMainFragment.MainMode.Discover) {
         discoverFocusedItemStableId = item.stableId
         discoverFocusLocked = true
-        Log.d("DiscoverFocus", "handleCardClick: locked focus to stableId=${item.stableId}")
     }
     continueWatchingEntries[item.stableId]?.let { progress ->
         openContinueWatchingItem(item, progress)
