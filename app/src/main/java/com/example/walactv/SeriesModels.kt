@@ -53,16 +53,22 @@ fun buildSeriesGridItems(items: List<CatalogItem>): List<CatalogItem> {
     val groupedSeries = groupedEpisodes.groupBy { it.seriesName ?: it.title }
         .map { (seriesName, episodes) ->
             val firstEpisode = episodes.first()
+            val episodeCount = episodes.size
+            val subtitle = if (episodeCount == 1) "1 episodio" else "$episodeCount episodios"
             CatalogItem(
                 stableId = "series_group:$seriesName",
+                catalogId = firstEpisode.catalogId ?: firstEpisode.providerId,
+                providerId = firstEpisode.providerId,
                 title = seriesName,
-                subtitle = firstEpisode.group,
+                subtitle = subtitle,
                 description = firstEpisode.description,
                 imageUrl = firstEpisode.imageUrl,
                 kind = ContentKind.SERIES,
                 group = firstEpisode.group,
                 badgeText = "",
                 seriesName = seriesName,
+                seriesKey = firstEpisode.seriesKey,
+                seriesProviderId = firstEpisode.seriesProviderId,
                 totalSeasons = firstEpisode.totalSeasons,
                 streamOptions = emptyList(),
                 overviewEn = firstEpisode.overviewEn,

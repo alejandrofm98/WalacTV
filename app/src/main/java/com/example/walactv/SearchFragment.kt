@@ -111,8 +111,11 @@ class SearchFragment : Fragment() {
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
     private fun playCatalogItem(item: CatalogItem, optionIndex: Int = 0, position: Int = currentItemPosition) {
         if (item.kind == ContentKind.SERIES && (item.catalogId != null || item.seriesName != null)) {
+            val seriesId = item.catalogId?.ifBlank { null }
+                ?: item.providerId?.ifBlank { null }
+                ?: item.seriesName?.ifBlank { null }
             requireActivity().supportFragmentManager.beginTransaction()
-                .replace(R.id.main_browse_fragment, SeriesDetailFragment.newInstance(item))
+                .replace(R.id.main_browse_fragment, SeriesDetailFragment.newInstance(item, seriesId = seriesId))
                 .addToBackStack("SeriesDetailFragment")
                 .commit()
             return

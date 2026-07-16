@@ -48,7 +48,10 @@ internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List
     }
     if (item.kind == ContentKind.SERIES && (item.catalogId != null || item.seriesName != null)) {
         rememberPlaybackReturnState(item)
-        val fragment = SeriesDetailFragment.newInstance(item)
+        val seriesId = item.catalogId?.ifBlank { null }
+            ?: item.providerId?.ifBlank { null }
+            ?: item.seriesName?.ifBlank { null }
+        val fragment = SeriesDetailFragment.newInstance(item, seriesId = seriesId)
         requireActivity().supportFragmentManager.beginTransaction()
             .replace(R.id.main_browse_fragment, fragment)
             .addToBackStack("SeriesDetailFragment")
@@ -97,6 +100,8 @@ internal fun ComposeMainFragment.openContinueWatchingDetails(cardItem: CatalogIt
         "series" -> {
             val seriesId = cardItem.seriesProviderId?.ifBlank { null }
                 ?: progress.seriesProviderId?.ifBlank { null }
+                ?: cardItem.catalogId?.ifBlank { null }
+                ?: cardItem.providerId?.ifBlank { null }
             val fragment = SeriesDetailFragment.newInstance(
                 item = cardItem,
                 seriesId = seriesId,
@@ -142,23 +147,36 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         null
     }
     Log.d(TAG, "TMDB_CW_SERIES card=${cardItem.tmdbDebug()} progressSeries=${progress.seriesName} seriesProviderId=${progress.seriesProviderId} episode=${episode.tmdbDebug()}")
-    val seriesIdentifier = episode?.catalogId
-        ?: progress.seriesProviderId
-        ?: episode?.providerId
-        ?: episode?.seriesName
-        ?: episode?.title
-        ?: progress.seriesName
-        ?: cardItem.seriesName
+    val seriesId = episode?.seriesKey?.ifBlank { null }
+        ?: progress.seriesProviderId?.ifBlank { null }
+        ?: cardItem.seriesProviderId?.ifBlank { null }
+        ?: cardItem.catalogId?.ifBlank { null }
+        ?: cardItem.providerId?.ifBlank { null }
+    val seriesName = episode?.seriesName?.ifBlank { null }
+        ?: progress.seriesName?.ifBlank { null }
+        ?: cardItem.seriesName?.ifBlank { null }
         ?: cardItem.title
+    val seriesIdentifier = seriesId?.takeIf { it.isValidSeriesId() } ?: seriesName
     if (seriesIdentifier.isBlank()) {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la serie", Toast.LENGTH_SHORT).show() }
         return
     }
-    val allEpisodes = try {
-        repository.loadSeriesEpisodes(seriesIdentifier)
-    } catch (e: Exception) {
-        Log.e(TAG, "loadSeriesEpisodes failed for '$seriesIdentifier'", e)
-        emptyList()
+
+    val allEpisodes = if (seriesId != null && seriesId.isValidSeriesId()) {
+        try {
+            val byId = repository.loadSeriesEpisodesById(seriesId)
+            if (byId.isNotEmpty()) byId else repository.loadSeriesEpisodes(seriesName)
+        } catch (e: Exception) {
+            Log.e(TAG, "loadSeriesEpisodesById failed for '$seriesId', falling back to name", e)
+            repository.loadSeriesEpisodes(seriesName)
+        }
+    } else {
+        try {
+            repository.loadSeriesEpisodes(seriesName)
+        } catch (e: Exception) {
+            Log.e(TAG, "loadSeriesEpisodes failed for '$seriesName'", e)
+            emptyList()
+        }
     }
     if (allEpisodes.isEmpty()) {
         withContext(Dispatchers.Main) {
@@ -480,6 +498,17 @@ internal fun ComposeMainFragment.openFavoriteChannel(): Boolean {
     val match = channelLineup.firstOrNull { ids.contains(it.stableId) } ?: return false
     playCatalogItem(match, 0)
     return true
+}
+
+// ── Series identifier helpers ─────────────────────────────────────────────
+
+private fun String.isValidSeriesId(): Boolean {
+    if (isBlank()) return false
+    // UUID v4 / any UUID-like identifier
+    val uuidRegex = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\$")
+    if (uuidRegex.matches(this)) return true
+    // Numeric provider id
+    return all { it.isDigit() }
 }
 
 internal fun ComposeMainFragment.openRecentChannel(): Boolean {
