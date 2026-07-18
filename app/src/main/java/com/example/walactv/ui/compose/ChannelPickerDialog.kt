@@ -30,10 +30,10 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import android.widget.ImageView.ScaleType.FIT_CENTER
-import com.example.walactv.CatalogFilterOption
-import com.example.walactv.CatalogItem
-import com.example.walactv.ComposeMainFragment
-import com.example.walactv.ContentKind
+import com.example.walactv.data.remote.api.dto.FilterOptionDto
+import com.example.walactv.data.model.CatalogItem
+import com.example.walactv.ui.fragment.ComposeMainFragment
+import com.example.walactv.data.model.ContentKind
 import com.example.walactv.local.PagedContentLoader
 import com.example.walactv.local.parseCountryList
 import com.example.walactv.ui.theme.*
@@ -83,12 +83,12 @@ internal fun ChannelPickerDialog(
 
     val countryOptions = remember(fragment.channelFilters) {
         buildList {
-            add(CatalogFilterOption(ALL_OPTION, "Todos los países"))
+            add(FilterOptionDto(ALL_OPTION, "Todos los países"))
             fragment.channelFilters.countries.forEach(::add)
         }
     }
 
-    var groupOptions by remember { mutableStateOf<List<CatalogFilterOption>>(emptyList()) }
+    var groupOptions by remember { mutableStateOf<List<FilterOptionDto>>(emptyList()) }
 
     LaunchedEffect(currentCountry) {
         val country = currentCountry.takeUnless { it == ALL_OPTION }
@@ -96,15 +96,15 @@ internal fun ChannelPickerDialog(
             fragment.contentCacheManager.getChannelsByCountry(country)
                 .distinctBy { it.grupoNormalizado }
                 .filter { it.grupoNormalizado.isNotBlank() }
-                .map { CatalogFilterOption(it.grupoNormalizado, it.grupoNormalizado) }
+                .map { FilterOptionDto(it.grupoNormalizado, it.grupoNormalizado) }
         } else {
             fragment.channelFilters.groups
                 .distinctBy { it.value }
                 .filter { it.value != "Favorites" && it.value != "Favoritos" }
         }
         groupOptions = buildList {
-            add(CatalogFilterOption(ALL_OPTION, "Todas las categorías"))
-            add(CatalogFilterOption(FAVORITES_VALUE, "⭐ Favoritos"))
+            add(FilterOptionDto(ALL_OPTION, "Todas las categorías"))
+            add(FilterOptionDto(FAVORITES_VALUE, "⭐ Favoritos"))
             addAll(groups)
         }
     }

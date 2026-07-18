@@ -1,7 +1,7 @@
 package com.example.walactv.domain
 
-import com.example.walactv.WatchProgressItem
-import com.example.walactv.WatchProgressRepository
+import com.example.walactv.data.model.WatchProgressItem
+import com.example.walactv.data.remote.repository.WatchProgressRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 

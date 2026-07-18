@@ -25,7 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import com.example.walactv.NativeSearchBar
+import com.example.walactv.ui.compose.NativeSearchBar
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,14 +37,14 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import com.example.walactv.AppUpdateAvailability
-import com.example.walactv.CatalogFilterOption
-import com.example.walactv.ChangelogDialog
-import com.example.walactv.ComposeMainFragment
-import com.example.walactv.ContentKind
-import com.example.walactv.InstalledAppVersion
-import com.example.walactv.PreferencesManager
-import com.example.walactv.evaluateAppUpdate
+import com.example.walactv.data.model.AppUpdateAvailability
+import com.example.walactv.data.remote.api.dto.FilterOptionDto
+import com.example.walactv.ui.compose.ChangelogDialog
+import com.example.walactv.ui.fragment.ComposeMainFragment
+import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.InstalledAppVersion
+import com.example.walactv.data.preferences.PreferencesManager
+import com.example.walactv.data.model.evaluateAppUpdate
 import com.example.walactv.ui.theme.*
 
 // ── Settings screen ────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
     if (showLanguageDialog) {
         FilterDialog(
             title = "Idioma preferido",
-            options = availableLanguages.map { CatalogFilterOption(value = it.first, label = it.second) },
+            options = availableLanguages.map { FilterOptionDto(value = it.first, label = it.second) },
             selectedOption = preferredLanguage,
             onOptionSelected = { PreferencesManager.preferredLanguage = it.value; preferredLanguage = it.value; showLanguageDialog = false },
             onDismiss = { showLanguageDialog = false },
@@ -292,39 +292,4 @@ internal fun SearchBar(query: String, onQueryChange: (String) -> Unit, focusRequ
     )
 }
 
-// ── Filter dialog ──────────────────────────────────────────────────────────
 
-@Composable
-internal fun FilterDialog(
-    title: String,
-    options: List<CatalogFilterOption>,
-    selectedOption: String,
-    onOptionSelected: (CatalogFilterOption) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier.width(400.dp).heightIn(max = 500.dp)
-                .background(IptvSurface, RoundedCornerShape(12.dp))
-                .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(12.dp)).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(title, color = IptvTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(options, key = { it.value }) { option ->
-                    var isFocused by remember { mutableStateOf(false) }
-                    val isSelected = option.value == selectedOption
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .background(when { isFocused -> IptvFocusBg; isSelected -> IptvCard; else -> Color.Transparent }, RoundedCornerShape(8.dp))
-                            .border(if (isFocused || isSelected) 1.dp else 0.dp, if (isFocused) IptvFocusBorder else if (isSelected) IptvSurfaceVariant else Color.Transparent, RoundedCornerShape(8.dp))
-                            .onFocusChanged { isFocused = it.isFocused }.clickable { onOptionSelected(option) }.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(option.label, color = if (isFocused || isSelected) IptvTextPrimary else IptvTextSecondary, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-        }
-    }
-}

@@ -1,5 +1,12 @@
 package com.example.walactv
 
+import com.example.walactv.data.model.CatalogFilters
+import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.remote.api.dto.FilterOptionDto
+import com.example.walactv.data.remote.parser.buildCatalogQuery
+import com.example.walactv.data.remote.parser.buildGroupsQuery
+import com.example.walactv.data.remote.parser.buildRemoteCatalogFilters
+import com.example.walactv.data.remote.parser.parseRemoteFilterOptions
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -26,12 +33,12 @@ class RemoteCatalogFiltersTest {
         assertEquals(
             CatalogFilters(
                 countries = listOf(
-                    CatalogFilterOption(value = "ES", label = "ES"),
-                    CatalogFilterOption(value = "MX", label = "MX"),
+                    FilterOptionDto(value = "ES", label = "ES"),
+                    FilterOptionDto(value = "MX", label = "MX"),
                 ),
                 groups = listOf(
-                    CatalogFilterOption(value = "Accion", label = "Accion"),
-                    CatalogFilterOption(value = "Drama", label = "Drama"),
+                    FilterOptionDto(value = "Accion", label = "Accion"),
+                    FilterOptionDto(value = "Drama", label = "Drama"),
                 ),
             ),
             buildRemoteCatalogFilters(ContentKind.MOVIE, countriesPayload, groupsPayload),
@@ -79,9 +86,9 @@ class RemoteCatalogFiltersTest {
 
         assertEquals(
             listOf(
-                CatalogFilterOption(value = "ES", label = "Espana"),
-                CatalogFilterOption(value = "US", label = "Estados Unidos"),
-                CatalogFilterOption(value = "MX", label = "Mexico"),
+                FilterOptionDto(value = "ES", label = "Espana"),
+                FilterOptionDto(value = "US", label = "Estados Unidos"),
+                FilterOptionDto(value = "MX", label = "Mexico"),
             ),
             parseRemoteFilterOptions(payload, "countries"),
         )
@@ -99,9 +106,9 @@ class RemoteCatalogFiltersTest {
 
         assertEquals(
             listOf(
-                CatalogFilterOption(value = "ES", label = "ES"),
-                CatalogFilterOption(value = "MX", label = "MX"),
-                CatalogFilterOption(value = "US", label = "US"),
+                FilterOptionDto(value = "ES", label = "ES"),
+                FilterOptionDto(value = "MX", label = "MX"),
+                FilterOptionDto(value = "US", label = "US"),
             ),
             parseRemoteFilterOptions(payload, "countries"),
         )
@@ -119,8 +126,8 @@ class RemoteCatalogFiltersTest {
 
         assertEquals(
             listOf(
-                CatalogFilterOption(value = "Accion", label = "Accion"),
-                CatalogFilterOption(value = "Drama", label = "Drama"),
+                FilterOptionDto(value = "Accion", label = "Accion"),
+                FilterOptionDto(value = "Drama", label = "Drama"),
             ),
             parseRemoteFilterOptions(payload, "groups"),
         )

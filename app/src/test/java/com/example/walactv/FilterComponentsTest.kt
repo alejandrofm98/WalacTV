@@ -1,5 +1,7 @@
 package com.example.walactv
 
+import com.example.walactv.ui.compose.COUNTRY_FILTER_DIALOG_TITLE
+import com.example.walactv.ui.compose.COUNTRY_FILTER_LABEL
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

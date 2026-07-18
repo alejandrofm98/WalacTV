@@ -84,16 +84,16 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.example.walactv.BuildConfig
-import com.example.walactv.BrowseSection
-import com.example.walactv.CatalogItem
-import com.example.walactv.ComposeMainFragment
-import com.example.walactv.ContentKind
+import com.example.walactv.data.model.BrowseSection
+import com.example.walactv.data.model.CatalogItem
+import com.example.walactv.ui.fragment.ComposeMainFragment
+import com.example.walactv.data.model.ContentKind
 import com.example.walactv.R
-import com.example.walactv.WatchProgressItem
-import com.example.walactv.isVodContent
-import com.example.walactv.preferredCardImageUrl
-import com.example.walactv.preferredVodPosterUrl
-import com.example.walactv.tmdbDebug
+import com.example.walactv.data.model.WatchProgressItem
+import com.example.walactv.data.model.isVodContent
+import com.example.walactv.data.model.preferredCardImageUrl
+import com.example.walactv.data.model.preferredVodPosterUrl
+import com.example.walactv.ui.fragment.tmdbDebug
 import com.example.walactv.ui.theme.IptvAccent
 import com.example.walactv.ui.theme.IptvBackground
 import com.example.walactv.ui.theme.IptvCard
@@ -506,7 +506,7 @@ private fun HomeHeroMeta(item: CatalogItem?) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            item?.voteAverage?.takeIf { it > 0f }?.let { rating ->
+            item?.voteAverage?.takeIf { it > 0.0 }?.let { rating ->
                 Row(
                     modifier = Modifier
                         .background(Color(0xFFE5B35B), RoundedCornerShape(999.dp))

@@ -1,6 +1,6 @@
 package com.example.walactv.domain
 
-import com.example.walactv.IptvRepository
+import com.example.walactv.data.remote.repository.IptvRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 

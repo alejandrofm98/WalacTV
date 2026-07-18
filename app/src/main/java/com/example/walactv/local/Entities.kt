@@ -4,11 +4,11 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.example.walactv.BuildConfig
-import com.example.walactv.CatalogItem
-import com.example.walactv.ContentKind
-import com.example.walactv.StreamOption
-import com.example.walactv.cleanQualityLabels
-import com.example.walactv.extractQualityLabel
+import com.example.walactv.data.model.CatalogItem
+import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.StreamOption
+import com.example.walactv.data.model.cleanQualityLabels
+import com.example.walactv.data.model.extractQualityLabel
 
 @Entity(tableName = "channels", indices = [Index(value = ["nombreNormalizado"])])
 data class ChannelEntity(

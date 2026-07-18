@@ -1,7 +1,10 @@
 package com.example.walactv
 
 import android.app.Application
-import com.example.walactv.network.AuthInterceptor
+import com.example.walactv.data.preferences.CredentialStore
+import com.example.walactv.data.remote.api.AuthInterceptor
+import com.example.walactv.di.AppComponent
+import com.example.walactv.di.DaggerAppComponent
 
 class WalacApp : Application() {
 

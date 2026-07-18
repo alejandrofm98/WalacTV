@@ -25,11 +25,11 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import android.widget.ImageView.ScaleType.FIT_CENTER
-import com.example.walactv.CatalogFilterOption
-import com.example.walactv.CatalogItem
-import com.example.walactv.ComposeMainFragment
-import com.example.walactv.ContentKind
-import com.example.walactv.searchableText
+import com.example.walactv.data.remote.api.dto.FilterOptionDto
+import com.example.walactv.data.model.CatalogItem
+import com.example.walactv.ui.fragment.ComposeMainFragment
+import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.searchableText
 import com.example.walactv.local.PagedContentLoader
 import com.example.walactv.ui.theme.*
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -66,13 +66,13 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
     var currentPage by remember { mutableIntStateOf(0) }
     var isLoadingPage by remember { mutableStateOf(false) }
     val pageSize = 50
-    var filteredGroupOptions by remember { mutableStateOf<List<CatalogFilterOption>>(emptyList()) }
+    var filteredGroupOptions by remember { mutableStateOf<List<FilterOptionDto>>(emptyList()) }
     var forceFocusFirstItem by remember { mutableStateOf(false) }
 
     val countryOptions = remember(kind, fragment.channelFilters) {
-        if (isEventGuide) listOf(CatalogFilterOption(ALL_OPTION, "Todos"))
+        if (isEventGuide) listOf(FilterOptionDto(ALL_OPTION, "Todos"))
         else buildList {
-            add(CatalogFilterOption(ALL_OPTION, "Todos"))
+            add(FilterOptionDto(ALL_OPTION, "Todos"))
             fragment.channelFilters.countries.forEach(::add)
         }
     }
@@ -83,27 +83,27 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
         val groups = if (country != null) {
             fragment.contentCacheManager.getChannelsByCountry(country)
                 .distinctBy { it.grupoNormalizado }.filter { it.grupoNormalizado.isNotBlank() }
-                .map { CatalogFilterOption(it.grupoNormalizado, it.grupoNormalizado) }
+                .map { FilterOptionDto(it.grupoNormalizado, it.grupoNormalizado) }
         } else {
             fragment.channelFilters.groups.distinctBy { it.value }
                 .filter { it.value != "Favorites" && it.value != "Favoritos" }
         }
         filteredGroupOptions =
-            buildList { add(CatalogFilterOption(ALL_OPTION, "Todos")); addAll(groups) }
+            buildList { add(FilterOptionDto(ALL_OPTION, "Todos")); addAll(groups) }
     }
 
     val groupOptions = if (isEventGuide) {
         remember(eventItems) {
             buildList {
-                add(CatalogFilterOption(ALL_OPTION, "Todos"))
+                add(FilterOptionDto(ALL_OPTION, "Todos"))
                 eventItems.map { it.group.trim() }.filter(String::isNotBlank).distinct().sorted()
-                    .forEach { add(CatalogFilterOption(it, it)) }
+                    .forEach { add(FilterOptionDto(it, it)) }
             }
         }
     } else filteredGroupOptions.ifEmpty {
         remember(fragment.channelFilters) {
             buildList {
-                add(CatalogFilterOption(ALL_OPTION, "Todos"))
+                add(FilterOptionDto(ALL_OPTION, "Todos"))
                 fragment.channelFilters.groups.distinctBy { it.value }
                     .filter { it.value != "Favorites" && it.value != "Favoritos" }.forEach(::add)
             }
@@ -480,14 +480,14 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
     val countryOptions = remember(currentFilters) {
         buildList {
             add(
-                CatalogFilterOption(
+                FilterOptionDto(
                     ALL_OPTION,
                     "Todos"
                 )
             ); currentFilters.countries.forEach(::add)
         }
     }
-    var groupOptions by remember { mutableStateOf<List<CatalogFilterOption>>(emptyList()) }
+    var groupOptions by remember { mutableStateOf<List<FilterOptionDto>>(emptyList()) }
     var forceFocusFirstItem by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedCountry, currentFilters) {
@@ -499,7 +499,7 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
         val groups = filters.groups.distinctBy { it.value }
             .filter { it.value != "Favorites" && it.value != "Favoritos" }
         groupOptions = buildList {
-            add(CatalogFilterOption(ALL_OPTION, "Todos"))
+            add(FilterOptionDto(ALL_OPTION, "Todos"))
             addAll(groups)
         }
     }
@@ -730,8 +730,8 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     val lazyGridState = rememberLazyGridState()
 
     val typeOptions = listOf(
-        CatalogFilterOption(ContentKind.MOVIE.name, "Peliculas"),
-        CatalogFilterOption(ContentKind.SERIES.name, "Series"),
+        FilterOptionDto(ContentKind.MOVIE.name, "Peliculas"),
+        FilterOptionDto(ContentKind.SERIES.name, "Series"),
     )
 
     val loader = fragment.discoverLoaders.getValue(selectedTab)
@@ -746,11 +746,11 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
         if (selectedTab == ContentKind.MOVIE) fragment.movieFilters else fragment.seriesFilters
     val countryOptions = remember(currentFilters) {
         buildList {
-            add(CatalogFilterOption(ALL_OPTION, "Todos"))
+            add(FilterOptionDto(ALL_OPTION, "Todos"))
             currentFilters.countries.forEach(::add)
         }
     }
-    var genreOptions by remember { mutableStateOf<List<CatalogFilterOption>>(emptyList()) }
+    var genreOptions by remember { mutableStateOf<List<FilterOptionDto>>(emptyList()) }
     var forceFocusFirstItem by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedTab, selectedCountry, currentFilters) {
@@ -760,7 +760,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
                 .getOrElse { currentFilters }
         } else currentFilters
         genreOptions = buildList {
-            add(CatalogFilterOption(ALL_OPTION, "Todos"))
+            add(FilterOptionDto(ALL_OPTION, "Todos"))
             addAll(filters.genres.distinctBy { it.value })
         }
     }

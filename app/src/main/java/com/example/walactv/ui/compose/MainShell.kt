@@ -36,14 +36,14 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.example.walactv.BuildConfig
-import com.example.walactv.ComposeMainFragment
-import com.example.walactv.ComposeMainFragment.ContentSyncState
-import com.example.walactv.ComposeMainFragment.MainMode
-import com.example.walactv.ContentKind
+import com.example.walactv.ui.fragment.ComposeMainFragment
+import com.example.walactv.ui.fragment.ComposeMainFragment.ContentSyncState
+import com.example.walactv.ui.fragment.ComposeMainFragment.MainMode
+import com.example.walactv.data.model.ContentKind
 import com.example.walactv.R
-import com.example.walactv.SideRailDestination
-import com.example.walactv.SideRailEntry
-import com.example.walactv.buildDefaultSideRailEntries
+import com.example.walactv.ui.compose.SideRailDestination
+import com.example.walactv.ui.compose.SideRailEntry
+import com.example.walactv.ui.compose.buildDefaultSideRailEntries
 import com.example.walactv.ui.theme.*
 
 // ── Root ───────────────────────────────────────────────────────────────────
@@ -254,7 +254,6 @@ internal fun ComposeMainFragment.toNavItem(entry: SideRailEntry): ComposeMainFra
         SideRailDestination.EVENTS   -> ComposeMainFragment.NavItem(Icons.Outlined.Event, entry.label, MainMode.Events)
         SideRailDestination.TV       -> ComposeMainFragment.NavItem(Icons.Outlined.LiveTv, entry.label, MainMode.TV)
         SideRailDestination.DISCOVER -> ComposeMainFragment.NavItem(Icons.Outlined.Explore, entry.label, MainMode.Discover)
-        else                         -> ComposeMainFragment.NavItem(Icons.Outlined.Home, entry.label, MainMode.Home)
     }
 }
 

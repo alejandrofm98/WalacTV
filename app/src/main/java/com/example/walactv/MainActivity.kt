@@ -8,6 +8,10 @@ import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.core.view.isVisible
 import androidx.fragment.app.FragmentActivity
+import com.example.walactv.data.preferences.PreferencesManager
+import com.example.walactv.ui.fragment.ComposeMainFragment
+import com.example.walactv.ui.fragment.PlayerFragment
+import com.example.walactv.ui.fragment.SearchFragment
 
 @SuppressLint("UnsafeOptInUsageError")
 class MainActivity : FragmentActivity() {

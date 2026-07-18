@@ -1,5 +1,9 @@
 package com.example.walactv
 
+import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.remote.parser.parseRemoteCatalogPage
+import com.example.walactv.data.remote.parser.parseRemoteHomeCatalog
+import com.example.walactv.data.remote.parser.resolveStreamTemplate
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -13,36 +17,44 @@ class RemoteCatalogMappingTest {
         val payload = JSONObject(
             """
             {
-              "featured_channels": [
+              "movie_sections": [
                 {
-                  "id": "101",
-                  "type": "channel",
-                  "title": "ES - Noticias 24",
-                  "normalized_title": "Noticias 24",
-                  "subtitle": "ES - Informacion",
-                  "normalized_group": "Informacion",
-                  "description": "ES - Informacion",
-                  "image_url": "https://img/channel.png",
-                  "group": "ES - Informacion",
-                  "badge_text": "INFO",
-                  "channel_number": 24,
-                  "stream_url": "https://stream/channel.m3u8"
+                  "title": "Canales",
+                  "items": [
+                    {
+                      "id": "101",
+                      "type": "channel",
+                      "title": "ES - Noticias 24",
+                      "normalized_title": "Noticias 24",
+                      "subtitle": "ES - Informacion",
+                      "normalized_group": "Informacion",
+                      "description": "ES - Informacion",
+                      "image_url": "https://img/channel.png",
+                      "group": "ES - Informacion",
+                      "badge_text": "INFO",
+                      "channel_number": 24,
+                      "stream_url": "https://stream/channel.m3u8"
+                    }
+                  ]
+                },
+                {
+                  "title": "Películas",
+                  "items": [
+                    {
+                      "id": "201",
+                      "type": "movie",
+                      "title": "Movie One",
+                      "subtitle": "Accion",
+                      "description": "Accion",
+                      "image_url": "https://img/movie.png",
+                      "group": "Accion",
+                      "badge_text": "CINE",
+                      "stream_url": "https://stream/movie.mp4"
+                    }
+                  ]
                 }
               ],
-              "featured_movies": [
-                {
-                  "id": "201",
-                  "type": "movie",
-                  "title": "Movie One",
-                  "subtitle": "Accion",
-                  "description": "Accion",
-                  "image_url": "https://img/movie.png",
-                  "group": "Accion",
-                  "badge_text": "CINE",
-                  "stream_url": "https://stream/movie.mp4"
-                }
-              ],
-              "featured_series": []
+              "series_sections": []
             }
             """.trimIndent(),
         )
@@ -192,13 +204,18 @@ class RemoteCatalogMappingTest {
         val payload = JSONObject(
             """
             {
-              "featured_series": [
+              "series_sections": [
                 {
-                  "id": "601",
-                  "title": "Serie Uno S01 E01",
-                  "group": "Drama",
-                  "series_name": "Serie Uno",
-                  "stream_url": "https://stream/series.mp4"
+                  "title": "Series",
+                  "items": [
+                    {
+                      "id": "601",
+                      "title": "Serie Uno S01 E01",
+                      "group": "Drama",
+                      "series_name": "Serie Uno",
+                      "stream_url": "https://stream/series.mp4"
+                    }
+                  ]
                 }
               ]
             }
@@ -209,7 +226,7 @@ class RemoteCatalogMappingTest {
 
         assertTrue(catalog.sections.isNotEmpty())
         assertEquals(ContentKind.SERIES, catalog.sections.single().items.single().kind)
-        assertEquals("series_group:Serie Uno", catalog.sections.single().items.single().stableId)
+        assertEquals("series:601", catalog.sections.single().items.single().stableId)
     }
 
     @Test

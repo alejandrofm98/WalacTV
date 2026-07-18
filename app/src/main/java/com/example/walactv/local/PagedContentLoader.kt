@@ -1,10 +1,12 @@
 package com.example.walactv.local
 
 import android.util.Log
-import com.example.walactv.CatalogItem
-import com.example.walactv.ContentKind
-import com.example.walactv.IptvRepository
+import com.example.walactv.data.model.CatalogItem
+import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.remote.repository.IptvRepository
+import com.example.walactv.data.remote.repository.mergeChannelVariants
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withContext
 
 private const val TAG = "PagedContentLoader"
@@ -97,7 +99,7 @@ class PagedContentLoader(
 
             if (kind == ContentKind.CHANNEL) {
                 val beforeMerge = cache.size
-                val merged = com.example.walactv.mergeChannelVariants(cache.toList())
+                val merged = com.example.walactv.data.remote.repository.mergeChannelVariants(cache.toList())
                 cache.clear()
                 cache.addAll(merged)
                 Log.d(TAG, "loadPage($kind, page=$page): merged channels: $beforeMerge → ${cache.size}")

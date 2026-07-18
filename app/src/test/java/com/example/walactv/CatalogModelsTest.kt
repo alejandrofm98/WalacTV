@@ -1,5 +1,15 @@
 package com.example.walactv
 
+import com.example.walactv.data.model.CatalogItem
+import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.buildSeriesGridItems
+import com.example.walactv.data.model.idioma
+import com.example.walactv.data.model.parseNormalizedMetadata
+import com.example.walactv.data.model.parseSeriesMetadata
+import com.example.walactv.data.model.subgrupo
+import com.example.walactv.data.util.displayCardTitle
+import com.example.walactv.data.util.filterItemsByCountrySelection
+import com.example.walactv.data.util.matchesFilterSearch
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

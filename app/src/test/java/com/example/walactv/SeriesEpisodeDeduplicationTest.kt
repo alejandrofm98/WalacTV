@@ -1,5 +1,11 @@
 package com.example.walactv
 
+import com.example.walactv.data.model.CatalogItem
+import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.findEquivalentSeriesEpisode
+import com.example.walactv.data.model.idioma
+import com.example.walactv.data.model.StreamOption
+import com.example.walactv.data.model.uniqueSeriesEpisodes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

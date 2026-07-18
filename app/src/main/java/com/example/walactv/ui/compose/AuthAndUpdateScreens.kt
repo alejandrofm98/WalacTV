@@ -17,8 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.tv.material3.Text
-import com.example.walactv.AppUpdateInfo
-import com.example.walactv.ComposeMainFragment
+import com.example.walactv.data.model.AppUpdateInfo
+import com.example.walactv.data.model.InstalledAppVersion
+import com.example.walactv.ui.fragment.ComposeMainFragment
 import com.example.walactv.ui.theme.*
 
 

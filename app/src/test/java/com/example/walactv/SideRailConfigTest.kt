@@ -1,5 +1,7 @@
 package com.example.walactv
 
+import com.example.walactv.ui.compose.SideRailDestination
+import com.example.walactv.ui.compose.buildDefaultSideRailEntries
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

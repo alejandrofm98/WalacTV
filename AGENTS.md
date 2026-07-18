@@ -51,15 +51,20 @@ Este cliente consume los siguientes endpoints (ver `iptv-api/AGENTS.md` seccion 
 - `GET /api/watch-progress` — continuar viendo
 - `PUT /api/watch-progress/{id}` — guardar progreso
 - `DELETE /api/watch-progress/{id}` — eliminar progreso
+- `POST /api/watch-progress/{id}/mark-watched` — marcar contenido como visto
+- `GET /api/watch-progress/watched` — contenido marcado como visto
 - `GET /api/content/stats?content_type=...` — estadisticas
 - `GET /api/content/{kind}/{id}` — detalle individual
 - `GET /api/content?...&country=...&page=...` — listado paginado
 - `GET /api/content/countries?content_type=...` — paises disponibles
 - `GET /api/content/groups?content_type=...` — grupos disponibles
-- `GET /api/content/channels/all` — todos los canales
+- `GET /api/content/genres?content_type=...` — generos disponibles
+- `GET /api/full/channels` — todos los canales (M3U playlist)
 - `GET /api/series/{name}/episodes` — episodios de serie
+- `GET /api/series/by-id/{series_id}/episodes` — episodios por ID de serie
 - `GET /api/search?q=...` — busqueda
 - `GET /api/home?country=...` — home catalog
+- `GET /api/calendar/{date}` — eventos de calendario (EVENT content)
 - `GET /api/channel-favorites` — favoritos
 - `GET /live/{username}/{password}/{channelId}` — stream en vivo
 - `GET /movie/{username}/{password}/{providerId}` — stream VOD
@@ -71,12 +76,12 @@ acepta tanto singular como plural thanks a un fix reciente.
 ## 1. Contexto rapido
 
 - **Stack**: Kotlin, Android TV (Leanback + Compose theme scaffolding),
-  Firebase Firestore, Media3/ExoPlayer, Glide, Room (KSP2), Retrofit+Gson.
+  Media3/ExoPlayer, Glide, Coil, Room (KSP2), Retrofit+Gson, Dagger.
 - **Min SDK**: 24. **Target SDK**: 36. **Compile SDK**: 36.
-- **Kotlin**: 2.2.10. **KSP**: 2.3.2. **Room**: 2.7.2.
+- **Kotlin**: 2.2.10. **KSP**: 2.3.2. **Room**: 2.7.2. **Compose BOM**: 2025.05.00. **Media3**: 1.5.1. **Retrofit**: 2.11.0. **Glide**: 4.16.0. **Coil**: 2.7.0. **Dagger**: 2.53.1.
 - **Puerto del backend**: `IPTV_BASE_URL` configurado en `local.properties`.
 - **Build**: `./gradlew :app:assembleDebug` (wrapper, siempre).
-- **Sin tests unitarios ni instrumentation tests** actualmente.
+- **Tests**: 52 unit tests across 10 test classes bajo `app/src/test/`. Todos pasan (0 failures). Sin instrumentation tests (no hay `app/src/androidTest/`).
 
 ## 2. Arquitectura
 
@@ -122,7 +127,7 @@ iptv-api (guardar progreso)
 - **Entidades**: `ChannelEntity`, `MovieEntity`, `SeriesEntity`
 - **DAOs**: `ChannelDao`, `MovieDao`, `SeriesDao`
 - **Database**: `ContentDatabase` (Room 2.7.2, KSP2)
-- **Version**: 4, con `fallbackToDestructiveMigration()`
+- **Version**: 6, con `fallbackToDestructiveMigration(dropAllTables = true)`
 - **Ubicacion**: `app/src/main/java/com/example/walactv/local/`
 
 ### 2.4 Continuar viendo (Continue Watching)
@@ -174,7 +179,7 @@ El backend busca por UUID, tmdb_id O provider_id.
 ./gradlew :app:lintFix                # Autofix seguro
 ```
 
-### Tests (no hay actualmente)
+### Tests (52 tests en 10 clases, todas pasan)
 
 ```bash
 ./gradlew :app:testDebugUnitTest      # Unit tests

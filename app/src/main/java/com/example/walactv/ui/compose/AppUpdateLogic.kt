@@ -15,10 +15,10 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
-import com.example.walactv.AppUpdateAvailability
-import com.example.walactv.AppUpdateInfo
-import com.example.walactv.ComposeMainFragment
-import com.example.walactv.evaluateAppUpdate
+import com.example.walactv.data.model.AppUpdateAvailability
+import com.example.walactv.data.model.AppUpdateInfo
+import com.example.walactv.ui.fragment.ComposeMainFragment
+import com.example.walactv.data.model.evaluateAppUpdate
 import kotlinx.coroutines.launch
 import java.io.File
 

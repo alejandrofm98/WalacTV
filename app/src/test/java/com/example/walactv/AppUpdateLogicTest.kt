@@ -1,5 +1,10 @@
 package com.example.walactv
 
+import com.example.walactv.data.model.AppUpdateAvailability
+import com.example.walactv.data.model.AppUpdateInfo
+import com.example.walactv.data.model.evaluateAppUpdate
+import com.example.walactv.data.model.InstalledAppVersion
+import com.example.walactv.data.model.parseAppUpdateInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

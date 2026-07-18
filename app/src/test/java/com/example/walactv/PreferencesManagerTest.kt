@@ -1,5 +1,8 @@
 package com.example.walactv
 
+import com.example.walactv.data.preferences.PreferencesManager
+import com.example.walactv.data.preferences.isAudioSelectorEnabled
+import com.example.walactv.data.util.languageDisplayLabel
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

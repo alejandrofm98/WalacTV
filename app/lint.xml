@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!--
+        IconDuplicates: ic_launcher.webp and ic_launcher_round.webp are intentionally
+        identical across all density folders. On pre-API 26 devices (minSdk = 24),
+        density-specific mipmap resources are required for the launcher icon.
+        The round variant is never visually different from the regular launcher icon
+        on Android TV devices.
+    -->
+    <issue id="IconDuplicates">
+        <ignore path="mipmap-mdpi/ic_launcher_round.webp" />
+        <ignore path="mipmap-hdpi/ic_launcher_round.webp" />
+        <ignore path="mipmap-xhdpi/ic_launcher_round.webp" />
+        <ignore path="mipmap-xxhdpi/ic_launcher_round.webp" />
+        <ignore path="mipmap-xxxhdpi/ic_launcher_round.webp" />
+    </issue>
+
+    <!--
+        IconMissingDensityFolder: All drawable resources in this project are
+        density-independent vector XMLs. No raster drawables exist, so density-specific
+        folders (drawable-hdpi, drawable-mdpi, drawable-xxhdpi) are intentionally absent.
+    -->
+    <issue id="IconMissingDensityFolder" severity="ignore" />
+</lint>

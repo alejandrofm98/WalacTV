@@ -360,7 +360,7 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
 
     // ── Local filters (derived from cached data) ────────────────────────
 
-    suspend fun getLocalChannelFilters(country: String? = null): com.example.walactv.CatalogFilters = withContext(Dispatchers.IO) {
+    suspend fun getLocalChannelFilters(country: String? = null): com.example.walactv.data.model.CatalogFilters = withContext(Dispatchers.IO) {
         val rawCountries = database.channelDao().getDistinctCountries()
         val allCountries = rawCountries.flatMap { it.parseCountryList() }.distinct().sorted()
         val groups = if (country != null) {
@@ -368,9 +368,9 @@ class ContentCacheManager @Inject constructor(private val context: Context) {
         } else {
             database.channelDao().getDistinctGroups()
         }
-        com.example.walactv.CatalogFilters(
-            countries = allCountries.map { com.example.walactv.CatalogFilterOption(it, CHANNEL_COUNTRY_NAMES[it] ?: it) },
-            groups = groups.map { com.example.walactv.CatalogFilterOption(it, it) }
+        com.example.walactv.data.model.CatalogFilters(
+            countries = allCountries.map { com.example.walactv.data.remote.api.dto.FilterOptionDto(it, CHANNEL_COUNTRY_NAMES[it] ?: it) },
+            groups = groups.map { com.example.walactv.data.remote.api.dto.FilterOptionDto(it, it) }
         )
     }
 

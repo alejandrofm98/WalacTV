@@ -1,5 +1,6 @@
 package com.example.walactv
 
+import com.example.walactv.data.remote.parser.parseRemoteCatalogPage
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
