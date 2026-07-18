@@ -10,7 +10,7 @@ import com.example.walactv.data.model.CatalogMemory
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.HomeCatalog
 import com.example.walactv.data.remote.repository.IptvRepository
-import com.example.walactv.data.model.WatchProgressItem
+import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.remote.repository.WatchProgressRepository
 import com.example.walactv.local.ContentCacheManager
 import com.example.walactv.data.preferences.ChannelStateStore
@@ -66,8 +66,8 @@ class HomeViewModel @Inject constructor(
         return listOfNotNull(eventSection, cwSection) + rest
     }
 
-    private val _continueWatchingEntries = MutableStateFlow<Map<String, WatchProgressItem>>(emptyMap())
-    val continueWatchingEntries: StateFlow<Map<String, WatchProgressItem>> = _continueWatchingEntries.asStateFlow()
+    private val _continueWatchingEntries = MutableStateFlow<Map<String, WatchProgressDto>>(emptyMap())
+    val continueWatchingEntries: StateFlow<Map<String, WatchProgressDto>> = _continueWatchingEntries.asStateFlow()
 
     private val _searchableItems = MutableStateFlow<List<CatalogItem>>(emptyList())
     val searchableItems: StateFlow<List<CatalogItem>> = _searchableItems.asStateFlow()
@@ -250,18 +250,18 @@ class HomeViewModel @Inject constructor(
                     Log.d(TAG, "loadContinueWatching[$requestVersion]: IN_PROGRESS contentId=${wp.contentId} type=${wp.contentType} title=${wp.title} pos=${wp.positionMs} dur=${wp.durationMs} isWatched=${wp.isWatched} seriesName=${wp.seriesName}")
                 }
 
-                val entryMap = mutableMapOf<String, WatchProgressItem>()
+                val entryMap = mutableMapOf<String, WatchProgressDto>()
 
                 (inProgressItems + watchedItems).forEach { wp ->
                     val prefix = if (wp.contentType == "series") "series" else "movie"
-                    entryMap[wp.contentId] = wp
+                    entryMap[wp.contentId.orEmpty()] = wp
                     entryMap["$prefix:${wp.contentId}"] = wp
-                    val bareId = wp.contentId.substringAfterLast(":")
+                    val bareId = (wp.contentId ?: "").substringAfterLast(":")
                     entryMap["$prefix:$bareId"] = wp
                     val normalizedKey = when (wp.contentType) {
                         "series" -> wp.seriesName?.trim()?.lowercase()
-                        else -> wp.normalizedTitle.trim().lowercase()
-                            .ifBlank { wp.title.trim().lowercase() }
+                        else -> (wp.normalizedTitle ?: "").trim().lowercase()
+                            .ifBlank { (wp.title ?: "").trim().lowercase() }
                     }
                     if (!normalizedKey.isNullOrBlank()) {
                         entryMap["title:$normalizedKey"] = wp
@@ -278,8 +278,8 @@ class HomeViewModel @Inject constructor(
                         else
                             "movie:${wp.contentId}"
                     }
-                    .map { (_, entries) -> entries.maxByOrNull { it.lastWatchedAt }!! }
-                    .sortedByDescending { it.lastWatchedAt }
+                    .map { (_, entries) -> entries.maxByOrNull { it.lastWatchedAt.orEmpty() }!! }
+                    .sortedByDescending { it.lastWatchedAt.orEmpty() }
 
                 Log.d(TAG, "loadContinueWatching[$requestVersion]: dedupedItems=${dedupedItems.size}")
                 dedupedItems.forEach { wp ->
@@ -308,7 +308,7 @@ class HomeViewModel @Inject constructor(
     // ── Continue watching item builder ─────────────────────────────────────
 
     private fun buildContinueWatchingItem(
-        wp: WatchProgressItem,
+        wp: WatchProgressDto,
         searchableSnapshot: List<CatalogItem>,
     ): CatalogItem {
         val kind = if (wp.contentType == "series") ContentKind.SERIES else ContentKind.MOVIE
@@ -322,16 +322,16 @@ class HomeViewModel @Inject constructor(
         val richSnapshot = homeSnapshot + searchableSnapshot
 
         val matched = when (wp.contentType) {
-            "movie" -> richSnapshot.firstOrNull { it.kind == ContentKind.MOVIE && it.matchesByProviderId(wp.contentId) }
+            "movie" -> richSnapshot.firstOrNull { it.kind == ContentKind.MOVIE && it.matchesByProviderId(wp.contentId.orEmpty()) }
             "series" -> findSeriesMatch(wp, richSnapshot)
-                ?: richSnapshot.firstOrNull { it.kind == ContentKind.SERIES && it.matchesByProviderId(wp.contentId) }
+                ?: richSnapshot.firstOrNull { it.kind == ContentKind.SERIES && it.matchesByProviderId(wp.contentId.orEmpty()) }
             else -> null
         }
 
         Log.d(
             TAG,
             "TMDB_CW build contentId=${wp.contentId} type=${wp.contentType} series=${wp.seriesName} matched=${matched.tmdbDebug()} " +
-                "wpTmdb=${wp.tmdbTitle.orEmpty()} wpBackdrop=${wp.backdropPath.orEmpty()} wpPoster=${wp.posterPath.orEmpty()} wpImage=${wp.imageUrl.take(80)}",
+                "wpTmdb=${wp.tmdbTitle.orEmpty()} wpBackdrop=${wp.backdropPath.orEmpty()} wpPoster=${wp.posterPath.orEmpty()} wpImage=${(wp.imageUrl ?: "").take(80)}",
         )
 
         return matched?.copy(
@@ -340,19 +340,19 @@ class HomeViewModel @Inject constructor(
             title = fallbackTitle,
             normalizedTitle = null,
             subtitle = subtitle,
-            description = matched.description.cleanDisplayText().ifBlank { wp.title },
-            imageUrl = matched.imageUrl.ifBlank { wp.imageUrl },
+            description = matched.description.cleanDisplayText().ifBlank { wp.title.orEmpty() },
+            imageUrl = matched.imageUrl.ifBlank { wp.imageUrl.orEmpty() },
             seriesName = matched.seriesName.cleanDisplayText().ifBlank { wp.seriesName.orEmpty() }.ifBlank { null },
         ) ?: wp.toCatalogItemFallback(
             stableId = fallbackStableId,
             subtitle = subtitle,
-            imageUrl = wp.imageUrl,
+            imageUrl = wp.imageUrl.orEmpty(),
             kind = kind,
             title = fallbackTitle,
         )
     }
 
-    private fun WatchProgressItem.toCatalogItemFallback(
+    private fun WatchProgressDto.toCatalogItemFallback(
         stableId: String,
         subtitle: String,
         imageUrl: String,
@@ -367,7 +367,7 @@ class HomeViewModel @Inject constructor(
             title = title,
             normalizedTitle = null,
             subtitle = subtitle,
-            description = overview.cleanDisplayText().ifBlank { this.title },
+            description = overview.cleanDisplayText().ifBlank { this.title.orEmpty() },
             imageUrl = imageUrl.ifBlank { tmdbPosterUrl.orEmpty() },
             kind = kind,
             group = "Continuar viendo",
@@ -392,7 +392,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun findSeriesMatch(
-        wp: WatchProgressItem,
+        wp: WatchProgressDto,
         items: List<CatalogItem>,
     ): CatalogItem? {
         val seriesName = wp.seriesName ?: return null
@@ -465,7 +465,7 @@ class HomeViewModel @Inject constructor(
         _continueWatchingEntries.value = _continueWatchingEntries.value
             .filterValues { wp ->
                 if (seriesName != null) wp.seriesName != seriesName
-                else wp.contentId.substringAfterLast(":") != normalizedId
+                else (wp.contentId ?: "").substringAfterLast(":") != normalizedId
             }
         _continueWatchingSection.value = _continueWatchingSection.value?.let { section ->
             val filtered = section.items.filter { item ->
@@ -476,11 +476,11 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun upsertContinueWatchingEntry(item: WatchProgressItem) {
+    fun upsertContinueWatchingEntry(item: WatchProgressDto) {
         val searchableSnapshot = _searchableItems.value
-        val previous = _continueWatchingEntries.value[item.contentId]
+        val previous = _continueWatchingEntries.value[item.contentId.orEmpty()]
             ?: _continueWatchingEntries.value["${item.contentType}:${item.contentId}"]
-            ?: _continueWatchingEntries.value[item.contentId.substringAfterLast(":")]
+            ?: _continueWatchingEntries.value[(item.contentId ?: "").substringAfterLast(":")]
         val progressItem = if (item.contentType == "series" && item.seriesName.isNullOrBlank() && !previous?.seriesName.isNullOrBlank()) {
             item.copy(seriesName = previous?.seriesName)
         } else {
@@ -488,14 +488,14 @@ class HomeViewModel @Inject constructor(
         }
 
         val newEntryMap = _continueWatchingEntries.value.toMutableMap()
-        newEntryMap[progressItem.contentId] = progressItem
+        newEntryMap[progressItem.contentId.orEmpty()] = progressItem
         newEntryMap["${progressItem.contentType}:${progressItem.contentId}"] = progressItem
-        val bareId = progressItem.contentId.substringAfterLast(":")
+        val bareId = (progressItem.contentId ?: "").substringAfterLast(":")
         newEntryMap["${progressItem.contentType}:$bareId"] = progressItem
         val normalizedKey = when (progressItem.contentType) {
             "series" -> progressItem.seriesName?.trim()?.lowercase()
-            else -> progressItem.normalizedTitle.trim().lowercase()
-                .ifBlank { progressItem.title.trim().lowercase() }
+            else -> (progressItem.normalizedTitle ?: "").trim().lowercase()
+                .ifBlank { (progressItem.title ?: "").trim().lowercase() }
         }
         if (!normalizedKey.isNullOrBlank()) {
             newEntryMap["title:$normalizedKey"] = item
@@ -519,11 +519,11 @@ class HomeViewModel @Inject constructor(
         }
 
         val reorderedItems = currentCwItems
-            .mapNotNull { cwItem ->
-                val wp = _continueWatchingEntries.value[cwItem.stableId] ?: return@mapNotNull null
-                wp to wp.lastWatchedAt
-            }
-            .sortedByDescending { it.second }
+                    .mapNotNull { cwItem ->
+                        val wp = _continueWatchingEntries.value[cwItem.stableId] ?: return@mapNotNull null
+                        wp to wp.lastWatchedAt.orEmpty()
+                    }
+                    .sortedByDescending { it.second }
             .map { it.first }
 
         val catalogItems = reorderedItems.map { wp ->

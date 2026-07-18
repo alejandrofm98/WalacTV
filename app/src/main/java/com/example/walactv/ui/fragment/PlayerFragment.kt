@@ -47,8 +47,9 @@ import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.WalacApp
 import com.example.walactv.data.model.PlaybackError
-import com.example.walactv.data.model.WatchProgressItem
 import com.example.walactv.data.model.UnifiedStreamOption
+import com.example.walactv.data.remote.api.dto.WatchProgressDto
+import com.example.walactv.data.remote.api.dto.shouldRestoreProgress
 import com.example.walactv.data.remote.repository.IntroDbRepository
 import com.example.walactv.data.remote.repository.IntroDbSegments
 import com.example.walactv.data.model.categorizePlaybackError
@@ -92,7 +93,7 @@ class PlayerFragment : Fragment() {
     private var contentId: String = ""
     private var _positionMs: Long = 0
     private var onPlayerClosed: (() -> Unit)? = null
-    private var onProgressSaved: ((WatchProgressItem) -> Unit)? = null
+    private var onProgressSaved: ((WatchProgressDto) -> Unit)? = null
     private var customHeaders: Map<String, String> = emptyMap()
 
     init {
@@ -124,7 +125,7 @@ class PlayerFragment : Fragment() {
         contentId: String = "",
         positionMs: Long = 0,
         onPlayerClosed: (() -> Unit)? = null,
-        onProgressSaved: ((WatchProgressItem) -> Unit)? = null,
+        onProgressSaved: ((WatchProgressDto) -> Unit)? = null,
         customHeaders: Map<String, String> = emptyMap(),
         unifiedStreamOptions: List<UnifiedStreamOption> = emptyList(),
         onSelectUnifiedOption: ((Int) -> Unit)? = null,
@@ -624,7 +625,7 @@ class PlayerFragment : Fragment() {
         Log.d(TAG, "saveWatchProgress: launching async save for contentId='$contentId' position=$position")
         
         // Construir el item de progreso localmente para actualización inmediata de UI
-        val progressItem = WatchProgressItem(
+        val progressItem = WatchProgressDto(
             contentId = contentId,
             contentType = contentType,
             positionMs = position,
@@ -814,7 +815,7 @@ class PlayerFragment : Fragment() {
                 val progress = repo.getProgress(contentId)
                 if (progress != null && progress.shouldRestoreProgress){
                     withContext(Dispatchers.Main) {
-                        player?.seekTo(progress.positionMs)
+                        player?.seekTo(progress.positionMs ?: 0L)
                         Log.d(TAG, "Restored progress to ${progress.positionMs}ms for $contentId")
                     }
                 }

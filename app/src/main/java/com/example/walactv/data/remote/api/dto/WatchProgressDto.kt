@@ -27,7 +27,7 @@ data class WatchProgressDto(
     @SerializedName("vote_average") val voteAverage: Double? = null,
     @SerializedName("vote_count") val voteCount: Int? = null,
     @SerializedName("runtime_minutes") val runtimeMinutes: Int? = null,
-    val genres: List<String>? = null,
+    val genres: List<String> = emptyList(),
     @SerializedName("poster_path") val posterPath: String? = null,
     @SerializedName("backdrop_path") val backdropPath: String? = null,
     val tagline: String? = null,

@@ -18,8 +18,9 @@ import com.example.walactv.WalacApp
 import com.example.walactv.data.model.idioma
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.model.uniqueSeriesEpisodes
-import com.example.walactv.data.model.WatchProgressItem
 import com.example.walactv.data.preferences.PreferencesManager
+import com.example.walactv.data.remote.api.dto.WatchProgressDto
+import com.example.walactv.data.remote.api.dto.progressPercent
 import com.example.walactv.data.remote.repository.IptvRepository
 import com.example.walactv.data.util.normalizeLanguageCode
 import androidx.compose.foundation.background
@@ -265,13 +266,13 @@ fun SeriesDetailScreen(
     val allEpisodes = allEpisodesState.value
 
     val watchProgressRepo = remember { (context.applicationContext as WalacApp).appComponent.watchProgressRepository }
-    val progressMap by produceState<Map<String, WatchProgressItem>>(emptyMap(), seriesName) {
+    val progressMap by produceState<Map<String, WatchProgressDto>>(emptyMap(), seriesName) {
         val inProgress = watchProgressRepo.getContinueWatching().getOrDefault(emptyList())
         val watched = watchProgressRepo.getWatchedItems().getOrDefault(emptyList())
         val all = (inProgress + watched).filter {
             it.seriesName?.equals(seriesName, ignoreCase = true) == true
         }
-        value = all.associateBy { it.contentId }
+        value = all.associateBy { it.contentId.orEmpty() }
     }
 
     val uniqueEpisodes = remember(allEpisodes, preferredLanguage) {
@@ -552,7 +553,7 @@ fun SeriesDetailScreen(
 @Composable
 fun EpisodeCard(
     item: CatalogItem,
-    watchProgress: WatchProgressItem? = null,
+    watchProgress: WatchProgressDto? = null,
     onClick: () -> Unit,
     onFocus: () -> Unit,
     modifier: Modifier = Modifier,

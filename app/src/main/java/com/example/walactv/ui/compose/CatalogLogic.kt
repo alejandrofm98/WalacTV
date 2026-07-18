@@ -11,7 +11,7 @@ import com.example.walactv.ui.fragment.ComposeMainFragment.ContentSyncState
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.HomeCatalog
 import com.example.walactv.ui.fragment.SearchFragment
-import com.example.walactv.data.model.WatchProgressItem
+import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.ui.fragment.tmdbDebug
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -55,7 +55,7 @@ internal suspend fun ComposeMainFragment.deleteAllSeriesProgress(seriesName: Str
         coroutineScope {
             continueWatchingEntries
                 .filter { (_, wp) -> wp.seriesName == seriesName }
-                .map { (_, wp) -> async { watchProgressRepo.deleteProgress(wp.contentId.substringAfterLast(":")) } }
+                .map { (_, wp) -> async { watchProgressRepo.deleteProgress((wp.contentId ?: "").substringAfterLast(":")) } }
         }
     } catch (e: Exception) {
         Log.e(TAG, "Error deleting series progress for $seriesName", e)
@@ -65,7 +65,7 @@ internal suspend fun ComposeMainFragment.deleteAllSeriesProgress(seriesName: Str
 // ── Continue-watching item builder ─────────────────────────────────────────
 
 internal fun ComposeMainFragment.buildContinueWatchingItem(
-    wp: WatchProgressItem,
+    wp: WatchProgressDto,
     searchableSnapshot: List<CatalogItem>,
 ): CatalogItem {
     val kind = if (wp.contentType == "series") ContentKind.SERIES else ContentKind.MOVIE
@@ -79,16 +79,16 @@ internal fun ComposeMainFragment.buildContinueWatchingItem(
     val richSnapshot = homeSnapshot + searchableSnapshot
 
     val matched = when (wp.contentType) {
-        "movie"  -> richSnapshot.firstOrNull { it.kind == ContentKind.MOVIE && it.matchesByProviderId(wp.contentId) }
+        "movie"  -> richSnapshot.firstOrNull { it.kind == ContentKind.MOVIE && it.matchesByProviderId(wp.contentId.orEmpty()) }
         "series" -> findSeriesMatch(wp, richSnapshot)
-            ?: richSnapshot.firstOrNull { it.kind == ContentKind.SERIES && it.matchesByProviderId(wp.contentId) }
+            ?: richSnapshot.firstOrNull { it.kind == ContentKind.SERIES && it.matchesByProviderId(wp.contentId.orEmpty()) }
         else     -> null
     }
 
     Log.d(
         TAG,
         "TMDB_CW build contentId=${wp.contentId} type=${wp.contentType} series=${wp.seriesName} matched=${matched.tmdbDebug()} " +
-            "wpTmdb=${wp.tmdbTitle.orEmpty()} wpBackdrop=${wp.backdropPath.orEmpty()} wpPoster=${wp.posterPath.orEmpty()} wpImage=${wp.imageUrl.take(80)}",
+            "wpTmdb=${wp.tmdbTitle.orEmpty()} wpBackdrop=${wp.backdropPath.orEmpty()} wpPoster=${wp.posterPath.orEmpty()} wpImage=${(wp.imageUrl ?: "").take(80)}",
     )
 
     return matched?.copy(
@@ -97,20 +97,19 @@ internal fun ComposeMainFragment.buildContinueWatchingItem(
         title = fallbackTitle,
         normalizedTitle = null,
         subtitle = subtitle,
-        description = matched.description.cleanDisplayText().ifBlank { wp.title },
-        imageUrl = matched.imageUrl.ifBlank { wp.imageUrl },
+        description = matched.description.cleanDisplayText().ifBlank { wp.title.orEmpty() },
+        imageUrl = matched.imageUrl.ifBlank { wp.imageUrl.orEmpty() },
         seriesName = matched.seriesName.cleanDisplayText().ifBlank { wp.seriesName.orEmpty() }.ifBlank { null },
-        seriesProviderId = wp.seriesProviderId,
     ) ?: wp.toCatalogItemFallback(
         stableId = fallbackStableId,
         subtitle = subtitle,
-        imageUrl = wp.imageUrl,
+        imageUrl = wp.imageUrl.orEmpty(),
         kind = kind,
         title = fallbackTitle,
     )
 }
 
-private fun WatchProgressItem.toCatalogItemFallback(
+private fun WatchProgressDto.toCatalogItemFallback(
     stableId: String,
     subtitle: String,
     imageUrl: String,
@@ -125,7 +124,7 @@ private fun WatchProgressItem.toCatalogItemFallback(
         title = title,
         normalizedTitle = null,
         subtitle = subtitle,
-        description = overview.cleanDisplayText().ifBlank { this.title },
+        description = overview.cleanDisplayText().ifBlank { this.title.orEmpty() },
         imageUrl = imageUrl.ifBlank { tmdbPosterUrl.orEmpty() },
         kind = kind,
         group = "Continuar viendo",
@@ -167,7 +166,7 @@ internal fun CatalogItem.matchesByProviderId(contentId: String): Boolean {
 }
 
 internal fun ComposeMainFragment.findSeriesMatch(
-    wp: WatchProgressItem,
+    wp: WatchProgressDto,
     items: List<CatalogItem> = searchableItems,
 ): CatalogItem? {
     val seriesName = wp.seriesName ?: return null
@@ -333,12 +332,12 @@ internal fun ComposeMainFragment.findNextEventIndex(items: List<CatalogItem>): I
         ?: bestPast
 }
 
-internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgressItem) {
+internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgressDto) {
     Log.d("CW_UPSERT", "called: contentId=${item.contentId} contentType=${item.contentType} title=${item.title} position=${item.positionMs} seriesName=${item.seriesName}")
     val searchableSnapshot = searchableItems
-    val previous = continueWatchingEntries[item.contentId]
+    val previous = continueWatchingEntries[item.contentId.orEmpty()]
         ?: continueWatchingEntries["${item.contentType}:${item.contentId}"]
-        ?: continueWatchingEntries[item.contentId.substringAfterLast(":")]
+        ?: continueWatchingEntries[(item.contentId ?: "").substringAfterLast(":")]
     val progressItem = if (item.contentType == "series" && item.seriesName.isNullOrBlank() && !previous?.seriesName.isNullOrBlank()) {
         item.copy(seriesName = previous?.seriesName)
     } else {
@@ -347,14 +346,14 @@ internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgress
     
     // Agregar/actualizar en continueWatchingEntries
     val newEntryMap = continueWatchingEntries.toMutableMap()
-    newEntryMap[progressItem.contentId] = progressItem
+    newEntryMap[progressItem.contentId.orEmpty()] = progressItem
     newEntryMap["${progressItem.contentType}:${progressItem.contentId}"] = progressItem
-    val bareId = progressItem.contentId.substringAfterLast(":")
+    val bareId = (progressItem.contentId ?: "").substringAfterLast(":")
     newEntryMap["${progressItem.contentType}:$bareId"] = progressItem
     val normalizedKey = when (progressItem.contentType) {
         "series" -> progressItem.seriesName?.trim()?.lowercase()
-        else -> progressItem.normalizedTitle.trim().lowercase()
-            .ifBlank { progressItem.title.trim().lowercase() }
+        else -> (progressItem.normalizedTitle ?: "").trim().lowercase()
+            .ifBlank { (progressItem.title ?: "").trim().lowercase() }
     }
     if (!normalizedKey.isNullOrBlank()) {
         newEntryMap["title:$normalizedKey"] = item
@@ -382,7 +381,7 @@ internal fun ComposeMainFragment.upsertContinueWatchingEntry(item: WatchProgress
     val reorderedItems = currentCwItems
         .mapNotNull { cwItem ->
             val wp = continueWatchingEntries[cwItem.stableId] ?: return@mapNotNull null
-            wp to wp.lastWatchedAt
+            wp to (wp.lastWatchedAt ?: "")
         }
         .sortedByDescending { it.second }
         .map { it.first }

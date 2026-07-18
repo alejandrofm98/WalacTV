@@ -19,8 +19,8 @@ import com.example.walactv.ui.fragment.MovieDetailFragment
 import com.example.walactv.ui.fragment.SeriesDetailFragment
 import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.UnifiedStreamOption
-import com.example.walactv.data.model.WatchProgressItem
 import com.example.walactv.data.model.toUnifiedOptions
+import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.BuildConfig
 import com.example.walactv.data.model.idioma
 import com.example.walactv.data.util.normalizeLanguageCode
@@ -73,7 +73,7 @@ internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List
 
 // ── Continue watching openers ──────────────────────────────────────────────
 
-internal fun ComposeMainFragment.openContinueWatchingItem(cardItem: CatalogItem, progress: WatchProgressItem) {
+internal fun ComposeMainFragment.openContinueWatchingItem(cardItem: CatalogItem, progress: WatchProgressDto) {
     scope.launch {
         when (progress.contentType) {
             "movie"  -> openContinueWatchingMovie(cardItem, progress)
@@ -83,11 +83,11 @@ internal fun ComposeMainFragment.openContinueWatchingItem(cardItem: CatalogItem,
     }
 }
 
-internal fun ComposeMainFragment.openContinueWatchingFromStart(cardItem: CatalogItem, progress: WatchProgressItem) {
+internal fun ComposeMainFragment.openContinueWatchingFromStart(cardItem: CatalogItem, progress: WatchProgressDto) {
     openContinueWatchingItem(cardItem, progress.copy(positionMs = 0L))
 }
 
-internal fun ComposeMainFragment.openContinueWatchingDetails(cardItem: CatalogItem, progress: WatchProgressItem) {
+internal fun ComposeMainFragment.openContinueWatchingDetails(cardItem: CatalogItem, progress: WatchProgressDto) {
     rememberPlaybackReturnState(cardItem)
     when (progress.contentType) {
         "movie" -> {
@@ -117,9 +117,9 @@ internal fun ComposeMainFragment.openContinueWatchingDetails(cardItem: CatalogIt
     }
 }
 
-private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: CatalogItem, progress: WatchProgressItem) {
+private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: CatalogItem, progress: WatchProgressDto) {
     val item = try {
-        repository.fetchContentItem(ContentKind.MOVIE, progress.contentId)
+        repository.fetchContentItem(ContentKind.MOVIE, progress.contentId.orEmpty())
     } catch (e: Exception) {
         Log.e(TAG, "Error fetching movie ${progress.contentId}", e)
         null
@@ -130,7 +130,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: Cata
     }
     withContext(Dispatchers.Main) {
         activePlaybackLineup = emptyList()
-        playResolvedCatalogItem(item, 0, positionMs = progress.positionMs)
+        playResolvedCatalogItem(item, 0, positionMs = progress.positionMs ?: 0L)
         // Sobrescribir con cardItem CW para que vuelva a la card correcta
         rememberPlaybackReturnState(cardItem)
     }
@@ -138,10 +138,10 @@ private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: Cata
 
 private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     cardItem: CatalogItem,
-    progress: WatchProgressItem,
+    progress: WatchProgressDto,
 ) {
     val episode = try {
-        repository.fetchContentItem(ContentKind.SERIES, progress.contentId)
+        repository.fetchContentItem(ContentKind.SERIES, progress.contentId.orEmpty())
     } catch (e: Exception) {
         Log.w(TAG, "fetchContentItem failed for ${progress.contentId}, falling back to progress data", e)
         null
@@ -271,7 +271,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
             onPreviousEpisode = previousEpisodeCallback,
             allSeriesEpisodes = allEpisodes, currentEpisode = targetEpisode,
             overlayLogoUrl = targetEpisode.preferredVodPosterUrl(), contentId = targetEpisode.providerId ?: targetEpisode.stableId,
-            positionMs = progress.positionMs,
+            positionMs = progress.positionMs ?: 0L,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
             unifiedStreamOptions = unifiedOptions,
@@ -378,7 +378,7 @@ internal fun ComposeMainFragment.launchPlayerFragment(playerFragment: PlayerFrag
     runCatching { container.requestFocus() }
 }
 
-internal fun ComposeMainFragment.markContinueWatchingAsWatched(cardItem: CatalogItem, progress: WatchProgressItem) {
+internal fun ComposeMainFragment.markContinueWatchingAsWatched(cardItem: CatalogItem, progress: WatchProgressDto) {
     val normalizedId = cardItem.providerId.orEmpty().ifBlank { cardItem.stableId.substringAfterLast(":") }.substringAfterLast(":")
     setPendingFocusAfterCwRemoval(cardItem.stableId)
     scope.launch {

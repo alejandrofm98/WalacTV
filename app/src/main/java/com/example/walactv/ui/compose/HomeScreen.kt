@@ -89,7 +89,8 @@ import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.ui.fragment.ComposeMainFragment
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.R
-import com.example.walactv.data.model.WatchProgressItem
+import com.example.walactv.data.remote.api.dto.WatchProgressDto
+import com.example.walactv.data.remote.api.dto.progressPercent
 import com.example.walactv.data.model.isVodContent
 import com.example.walactv.data.model.preferredCardImageUrl
 import com.example.walactv.data.model.preferredVodPosterUrl
@@ -810,7 +811,7 @@ internal fun ContentSection(
 
                     if (section.title == "Continuar viendo") {
                         val wp = cwLookup[item]
-                        val remainingText = wp?.let { formatDurationRemaining(it.positionMs, it.durationMs) }
+                        val remainingText = wp?.let { formatDurationRemaining(it.positionMs ?: 0L, it.durationMs ?: 0L) }
                         val epBadge = item.subtitle.ifBlank { null }
                         ContinueWatchingCard(
                             fragment = fragment,
@@ -1359,7 +1360,7 @@ internal fun ContinueWatchingCard(
 internal fun ContinueWatchingOptionsMenu(
     fragment: ComposeMainFragment,
     item: CatalogItem,
-    progress: WatchProgressItem,
+    progress: WatchProgressDto,
     onDismiss: () -> Unit,
 ) {
     val options = listOf(

@@ -2,14 +2,13 @@ package com.example.walactv.data.remote.repository
 
 import android.util.Log
 import com.example.walactv.data.remote.api.IptvApiService
-import com.example.walactv.data.model.WatchProgressItem
 import com.example.walactv.data.remote.api.dto.SaveWatchProgressBody
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import javax.inject.Inject
 
 class WatchProgressRepository @Inject constructor(private val apiService: IptvApiService) {
 
-    suspend fun getContinueWatching(): Result<List<WatchProgressItem>> {
+    suspend fun getContinueWatching(): Result<List<WatchProgressDto>> {
         return try {
             Log.d(TAG, "getContinueWatching: CALLING API GET /api/watch-progress?limit=20")
             val response = apiService.getWatchProgress(limit = 20)
@@ -20,7 +19,7 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
                 items.forEachIndexed { i, dto ->
                     Log.d(TAG, "getContinueWatching: item[$i] contentId=${dto.contentId} contentType=${dto.contentType} title=${dto.title} position=${dto.positionMs} isWatched=${dto.isWatched}")
                 }
-                Result.success(items.map { it.toDomain() })
+                Result.success(items)
             } else {
                 val errorBody = response.errorBody()?.string()
                 Log.e(TAG, "getContinueWatching: FAILED code=${response.code()} error=$errorBody")
@@ -32,11 +31,11 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
         }
     }
 
-    suspend fun getProgress(contentId: String): WatchProgressItem? {
+    suspend fun getProgress(contentId: String): WatchProgressDto? {
         return try {
             val response = apiService.getWatchProgressItem(contentId)
             if (response.isSuccessful) {
-                response.body()?.toDomain()
+                response.body()
             } else {
                 Log.d(TAG, "No progress found for $contentId: ${response.code()}")
                 null
@@ -47,11 +46,11 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
         }
     }
 
-    suspend fun getWatchedItems(): Result<List<WatchProgressItem>> {
+    suspend fun getWatchedItems(): Result<List<WatchProgressDto>> {
         return try {
             val response = apiService.getWatchedItems(limit = 200)
             if (response.isSuccessful) {
-                Result.success(response.body()?.items?.map { it.toDomain() } ?: emptyList())
+                Result.success(response.body()?.items ?: emptyList())
             } else {
                 Log.e(TAG, "Error fetching watched items: ${response.code()}")
                 Result.failure(Exception("Error fetching watched items: ${response.code()}"))
@@ -122,37 +121,6 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
             Log.e(TAG, "Error marking as watched: $contentId", e)
             false
         }
-    }
-
-    private fun WatchProgressDto.toDomain(): WatchProgressItem {
-        return WatchProgressItem(
-            contentId = contentId.orEmpty(),
-            contentType = contentType.orEmpty(),
-            positionMs = positionMs ?: 0L,
-            durationMs = durationMs ?: 0L,
-            normalizedTitle = normalizedTitle.orEmpty(),
-            title = title.orEmpty(),
-            imageUrl = imageUrl.orEmpty(),
-            seriesName = seriesName?.ifBlank { null },
-            seriesProviderId = seriesProviderId?.ifBlank { null },
-            seasonNumber = seasonNumber?.takeIf { it > 0 },
-            episodeNumber = episodeNumber?.takeIf { it > 0 },
-            lastWatchedAt = lastWatchedAt.orEmpty(),
-            isWatched = isWatched ?: false,
-            overview = overview?.ifBlank { null } ?: overviewEn?.ifBlank { null },
-            overviewEn = overviewEn?.ifBlank { null },
-            voteAverage = voteAverage,
-            voteCount = voteCount?.takeIf { it > 0 },
-            runtimeMinutes = runtimeMinutes?.takeIf { it > 0 },
-            genres = genres.orEmpty(),
-            posterPath = posterPath?.ifBlank { null },
-            backdropPath = backdropPath?.ifBlank { null },
-            tagline = tagline?.ifBlank { null },
-            releaseDate = releaseDate?.ifBlank { null },
-            year = year?.takeIf { it > 0 },
-            tmdbTitle = tmdbTitle?.ifBlank { null },
-            totalSeasons = totalSeasons?.takeIf { it > 0 },
-        )
     }
 
     companion object {

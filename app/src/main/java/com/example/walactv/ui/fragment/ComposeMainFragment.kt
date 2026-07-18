@@ -30,7 +30,7 @@ import com.example.walactv.ui.compose.ensureFiltersLoaded
 import com.example.walactv.ui.compose.handleCompletedUpdateDownload
 import com.example.walactv.data.model.AppUpdateInfo
 import com.example.walactv.data.model.InstalledAppVersion
-import com.example.walactv.data.model.WatchProgressItem
+import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.preferences.ChannelStateStore
 import com.example.walactv.data.preferences.CredentialStore
 import com.example.walactv.data.remote.repository.AppUpdateRepository
@@ -74,7 +74,7 @@ class ComposeMainFragment : Fragment() {
     internal var homeCatalog by mutableStateOf<HomeCatalog?>(null)
     internal var homeSections by mutableStateOf<List<BrowseSection>>(emptyList())
     internal var continueWatchingSection by mutableStateOf<BrowseSection?>(null)
-    internal var continueWatchingEntries by mutableStateOf<Map<String, WatchProgressItem>>(emptyMap())
+    internal var continueWatchingEntries by mutableStateOf<Map<String, WatchProgressDto>>(emptyMap())
     internal var continueWatchingMenuItem by mutableStateOf<CatalogItem?>(null)
     internal var searchableItems by mutableStateOf<List<CatalogItem>>(emptyList())
     internal var channelLineup by mutableStateOf<List<CatalogItem>>(emptyList())
@@ -389,7 +389,7 @@ class ComposeMainFragment : Fragment() {
         internal const val ALL_OPTION = "Todos"
         internal val EVENT_TIME_FORMAT get() = SimpleDateFormat("HH:mm", Locale.getDefault())
         /** Callback que detail fragments usan para actualizar Continue Watching localmente */
-        internal var progressSavedCallback: ((WatchProgressItem) -> Unit)? = null
+        internal var progressSavedCallback: ((WatchProgressDto) -> Unit)? = null
     }
 }
 
