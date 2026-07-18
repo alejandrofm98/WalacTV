@@ -213,15 +213,6 @@ class PlayerFragment : Fragment() {
     private var stuckPositionCount: Int = 0
     private val positionWatchdog = Runnable { checkPositionStuck() }
 
-    private fun playbackStateName(state: Int) = when (state) {
-        Player.STATE_IDLE -> "IDLE"
-        Player.STATE_BUFFERING -> "BUFFERING"
-        Player.STATE_READY -> "READY"
-        Player.STATE_ENDED -> "ENDED"
-        else -> "UNKNOWN($state)"
-    }
-
-
     private val isVodMode: Boolean
         get() = contentKind == ContentKind.MOVIE || contentKind == ContentKind.SERIES
 

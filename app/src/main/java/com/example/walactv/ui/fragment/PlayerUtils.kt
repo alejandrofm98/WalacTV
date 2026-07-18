@@ -4,6 +4,7 @@ import android.view.KeyEvent
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.Player
 
 /**
  * Matches URLs that go through the iptv-api's channel stream proxy:
@@ -73,6 +74,17 @@ internal fun mapDigit(keyCode: Int): Int? = when (keyCode) {
     KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_NUMPAD_8 -> 8
     KeyEvent.KEYCODE_9, KeyEvent.KEYCODE_NUMPAD_9 -> 9
     else -> null
+}
+
+/**
+ * Converts a [Player] playback state int into a human-readable name for logs.
+ */
+internal fun playbackStateName(state: Int): String = when (state) {
+    Player.STATE_IDLE -> "IDLE"
+    Player.STATE_BUFFERING -> "BUFFERING"
+    Player.STATE_READY -> "READY"
+    Player.STATE_ENDED -> "ENDED"
+    else -> "UNKNOWN($state)"
 }
 
 /**
