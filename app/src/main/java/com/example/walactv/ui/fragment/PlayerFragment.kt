@@ -58,12 +58,7 @@ import com.example.walactv.data.util.languageDisplayLabel
 import com.example.walactv.data.util.normalizeLanguageCode
 import com.example.walactv.datasource.StreamWishDataSourceFactory
 import com.example.walactv.ui.overlay.PlayerErrorOverlay
-
-internal fun isFatalPlaybackErrorForDevice(errorMessage: String): Boolean {
-    return errorMessage.contains("NO_EXCEEDS_CAPABILITIES") ||
-            errorMessage.contains("Decoder failed") ||
-            errorMessage.contains("dolby-vision")
-}
+import com.example.walactv.ui.overlay.isFatalPlaybackErrorForDevice
 
 @UnstableApi
 class PlayerFragment : Fragment() {
@@ -286,19 +281,6 @@ class PlayerFragment : Fragment() {
         playerView.post { playerView.showController() }
     }
 
-    private fun formatTime(ms: Long): String {
-        if (ms <= 0) return "0:00"
-        val totalSeconds = ms / 1000
-        val hours = totalSeconds / 3600
-        val minutes = (totalSeconds % 3600) / 60
-        val seconds = totalSeconds % 60
-        return if (hours > 0) {
-            "%d:%02d:%02d".format(hours, minutes, seconds)
-        } else {
-            "%d:%02d".format(minutes, seconds)
-        }
-    }
-
     private fun updateVodTimeDisplay() {
         val exoPlayer = player ?: return
         playerView.findViewById<TextView>(R.id.vod_position)?.text = formatTime(exoPlayer.currentPosition)
@@ -385,24 +367,6 @@ class PlayerFragment : Fragment() {
         if (player == null && !isReleasing) {
             Log.d(TAG, "Reinicializando player en onResume")
             initializePlayer()
-        }
-    }
-
-    private fun extractReferer(url: String): String {
-        return try {
-            val uri = url.toUri()
-            val host = uri.host ?: return ""
-
-            val isStreamWishCdn = host.contains("streamwish") || host.contains("filemoon") ||
-                    host.contains("hglamioz") || host.contains("wishembed") || host.contains("swdyu")
-
-            if (isStreamWishCdn) {
-                "https://streamwish.to/"
-            } else {
-                "${uri.scheme}://${uri.host}/"
-            }
-        } catch (e: Exception) {
-            ""
         }
     }
 
