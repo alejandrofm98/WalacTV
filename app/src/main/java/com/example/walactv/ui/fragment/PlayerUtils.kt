@@ -3,9 +3,13 @@ package com.example.walactv.ui.fragment
 import android.view.KeyEvent
 import android.view.View
 import androidx.core.net.toUri
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.ExoPlayer
 
 /**
  * Matches URLs that go through the iptv-api's channel stream proxy:
@@ -100,6 +104,31 @@ internal fun describeView(view: View): String {
     } catch (e: Exception) {
         "id=${view.id}(${view.javaClass.simpleName})"
     }
+}
+
+/**
+ * Applies a subtitle track selection to the given [ExoPlayer]. If [groupIndex]
+ * is negative, disables text tracks. Otherwise sets an override on the chosen
+ * [Tracks.Group] / track. Pure function — operates only on the passed
+ * [ExoPlayer] state.
+ */
+internal fun applySubtitleSelection(
+    exoPlayer: ExoPlayer,
+    textGroups: List<Tracks.Group>,
+    groupIndex: Int,
+    trackIndex: Int,
+) {
+    val paramsBuilder = exoPlayer.trackSelectionParameters.buildUpon()
+    if (groupIndex < 0) {
+        paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+    } else {
+        paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+        val group = textGroups[groupIndex]
+        paramsBuilder.setOverrideForType(
+            TrackSelectionOverride(group.mediaTrackGroup, trackIndex),
+        )
+    }
+    exoPlayer.trackSelectionParameters = paramsBuilder.build()
 }
 
 /**

@@ -910,25 +910,6 @@ class PlayerFragment : Fragment() {
             .show()
     }
 
-    private fun applySubtitleSelection(
-        exoPlayer: ExoPlayer,
-        textGroups: List<Tracks.Group>,
-        groupIndex: Int,
-        trackIndex: Int,
-    ) {
-        val paramsBuilder = exoPlayer.trackSelectionParameters.buildUpon()
-        if (groupIndex < 0) {
-            paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-        } else {
-            paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-            val group = textGroups[groupIndex]
-            paramsBuilder.setOverrideForType(
-                TrackSelectionOverride(group.mediaTrackGroup, trackIndex),
-            )
-        }
-        exoPlayer.trackSelectionParameters = paramsBuilder.build()
-    }
-
     // ──────────────────────────────────────────────────────────────────────
     //  Option indicator (live / events)
     // ──────────────────────────────────────────────────────────────────────
