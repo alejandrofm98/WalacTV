@@ -31,6 +31,8 @@ import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.playlist.M3uCatalogStore
 import com.example.walactv.data.preferences.CredentialStore
 import com.example.walactv.data.preferences.PreferencesManager
+import com.example.walactv.data.util.isTmdbImagePath
+import com.example.walactv.data.util.normalizeRemoteImageUrl
 import com.example.walactv.WalacApp
 import com.example.walactv.data.model.cleanQualityLabels
 import com.example.walactv.data.model.parseNormalizedMetadata
@@ -853,27 +855,6 @@ class IptvRepository @Inject constructor(context: Context) {
             titleEn = this@toCatalogItem.titleEn,
             episodeType = this@toCatalogItem.episodeType,
         )
-    }
-
-    private fun isTmdbImagePath(path: String): Boolean {
-        if (path.isBlank()) return false
-        if (path.startsWith("http://image.tmdb.org") || path.startsWith("https://image.tmdb.org")) return true
-        return path.trimStart('/').isNotBlank() && !path.trimStart('/').contains("/")
-    }
-
-    private fun normalizeRemoteImageUrl(url: String): String {
-        if (url.isBlank() || url == "null") return ""
-        val trimmedUrl = url.trim()
-        val normalizedBaseUrl = BuildConfig.IPTV_BASE_URL.trimEnd('/')
-        val normalizedUrl = when {
-            trimmedUrl.startsWith("//") -> "https:$trimmedUrl"
-            trimmedUrl.startsWith("/") -> "$normalizedBaseUrl$trimmedUrl"
-            trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://") -> trimmedUrl
-            else -> "$normalizedBaseUrl/$trimmedUrl"
-        }
-        return normalizedUrl
-            .replace("http://${BuildConfig.IPTV_BASE_URL.removePrefix("https://").removePrefix("http://")}", BuildConfig.IPTV_BASE_URL)
-            .replace("http://image.tmdb.org", "https://image.tmdb.org")
     }
 
     // ── Sesion / token ────────────────────────────────────────────────────────
