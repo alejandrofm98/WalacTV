@@ -1377,15 +1377,6 @@ class PlayerFragment : Fragment() {
         }
     }
 
-    private fun describeView(view: View): String {
-        return try {
-            val resName = view.resources.getResourceEntryName(view.id)
-            "$resName(${view.javaClass.simpleName})"
-        } catch (e: Exception) {
-            "id=${view.id}(${view.javaClass.simpleName})"
-        }
-    }
-
     private fun getFocusedVodButton(): View? {
         val customButtonIds = listOf(
             R.id.vod_btn_stream,

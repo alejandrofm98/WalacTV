@@ -1,6 +1,7 @@
 package com.example.walactv.ui.fragment
 
 import android.view.KeyEvent
+import android.view.View
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -85,6 +86,20 @@ internal fun playbackStateName(state: Int): String = when (state) {
     Player.STATE_READY -> "READY"
     Player.STATE_ENDED -> "ENDED"
     else -> "UNKNOWN($state)"
+}
+
+/**
+ * Returns a short, human-readable description of a [View] for debug logs:
+ * tries the resource entry name, falls back to `id=...` if the id is not
+ * a resource id (anonymous views). Pure function.
+ */
+internal fun describeView(view: View): String {
+    return try {
+        val resName = view.resources.getResourceEntryName(view.id)
+        "$resName(${view.javaClass.simpleName})"
+    } catch (e: Exception) {
+        "id=${view.id}(${view.javaClass.simpleName})"
+    }
 }
 
 /**
