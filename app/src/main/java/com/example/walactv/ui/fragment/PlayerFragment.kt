@@ -1099,11 +1099,6 @@ class PlayerFragment : Fragment() {
         }
     }
 
-    private fun isChannelProxyUrl(url: String): Boolean {
-        val normalized = url.substringBefore('?')
-        return CHANNEL_PROXY_REGEX.containsMatchIn(normalized)
-    }
-
     private fun handleBufferingTimeout() {
         if (isReleasing || isVodMode || isRetrying) return
         val elapsed = System.currentTimeMillis() - bufferingSinceMs
@@ -1887,7 +1882,5 @@ class PlayerFragment : Fragment() {
         private const val DIRECT_ZAP_DELAY_MS = 1_500L
         private const val VOD_CONTROLLER_TIMEOUT_MS = 5_000
         private const val PROGRESS_SAVE_INTERVAL_MS = 30_000L
-        private val CHANNEL_PROXY_REGEX =
-            Regex("https?://[^/]+/[^/]+/[^/]+/\\d+$", RegexOption.IGNORE_CASE)
     }
 }

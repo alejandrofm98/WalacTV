@@ -3,6 +3,25 @@ package com.example.walactv.ui.fragment
 import androidx.core.net.toUri
 
 /**
+ * Matches URLs that go through the iptv-api's channel stream proxy:
+ * `http(s)://host/user/pass/<channelId>`. The `?` query string is stripped
+ * before matching.
+ */
+private val CHANNEL_PROXY_REGEX =
+    Regex("https?://[^/]+/[^/]+/[^/]+/\\d+$", RegexOption.IGNORE_CASE)
+
+/**
+ * Returns true if the given URL points to the iptv-api channel stream proxy
+ * (i.e. it carries the username/password/channelId path that the proxy
+ * requires). Used to decide whether the player needs to fetch a fresh
+ * stream URL or can resume the existing one.
+ */
+internal fun isChannelProxyUrl(url: String): Boolean {
+    val normalized = url.substringBefore('?')
+    return CHANNEL_PROXY_REGEX.containsMatchIn(normalized)
+}
+
+/**
  * Formats a duration in milliseconds as `H:MM:SS` (or `M:SS` if under one hour).
  * Returns `"0:00"` for non-positive values.
  */
