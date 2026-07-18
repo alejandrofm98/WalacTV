@@ -45,7 +45,7 @@ if (requiresReleaseSigning && !hasReleaseSigning) {
 
 android {
     namespace = "com.example.walactv"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.example.walactv"
