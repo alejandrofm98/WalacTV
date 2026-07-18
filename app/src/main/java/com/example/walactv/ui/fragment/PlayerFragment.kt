@@ -1420,7 +1420,6 @@ class PlayerFragment : Fragment() {
     private var seekPressCount: Int = 0
     private var seekPressDirection: Int = 0
     private var lastSeekPressTime: Long = 0L
-    private val SEEK_RAPID_THRESHOLD_MS = 500L
 
     private fun getSeekIncrement(direction: Int): Long {
         val now = System.currentTimeMillis()
@@ -1795,16 +1794,5 @@ class PlayerFragment : Fragment() {
 
     companion object {
         private const val TAG = "PlayerFragment"
-        private const val MAX_RETRIES = 8
-        private const val RETRY_DELAY_MS = 2_000L
-        private const val FORCE_RESTART_DELAY_MS = 3_000L
-        private const val BUFFERING_TIMEOUT_LIVE_MS = 20_000L
-        private const val STALL_RECOVERY_MS = 8_000L
-        private const val POSITION_CHECK_INTERVAL_MS = 5_000L
-        private const val MAX_STUCK_CHECKS = 4
-        private const val OVERLAY_DURATION_MS = 6_000L
-        private const val DIRECT_ZAP_DELAY_MS = 1_500L
-        private const val VOD_CONTROLLER_TIMEOUT_MS = 5_000
-        private const val PROGRESS_SAVE_INTERVAL_MS = 30_000L
     }
 }
