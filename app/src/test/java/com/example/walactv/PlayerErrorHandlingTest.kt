@@ -1,6 +1,6 @@
 package com.example.walactv
 
-import com.example.walactv.ui.fragment.isFatalPlaybackErrorForDevice
+import com.example.walactv.ui.overlay.isFatalPlaybackErrorForDevice
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
