@@ -26,15 +26,14 @@ import com.example.walactv.data.model.CatalogFilters
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.HomeCatalog
+import com.example.walactv.data.model.RemoteCatalogPage
 import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.playlist.M3uCatalogStore
 import com.example.walactv.data.preferences.CredentialStore
 import com.example.walactv.data.preferences.PreferencesManager
-import com.example.walactv.data.remote.parser.RemoteCatalogPage
 import com.example.walactv.WalacApp
 import com.example.walactv.data.model.cleanQualityLabels
 import com.example.walactv.data.model.parseNormalizedMetadata
-import com.example.walactv.data.remote.parser.resolveStreamTemplate
 import com.example.walactv.ui.compose.buildTmdbImageUrl
 
 internal val EVENT_QUALITY_ORDER = mapOf(
@@ -946,4 +945,11 @@ class IptvRepository @Inject constructor(context: Context) {
         const val FAVORITES_FILTER_LABEL = "Favoritos"
         private val DATE_FORMATTER = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     }
+}
+
+private fun resolveStreamTemplate(template: String, username: String, password: String): String {
+    if (template.isBlank()) return ""
+    return template
+        .replace("{{USERNAME}}", username)
+        .replace("{{PASSWORD}}", password)
 }
