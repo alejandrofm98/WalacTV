@@ -26,6 +26,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -127,6 +130,15 @@ class HomeViewModel @Inject constructor(
 
     private var continueWatchingRequestVersion: Int = 0
 
+    // ── Day-change tracking ───────────────────────────────────────────────
+
+    private var lastFetchedCalendarDate: String? = null
+
+    private fun todayInMadrid(): String =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd")
+            .withZone(ZoneId.of("Europe/Madrid"))
+            .format(Instant.now())
+
     // ── Loading ────────────────────────────────────────────────────────────
 
     fun startLoad(forceRefresh: Boolean = false) {
@@ -186,6 +198,25 @@ class HomeViewModel @Inject constructor(
                     _errorMessage.value = it.message ?: "Error al cargar la aplicacion"
                 }
         }
+    }
+
+    /**
+     * Checks if the calendar day has changed since the last fetch.
+     * If it has, clears the in-memory cache and forces a full catalog reload.
+     * Returns true if a day-change reload was triggered (caller should skip [refreshEvents]).
+     */
+    fun refreshIfDayChanged(): Boolean {
+        val today = todayInMadrid()
+        if (lastFetchedCalendarDate != null && lastFetchedCalendarDate != today) {
+            Log.d(TAG, "refreshIfDayChanged: $lastFetchedCalendarDate -> $today, force-refreshing full catalog")
+            lastFetchedCalendarDate = today
+            startLoad(forceRefresh = true)
+            return true
+        }
+        if (lastFetchedCalendarDate == null) {
+            lastFetchedCalendarDate = today
+        }
+        return false
     }
 
     fun refreshEvents() {

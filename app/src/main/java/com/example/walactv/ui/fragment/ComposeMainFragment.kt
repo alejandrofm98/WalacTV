@@ -271,7 +271,11 @@ class ComposeMainFragment : Fragment() {
             pendingInstallPermission = false
             startUpdateFlowIfReady()
         }
-        if (isSignedIn && isLoaded) viewModel.refreshEvents()
+        if (isSignedIn && isLoaded) {
+            if (!viewModel.refreshIfDayChanged()) {
+                viewModel.refreshEvents()
+            }
+        }
     }
 
     override fun onDestroy() {

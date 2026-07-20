@@ -15,8 +15,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -518,7 +516,7 @@ class IptvRepository @Inject constructor(context: Context) {
     }
 
     private suspend fun fetchEventSections(): List<BrowseSection> {
-        val today = DATE_FORMATTER.format(Date())
+        val today = DATE_FORMATTER.format(java.time.Instant.now())
         Log.d(TAG, "fetchEventSections: requesting calendar for $today")
         val response = apiService.getCalendarEvents(
             date = today,
@@ -924,7 +922,9 @@ class IptvRepository @Inject constructor(context: Context) {
         private const val PAGE_SIZE = 50
         const val FAVORITES_FILTER_VALUE = "Favorites"
         const val FAVORITES_FILTER_LABEL = "Favoritos"
-        private val DATE_FORMATTER = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        private val DATE_FORMATTER: java.time.format.DateTimeFormatter =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
+                .withZone(java.time.ZoneId.of("Europe/Madrid"))
     }
 }
 
