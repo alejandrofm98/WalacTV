@@ -19,6 +19,9 @@ import com.example.walactv.data.model.AppUpdateAvailability
 import com.example.walactv.data.model.AppUpdateInfo
 import com.example.walactv.ui.fragment.ComposeMainFragment
 import com.example.walactv.data.model.evaluateAppUpdate
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -157,15 +160,73 @@ internal fun ComposeMainFragment.startUpdateDownload(updateInfo: AppUpdateInfo?)
     isUpdateDownloading = true
     updateStatusMessage = "Descargando actualizacion ${info.latestVersionName}"
     Toast.makeText(context, updateStatusMessage, Toast.LENGTH_SHORT).show()
+
+    startUpdateDownloadPolling(downloadId)
+}
+
+internal fun ComposeMainFragment.startUpdateDownloadPolling(downloadId: Long) {
+    updateDownloadPollJob?.cancel()
+    updateDownloadPollJob = scope.launch {
+        val dm = requireContext().getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val query = DownloadManager.Query().setFilterById(downloadId)
+        var lastProgress = -1L
+        while (isActive && isUpdateDownloading && pendingUpdateDownloadId == downloadId) {
+            delay(2_000L)
+            dm.query(query).use { cursor ->
+                if (!cursor.moveToFirst()) {
+                    // Download record vanished — fall back to broadcast
+                    return@launch
+                }
+                val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                val bytesSoFar = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                val totalBytes = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+
+                when (status) {
+                    DownloadManager.STATUS_SUCCESSFUL -> {
+                        // Cancel polling — the broadcast should handle it, but if it didn't fire we handle it here
+                        isUpdateDownloading = false
+                        pendingUpdateDownloadId = null
+                        val localUri = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
+                        val info = mandatoryUpdate ?: availableUpdate
+                        if (info != null && localUri != null) {
+                            launchApkInstaller(localUri, info.latestVersionName)
+                        } else {
+                            updateErrorMessage = "La descarga termino pero no se pudo abrir el APK"
+                        }
+                        return@launch
+                    }
+                    DownloadManager.STATUS_FAILED -> {
+                        isUpdateDownloading = false
+                        pendingUpdateDownloadId = null
+                        val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                        Log.e(ComposeMainFragment.TAG, "Descarga de actualizacion fallida (poll). Reason: $reason")
+                        updateErrorMessage = "No se pudo descargar la actualizacion (error $reason)"
+                        updateStatusMessage = "Error al descargar la actualizacion"
+                        return@launch
+                    }
+                    DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PENDING -> {
+                        if (totalBytes > 0 && bytesSoFar != lastProgress) {
+                            lastProgress = bytesSoFar
+                            val pct = (bytesSoFar * 100 / totalBytes).toInt()
+                            updateStatusMessage = "Descargando actualizacion ${mandatoryUpdate?.latestVersionName ?: ""} ($pct%)"
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 internal fun ComposeMainFragment.handleCompletedUpdateDownload(downloadId: Long) {
+    updateDownloadPollJob?.cancel()
     val dm = requireContext().getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     val query = DownloadManager.Query().setFilterById(downloadId)
     dm.query(query).use { cursor ->
         if (!cursor.moveToFirst()) return
         when (cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
             DownloadManager.STATUS_SUCCESSFUL -> {
+                // Dedup: if polling already handled this, skip
+                if (!isUpdateDownloading && pendingUpdateDownloadId == null) return
                 isUpdateDownloading = false; pendingUpdateDownloadId = null
                 val localUri = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
                 val updateInfo = mandatoryUpdate ?: availableUpdate
@@ -189,24 +250,35 @@ internal fun ComposeMainFragment.handleCompletedUpdateDownload(downloadId: Long)
 internal fun ComposeMainFragment.launchApkInstaller(localUri: String, versionName: String) {
     val context = requireContext()
 
-    // Preferimos el archivo de destino conocido para servirlo a traves de FileProvider.
-    val apkFile = if (versionName.isNotBlank()) {
-        File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "WalacTV-${versionName}.apk")
-    } else {
-        localUri.takeIf { it.startsWith("file://") }?.let { File(Uri.parse(it).path ?: "") }
-    }
-
-    if (apkFile == null || !apkFile.exists()) {
-        Log.e(ComposeMainFragment.TAG, "APK descargado no encontrado en ${apkFile?.absolutePath}")
-        updateErrorMessage = "No se encontro el APK descargado"
-        return
-    }
-
-    val contentUri = try {
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
+    // Try to get a readable URI: prefer FileProvider, fall back to direct file URI
+    val contentUri: Uri = try {
+        val apkFile = resolveApkFile(localUri, versionName)
+        if (apkFile != null && apkFile.exists()) {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
+        } else {
+            // Fall back to the DownloadManager URI directly
+            val uri = Uri.parse(localUri)
+            if (uri.scheme == "content") {
+                // DownloadManager on some devices returns content:// URIs — use directly
+                uri
+            } else if (uri.scheme == "file") {
+                // Try FileProvider with the path from the file:// URI
+                val file = File(uri.path ?: "")
+                if (file.exists()) {
+                    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                } else {
+                    Log.e(ComposeMainFragment.TAG, "APK no encontrado en: ${file.absolutePath}")
+                    updateErrorMessage = "No se encontro el APK descargado"
+                    return
+                }
+            } else {
+                // Give the URI directly to the installer
+                uri
+            }
+        }
     } catch (e: Exception) {
         Log.e(ComposeMainFragment.TAG, "No se pudo crear el content URI para el APK: ${e.message}", e)
-        updateErrorMessage = "No se pudo abrir el APK"
+        updateErrorMessage = "No se pudo abrir el APK: ${e.message}"
         return
     }
 
@@ -215,8 +287,29 @@ internal fun ComposeMainFragment.launchApkInstaller(localUri: String, versionNam
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    runCatching { startActivity(intent) }.onFailure { e ->
+
+    try {
+        context.startActivity(intent)
+    } catch (e: Exception) {
         Log.e(ComposeMainFragment.TAG, "No se pudo abrir el instalador: ${e.message}", e)
-        updateErrorMessage = "No se pudo abrir el instalador"
+        updateErrorMessage = "No se pudo abrir el instalador: ${e.message}"
     }
+}
+
+private fun ComposeMainFragment.resolveApkFile(localUri: String, versionName: String): File? {
+    // Primary: reconstruct from known destination path
+    if (versionName.isNotBlank()) {
+        val dir = requireContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        if (dir != null) {
+            val file = File(dir, "WalacTV-${versionName}.apk")
+            if (file.exists()) return file
+        }
+    }
+    // Secondary: parse from the file:// URI
+    val uri = Uri.parse(localUri)
+    if (uri.scheme == "file") {
+        val file = File(uri.path ?: "")
+        if (file.exists()) return file
+    }
+    return null
 }

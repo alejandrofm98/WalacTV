@@ -139,6 +139,7 @@ class ComposeMainFragment : Fragment() {
     internal var activePlaybackLineup: List<CatalogItem> = emptyList()
     internal var playbackReturnState: PlaybackReturnState? = null
     internal var pendingUpdateDownloadId: Long? = null
+    internal var updateDownloadPollJob: kotlinx.coroutines.Job? = null
     internal var guideInitialGroup: String? = null
     internal var continueWatchingRequestVersion: Int = 0
 
@@ -191,6 +192,7 @@ class ComposeMainFragment : Fragment() {
 
     override fun onDestroyView() {
         runCatching { requireContext().unregisterReceiver(updateDownloadReceiver) }
+        updateDownloadPollJob?.cancel()
         progressSavedCallback = null
         super.onDestroyView()
     }
@@ -299,6 +301,7 @@ class ComposeMainFragment : Fragment() {
     }
 
     override fun onDestroy() {
+        updateDownloadPollJob?.cancel()
         super.onDestroy()
         scope.cancel()
     }

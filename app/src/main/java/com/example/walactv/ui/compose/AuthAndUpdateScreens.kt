@@ -95,8 +95,13 @@ internal fun MandatoryUpdateScreen(fragment: ComposeMainFragment, updateInfo: Ap
             if (fragment.isUpdateDownloading) Text("La descarga esta en curso. Al terminar se abrira el instalador.", color = IptvTextMuted, fontSize = 14.sp)
             FocusButton(label = if (fragment.isCheckingUpdates) "Comprobando..." else "Reintentar", icon = Icons.Outlined.History) {
                 if (!fragment.isCheckingUpdates) {
+                    // Reset state to force a fresh download attempt
+                    fragment.isUpdateDownloading = false
+                    fragment.pendingUpdateDownloadId = null
+                    fragment.updateDownloadPollJob?.cancel()
+                    fragment.updateErrorMessage = null
                     fragment.hasCheckedForUpdates = false
-                    fragment.checkForAppUpdates(showToast = true)
+                    fragment.startUpdateFlow(updateInfo)
                 }
             }
         }
