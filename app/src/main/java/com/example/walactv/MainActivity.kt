@@ -140,6 +140,30 @@ class MainActivity : FragmentActivity() {
         // ── 3. Hay fragmentos en el back stack (SeriesDetail…) → pop ─────────
         if (fragmentManager.backStackEntryCount > 0) {
             Log.d(TAG, "handleCentralizedBack: popping back stack (count=${fragmentManager.backStackEntryCount})")
+            // Set pending flag BEFORE popBackStack — popBackStack is async so
+            // findFragmentById immediately after it returns the detail fragment, not
+            // ComposeMainFragment. Use filterIsInstance to find the real main fragment.
+            val composeFragment = fragmentManager.fragments
+                .filterIsInstance<ComposeMainFragment>()
+                .firstOrNull()
+            if (composeFragment != null) {
+                when (composeFragment.currentMode) {
+                    ComposeMainFragment.MainMode.Home -> {
+                        composeFragment.pendingHomeFocusRestore = true
+                        Log.d(TAG, "handleCentralizedBack: set pendingHomeFocusRestore")
+                    }
+                    ComposeMainFragment.MainMode.TV,
+                    ComposeMainFragment.MainMode.Events -> {
+                        composeFragment.pendingGuideFocusRestore = true
+                        Log.d(TAG, "handleCentralizedBack: set pendingGuideFocusRestore")
+                    }
+                    ComposeMainFragment.MainMode.Discover -> {
+                        composeFragment.pendingDiscoverFocusRestore = true
+                        Log.d(TAG, "handleCentralizedBack: set pendingDiscoverFocusRestore")
+                    }
+                    else -> { /* Settings: no-op */ }
+                }
+            }
             fragmentManager.popBackStack()
             return true
         }

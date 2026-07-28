@@ -463,6 +463,7 @@ class HomeViewModel @Inject constructor(
                         ContentKind.MOVIE -> { _movieFilters.value = filters; _movieFilterCountry.value = country }
                         ContentKind.SERIES -> { _seriesFilters.value = filters; _seriesFilterCountry.value = country }
                         ContentKind.EVENT -> Unit
+                        ContentKind.UFC -> Unit
                     }
                 }
                 .onFailure { Log.e(TAG, "No se pudieron cargar filtros para $kind", it) }

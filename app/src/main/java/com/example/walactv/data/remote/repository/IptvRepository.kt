@@ -10,6 +10,8 @@ import com.example.walactv.data.remote.api.dto.CanalResueltoDto
 import com.example.walactv.data.remote.api.dto.FilterOptionDto
 import com.example.walactv.data.remote.api.dto.FilterOptionsResponse
 import com.example.walactv.data.remote.api.dto.HomeCatalogResponse
+import com.example.walactv.data.remote.api.dto.ReplayDto
+import com.example.walactv.data.remote.api.dto.ReplayListResponse
 import com.example.walactv.data.remote.api.dto.SearchResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -214,7 +216,7 @@ class IptvRepository @Inject constructor(context: Context) {
         kind: ContentKind,
         country: String? = null,
     ): CatalogFilters = withContext(Dispatchers.IO) {
-        if (kind == ContentKind.EVENT) return@withContext CatalogFilters()
+        if (kind == ContentKind.EVENT || kind == ContentKind.UFC) return@withContext CatalogFilters()
 
         val cacheKey = "${kind.name}|${country.orEmpty()}"
         filterCache[cacheKey]?.let { return@withContext it }
@@ -318,6 +320,47 @@ class IptvRepository @Inject constructor(context: Context) {
             pages = payload.pages,
             hasNext = payload.hasNext,
             hasPrev = payload.hasPrev,
+        )
+    }
+
+    // ── UFC replays ───────────────────────────────────────────────────────────
+
+    suspend fun loadUfcEvents(page: Int = 1, pageSize: Int = 24): List<CatalogItem> = withContext(Dispatchers.IO) {
+        val token = runCatching { getAccessToken() }.getOrNull()
+        val resp = apiService.getReplays(eventType = "UFC", page = page, pageSize = pageSize)
+        resp.items.mapNotNull { dto -> mapReplayToCatalogItem(dto, token) }
+    }
+
+    private fun mapReplayToCatalogItem(dto: ReplayDto, token: String?): CatalogItem? {
+        val title = dto.eventName?.takeIf { it.isNotBlank() } ?: dto.title ?: return null
+        val slug = dto.slug?.takeIf { it.isNotBlank() } ?: title
+            .replace(Regex("[^a-zA-Z0-9\\u00f1\\u00d1]+"), "-")
+            .trim('-')
+            .lowercase()
+        val firstSource = dto.videoSources?.firstOrNull()
+        val sourceIndex = firstSource?.index ?: 0
+        val buttonIndex = firstSource?.buttonIndex ?: 0
+        val streamUrl = if (firstSource?.url.isNullOrBlank()) {
+            val t = token ?: ""
+            "${BuildConfig.IPTV_BASE_URL}/api/replays/$slug/stream/$sourceIndex/$buttonIndex?token=$t"
+        } else {
+            firstSource!!.url
+        }
+        val label = firstSource?.label?.takeIf { it.isNotBlank() } ?: "UFC"
+        val mainFight = dto.matchCard?.firstOrNull()
+        val subtitle = mainFight?.let {
+            "${it.fighter1} vs ${it.fighter2}" + (it.weightClass?.let { w -> " · $w" } ?: "")
+        }.orEmpty()
+        return CatalogItem(
+            stableId = "ufc:$slug",
+            kind = ContentKind.UFC,
+            title = title,
+            subtitle = subtitle,
+            description = dto.description.orEmpty(),
+            imageUrl = dto.featuredImageUrl.orEmpty(),
+            group = "UFC",
+            badgeText = "UFC",
+            streamOptions = listOf(StreamOption(label = label, url = streamUrl, providerId = slug, quality = null)),
         )
     }
 
@@ -689,6 +732,7 @@ class IptvRepository @Inject constructor(context: Context) {
         ContentKind.MOVIE   -> "movies"
         ContentKind.SERIES  -> "series"
         ContentKind.EVENT   -> error("Los eventos no tienen tipo API")
+        ContentKind.UFC     -> "replays"
     }
 
     /**

@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
+import com.example.walactv.data.model.CatalogFilters
 import android.widget.ImageView.ScaleType.FIT_CENTER
 import com.example.walactv.data.remote.api.dto.FilterOptionDto
 import com.example.walactv.data.model.CatalogItem
@@ -732,6 +733,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     val typeOptions = listOf(
         FilterOptionDto(ContentKind.MOVIE.name, "Peliculas"),
         FilterOptionDto(ContentKind.SERIES.name, "Series"),
+        FilterOptionDto(ContentKind.UFC.name, "UFC"),
     )
 
     val loader = fragment.discoverLoaders.getValue(selectedTab)
@@ -742,8 +744,11 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     var loadError by remember { mutableStateOf<String?>(null) }
     val pageSize = 50
 
-    val currentFilters =
-        if (selectedTab == ContentKind.MOVIE) fragment.movieFilters else fragment.seriesFilters
+    val currentFilters = when (selectedTab) {
+        ContentKind.MOVIE -> fragment.movieFilters
+        ContentKind.UFC -> CatalogFilters()
+        else -> fragment.seriesFilters
+    }
     val countryOptions = remember(currentFilters) {
         buildList {
             add(FilterOptionDto(ALL_OPTION, "Todos"))
@@ -854,15 +859,28 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     }
 
     LaunchedEffect(fragment.contentFocusTrigger) {
-        // Unlock focus updates now that we're back in Discover composition.
-        fragment.discoverFocusLocked = false
-        if (fragment.contentFocusTrigger == 0) return@LaunchedEffect
-        if (forceFocusFirstItem) return@LaunchedEffect
+        // discoverFocusLocked stays true throughout the entire restore window
+        // to prevent onFocused from corrupting discoverFocusedItemStableId.
+        // It is unlocked only at the end of this effect.
+        if (fragment.contentFocusTrigger == 0) {
+            fragment.discoverFocusLocked = false
+            Log.d("MainShellFocus", "discover restore skip: trigger=0, unlock, discoverFocusedItemStableId=${fragment.discoverFocusedItemStableId}")
+            return@LaunchedEffect
+        }
+        if (forceFocusFirstItem) {
+            fragment.discoverFocusLocked = false
+            Log.d("MainShellFocus", "discover restore skip: forceFocusFirstItem, unlock, discoverFocusedItemStableId=${fragment.discoverFocusedItemStableId}")
+            return@LaunchedEffect
+        }
         // Give the grid time to lay out before scrolling/requesting focus.
         delay(300.milliseconds)
         // Re-read items from the loader to avoid stale composition captures.
         val items = loader.getDisplayItems()
-        if (items.isEmpty()) return@LaunchedEffect
+        if (items.isEmpty()) {
+            fragment.discoverFocusLocked = false
+            Log.d("MainShellFocus", "discover restore skip: items empty, unlock")
+            return@LaunchedEffect
+        }
         val focusedStableId = fragment.discoverFocusedItemStableId
         val index = focusedStableId?.let { id ->
             items.indexOfFirst { it.stableId == id }
@@ -889,6 +907,8 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
                 itemFocusRequesters.firstOrNull()?.requestFocus()
             }
         }
+        fragment.discoverFocusLocked = false
+        Log.d("MainShellFocus", "discover restore done: unlock, discoverFocusedItemStableId=${fragment.discoverFocusedItemStableId} index=$index")
     }
 
     LaunchedEffect(fragment.searchBackTrigger) {
@@ -917,6 +937,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     ) {
         ScreenHeader(title = "Discover", subtitle = "")
 
+        val showFilters = selectedTab != ContentKind.UFC
         FilterTopBarDiscover(
             selectedTipo = typeOptions.firstOrNull { it.value == selectedTab.name }?.label ?: "Peliculas",
             selectedIdioma = countryOptions.firstOrNull { it.value == selectedCountry }?.label
@@ -933,6 +954,9 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
             onSearchQueryChange = { searchQuery = it },
             searchFocusRequester = remember { FocusRequester() },
             onSearchImeDismissed = { forceFocusFirstItem = true },
+            showIdioma = showFilters,
+            showGenero = showFilters,
+            showSearch = showFilters,
         )
 
         if (loadError != null && displayItemsForGrid.isEmpty() && !isLoadingPage) {
@@ -954,7 +978,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 120.dp),
+                columns = GridCells.Fixed(5),
                 state = lazyGridState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = 24.dp),
@@ -978,21 +1002,38 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
                     val itemWithWatched =
                         if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES)
                             item.copy(isWatched = cwItem?.isWatched == true) else item
-                    MediaCard(
-                        item = itemWithWatched,
-                        modifier = Modifier.focusRequester(itemFocusRequesters[index]),
-                        narrowCard = true,
-                        onFocused = {
-                            if (!fragment.discoverFocusLocked) {
-                                fragment.discoverFocusedItemStableId = item.stableId
-                            }
-                            fragment.contentFocusCanOpenRail = index % gridColumns == 0
-                            fragment.selectedHero = item
-                        }) {
-                        fragment.handleCardClick(
-                            item,
-                            displayItemsForGrid
+                    if (item.kind == ContentKind.UFC) {
+                        UfcCard(
+                            item = itemWithWatched,
+                            modifier = Modifier.focusRequester(itemFocusRequesters[index]),
+                            onFocused = {
+                                if (!fragment.discoverFocusLocked) {
+                                    fragment.discoverFocusedItemStableId = item.stableId
+                                    fragment.contentFocusCanOpenRail = index % gridColumns == 0
+                                    fragment.selectedHero = item
+                                }
+                            },
+                            onClick = {
+                                fragment.handleCardClick(item, displayItemsForGrid)
+                            },
                         )
+                    } else {
+                        MediaCard(
+                            item = itemWithWatched,
+                            modifier = Modifier.focusRequester(itemFocusRequesters[index]),
+                            narrowCard = true,
+                            onFocused = {
+                                if (!fragment.discoverFocusLocked) {
+                                    fragment.discoverFocusedItemStableId = item.stableId
+                                    fragment.contentFocusCanOpenRail = index % gridColumns == 0
+                                    fragment.selectedHero = item
+                                }
+                            }) {
+                            fragment.handleCardClick(
+                                item,
+                                displayItemsForGrid
+                            )
+                        }
                     }
                 }
                 if (isLoadingPage) item {
@@ -1055,12 +1096,21 @@ private fun FilterTopBarDiscover(
     onSearchQueryChange: (String) -> Unit,
     searchFocusRequester: FocusRequester,
     onSearchImeDismissed: () -> Unit = {},
+    showIdioma: Boolean = true,
+    showGenero: Boolean = true,
+    showSearch: Boolean = true,
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         FilterChip(label = "Tipo: $selectedTipo", focusRequester = tipoFocusRequester, onClick = onTipoClicked)
-        FilterChip(label = "Idioma: $selectedIdioma", focusRequester = idiomaFocusRequester, onClick = onIdiomaClicked)
-        FilterChip(label = "Género: $selectedGenero", focusRequester = generoFocusRequester, onClick = onGeneroClicked)
+        if (showIdioma) {
+            FilterChip(label = "Idioma: $selectedIdioma", focusRequester = idiomaFocusRequester, onClick = onIdiomaClicked)
+        }
+        if (showGenero) {
+            FilterChip(label = "Género: $selectedGenero", focusRequester = generoFocusRequester, onClick = onGeneroClicked)
+        }
         Spacer(Modifier.weight(1f))
-        SearchBar(query = searchQuery, onQueryChange = onSearchQueryChange, focusRequester = searchFocusRequester, onImeDismissed = onSearchImeDismissed)
+        if (showSearch) {
+            SearchBar(query = searchQuery, onQueryChange = onSearchQueryChange, focusRequester = searchFocusRequester, onImeDismissed = onSearchImeDismissed)
+        }
     }
 }

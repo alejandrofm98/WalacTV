@@ -88,10 +88,14 @@ class ComposeMainFragment : Fragment() {
         mapOf(
             ContentKind.MOVIE to PagedContentLoader(contentCacheManager, repository, ContentKind.MOVIE),
             ContentKind.SERIES to PagedContentLoader(contentCacheManager, repository, ContentKind.SERIES),
+            ContentKind.UFC to PagedContentLoader(contentCacheManager, repository, ContentKind.UFC),
         )
     }
     internal var discoverFocusedItemStableId by mutableStateOf<String?>(null)
     internal var discoverFocusLocked by mutableStateOf(false)
+    internal var pendingDiscoverFocusRestore by mutableStateOf(false)
+    internal var pendingHomeFocusRestore by mutableStateOf(false)
+    internal var pendingGuideFocusRestore by mutableStateOf(false)
 
     internal var selectedHero by mutableStateOf<CatalogItem?>(null)
     internal var pendingFocusItem by mutableStateOf<CatalogItem?>(null)
@@ -196,6 +200,22 @@ class ComposeMainFragment : Fragment() {
         restoreCachedUpdateState()
         checkForAppUpdates()
         if (isSignedIn) viewModel.startLoad()
+
+        if (pendingDiscoverFocusRestore) {
+            pendingDiscoverFocusRestore = false
+            contentFocusTrigger++
+            Log.d(TAG, "onViewCreated: consumed pendingDiscoverFocusRestore, contentFocusTrigger=$contentFocusTrigger, discoverFocusedItemStableId=$discoverFocusedItemStableId")
+        }
+        if (pendingHomeFocusRestore) {
+            pendingHomeFocusRestore = false
+            contentFocusTrigger++
+            Log.d(TAG, "onViewCreated: consumed pendingHomeFocusRestore, contentFocusTrigger=$contentFocusTrigger")
+        }
+        if (pendingGuideFocusRestore) {
+            pendingGuideFocusRestore = false
+            contentFocusTrigger++
+            Log.d(TAG, "onViewCreated: consumed pendingGuideFocusRestore, contentFocusTrigger=$contentFocusTrigger")
+        }
     }
 
     private fun observeViewModel() {
@@ -303,6 +323,7 @@ class ComposeMainFragment : Fragment() {
             MainMode.Discover -> {
                 ensureFiltersLoaded(ContentKind.MOVIE)
                 ensureFiltersLoaded(ContentKind.SERIES)
+                ensureFiltersLoaded(ContentKind.UFC)
             }
             else              -> Unit
         }

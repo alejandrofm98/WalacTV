@@ -405,6 +405,111 @@ internal fun MediaCard(
     }
 }
 
+// ── UFC card ───────────────────────────────────────────────────────────────
+
+@Composable
+internal fun UfcCard(
+    item: CatalogItem,
+    modifier: Modifier = Modifier,
+    onFocused: () -> Unit = {},
+    onClick: () -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(2f / 3f)
+            .clip(RoundedCornerShape(10.dp))
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
+                shape = RoundedCornerShape(10.dp),
+            )
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
+            .tvClickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (item.imageUrl.isNotBlank()) {
+            RemoteImage(
+                url = item.imageUrl,
+                width = 300,
+                height = 450,
+                scaleType = CENTER_CROP,
+            )
+        } else {
+            EventSportPlaceholder(item)
+        }
+
+        // Badge overlay: "UFC" at top-start
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(6.dp)
+                .background(IptvLive.copy(alpha = 0.9f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        ) {
+            Text(
+                text = "UFC",
+                color = Color.White,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+
+        // Bottom gradient overlay
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(80.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
+                    ),
+                ),
+        )
+
+        // Title at bottom
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+        ) {
+            Text(
+                text = item.title,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 15.sp,
+            )
+            if (item.subtitle.isNotBlank()) {
+                Text(
+                    text = item.subtitle,
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        if (isFocused) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(2.dp, IptvFocusBorder, RoundedCornerShape(10.dp)),
+            )
+        }
+    }
+}
+
 // ── Continue-watching card ─────────────────────────────────────────────────
 
 @Composable

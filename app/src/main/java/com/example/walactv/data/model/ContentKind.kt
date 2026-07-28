@@ -5,4 +5,5 @@ enum class ContentKind {
     CHANNEL,
     MOVIE,
     SERIES,
+    UFC,
 }

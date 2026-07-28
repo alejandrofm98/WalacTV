@@ -10,6 +10,7 @@ import com.example.walactv.data.remote.api.dto.CalendarResponse
 import com.example.walactv.data.remote.api.dto.SearchResponse
 import com.example.walactv.data.remote.api.dto.SeriesEpisodesResponse
 import com.example.walactv.data.remote.api.dto.ContentStatsResponse
+import com.example.walactv.data.remote.api.dto.ReplayListResponse
 import com.example.walactv.data.remote.api.dto.WatchProgressListResponse
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.remote.api.dto.SaveWatchProgressBody
@@ -39,6 +40,15 @@ interface IptvApiService {
         @Query("password") password: String? = null,
         @Query("client") client: String? = null,
     ): Response<CalendarResponse>
+
+    // Replays (UFC)
+    @GET("api/replays")
+    suspend fun getReplays(
+        @Query("event_type") eventType: String? = null,
+        @Query("search") search: String? = null,
+        @Query("page") page: Int? = null,
+        @Query("page_size") pageSize: Int? = null,
+    ): ReplayListResponse
 
     // Content
     @GET("api/content")

@@ -225,6 +225,7 @@ internal suspend fun ComposeMainFragment.ensureFiltersLoadedAwait(kind: ContentK
                 ContentKind.MOVIE   -> { viewModel._movieFilters.value = filters; viewModel._movieFilterCountry.value = country }
                 ContentKind.SERIES  -> { viewModel._seriesFilters.value = filters; viewModel._seriesFilterCountry.value = country }
                 ContentKind.EVENT   -> Unit
+                ContentKind.UFC     -> Unit
             }
         }
         .onFailure { Log.e(TAG, "ensureFiltersLoadedAwait FAILED for $kind", it) }
@@ -267,6 +268,7 @@ internal fun ComposeMainFragment.changeMode(newMode: ComposeMainFragment.MainMod
         ComposeMainFragment.MainMode.Discover -> {
             ensureFiltersLoaded(ContentKind.MOVIE)
             ensureFiltersLoaded(ContentKind.SERIES)
+            ensureFiltersLoaded(ContentKind.UFC)
         }
         else -> Unit
     }
@@ -304,6 +306,7 @@ internal fun screenTitle(kind: ContentKind) = when (kind) {
     ContentKind.CHANNEL -> "TV en directo"
     ContentKind.MOVIE   -> "Peliculas"
     ContentKind.SERIES  -> "Series"
+    ContentKind.UFC     -> "UFC"
 }
 
 internal fun ComposeMainFragment.findNextEventIndex(items: List<CatalogItem>): Int {

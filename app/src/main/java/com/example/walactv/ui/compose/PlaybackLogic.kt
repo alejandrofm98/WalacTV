@@ -41,6 +41,13 @@ internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List
     if (currentMode == ComposeMainFragment.MainMode.Discover) {
         discoverFocusedItemStableId = item.stableId
         discoverFocusLocked = true
+        contentFocusCanOpenRail = false
+    }
+    // Save the clicked item for Home focus restoration when returning from detail.
+    // Consumed via pendingHomeFocusRestore -> onViewCreated -> contentFocusTrigger++ ->
+    // HomeScreen LaunchedEffect -> ContentSection focus restore.
+    if (currentMode == ComposeMainFragment.MainMode.Home) {
+        pendingFocusItem = item
     }
     continueWatchingEntries[item.stableId]?.let { progress ->
         openContinueWatchingItem(item, progress)

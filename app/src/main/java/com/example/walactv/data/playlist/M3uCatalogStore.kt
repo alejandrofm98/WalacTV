@@ -257,6 +257,7 @@ class M3uCatalogStore(private val context: Context) {
                         ContentKind.MOVIE -> movies += item
                         ContentKind.SERIES -> series += item
                         ContentKind.EVENT -> Unit
+                        ContentKind.UFC -> Unit
                     }
                 }
             }
@@ -378,6 +379,7 @@ class M3uCatalogStore(private val context: Context) {
             ContentKind.SERIES,
             -> cleanVodTitle(rawTitle)
             ContentKind.EVENT -> cleanTitle(rawTitle)
+            ContentKind.UFC -> cleanTitle(rawTitle)
         }
     }
 
@@ -421,6 +423,7 @@ class M3uCatalogStore(private val context: Context) {
             ContentKind.MOVIE -> ""
             ContentKind.SERIES -> ""
             ContentKind.EVENT -> ""
+            ContentKind.UFC -> "UFC"
         }
     }
 
@@ -430,6 +433,7 @@ class M3uCatalogStore(private val context: Context) {
             ContentKind.MOVIE -> "Reproducir"
             ContentKind.SERIES -> "Episodio"
             ContentKind.EVENT -> ""
+            ContentKind.UFC -> "Reproducir"
         }
     }
 

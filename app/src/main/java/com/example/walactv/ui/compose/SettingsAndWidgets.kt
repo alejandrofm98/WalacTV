@@ -183,6 +183,7 @@ internal fun PlaceholderIcon(kind: ContentKind, size: Dp = 32.dp) {
         ContentKind.CHANNEL -> Icons.Outlined.LiveTv
         ContentKind.MOVIE   -> Icons.Outlined.Movie
         ContentKind.SERIES  -> Icons.Outlined.Tv
+        ContentKind.UFC     -> Icons.Outlined.Star
     }
     Icon(icon, contentDescription = null, tint = IptvTextMuted, modifier = Modifier.size(size))
 }

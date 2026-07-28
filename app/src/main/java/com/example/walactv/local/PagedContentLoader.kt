@@ -73,6 +73,11 @@ class PagedContentLoader(
                     totalCount = result.total
                     result.items
                 }
+                ContentKind.UFC -> {
+                    val items = repository.loadUfcEvents(page + 1)
+                    totalCount = items.size
+                    items
+                }
                 else -> emptyList()
             }
 
@@ -143,6 +148,10 @@ class PagedContentLoader(
                     Log.d(TAG, "loadSearch: series search returned ${result.items.size} items")
                     result.items
                 }
+                ContentKind.UFC -> {
+                    // Search not supported for UFC replays; return empty
+                    emptyList()
+                }
                 else -> emptyList()
             }
 
@@ -163,6 +172,7 @@ class PagedContentLoader(
                 ContentKind.CHANNEL -> contentCacheManager.getChannelsTotalCount(country, group)
                 ContentKind.MOVIE,
                 ContentKind.SERIES,
+                ContentKind.UFC,
                 -> totalCount
                 else -> 0
             }
