@@ -48,7 +48,7 @@ interface IptvApiService {
         @Query("search") search: String? = null,
         @Query("page") page: Int? = null,
         @Query("page_size") pageSize: Int? = null,
-    ): ReplayListResponse
+    ): Response<ReplayListResponse>
 
     // Content
     @GET("api/content")

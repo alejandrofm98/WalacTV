@@ -74,8 +74,8 @@ class PagedContentLoader(
                     result.items
                 }
                 ContentKind.UFC -> {
-                    val items = repository.loadUfcEvents(page + 1)
-                    totalCount = items.size
+                    val (items, total) = repository.loadUfcEvents(page + 1)
+                    totalCount = total
                     items
                 }
                 else -> emptyList()

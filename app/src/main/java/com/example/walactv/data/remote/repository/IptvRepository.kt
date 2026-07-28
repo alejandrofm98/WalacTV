@@ -325,10 +325,31 @@ class IptvRepository @Inject constructor(context: Context) {
 
     // ── UFC replays ───────────────────────────────────────────────────────────
 
-    suspend fun loadUfcEvents(page: Int = 1, pageSize: Int = 24): List<CatalogItem> = withContext(Dispatchers.IO) {
+    suspend fun loadUfcEvents(page: Int = 1, pageSize: Int = 24): Pair<List<CatalogItem>, Int> = withContext(Dispatchers.IO) {
         val token = runCatching { getAccessToken() }.getOrNull()
-        val resp = apiService.getReplays(eventType = "UFC", page = page, pageSize = pageSize)
-        resp.items.mapNotNull { dto -> mapReplayToCatalogItem(dto, token) }
+        try {
+            val response = apiService.getReplays(eventType = "UFC", page = page, pageSize = pageSize)
+            if (!response.isSuccessful) {
+                val errBody = response.errorBody()?.string()?.take(200)
+                Log.e(TAG, "UFC replays failed: http=${response.code()} errBody=$errBody")
+                return@withContext Pair(emptyList(), 0)
+            }
+            val body = response.body() ?: run {
+                Log.e(TAG, "UFC replays failed: null body")
+                return@withContext Pair(emptyList(), 0)
+            }
+            val items = body.items.mapNotNull { dto -> mapReplayToCatalogItem(dto, token) }
+            val total = body.total ?: items.size
+            Log.d(TAG, "UFC replays: loaded ${items.size} items, total=$total")
+            if (items.isNotEmpty()) {
+                val first = body.items.first()
+                Log.d(TAG, "UFC replays: first item eventType=${first.eventType} slug=${first.slug}")
+            }
+            Pair(items, total)
+        } catch (e: Exception) {
+            Log.e(TAG, "UFC replays failed with exception", e)
+            Pair(emptyList(), 0)
+        }
     }
 
     private fun mapReplayToCatalogItem(dto: ReplayDto, token: String?): CatalogItem? {
