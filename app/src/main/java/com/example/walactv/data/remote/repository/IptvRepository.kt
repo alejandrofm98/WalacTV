@@ -372,6 +372,9 @@ class IptvRepository @Inject constructor(context: Context) {
                     url = "${BuildConfig.IPTV_BASE_URL}/api/replays/$slug/stream/$sourceIndex/${source.buttonIndex}?token=${token.orEmpty()}",
                     providerId = slug,
                     quality = null,
+                    provider = source.provider?.takeIf { it.isNotBlank() },
+                    providerVideoId = source.providerVideoId?.takeIf { it.isNotBlank() },
+                    streamFormat = source.streamFormat?.takeIf { it.isNotBlank() },
                 )
             }
         }
@@ -391,6 +394,89 @@ class IptvRepository @Inject constructor(context: Context) {
             badgeText = "UFC",
             streamOptions = streamOptions,
         )
+    }
+
+    /**
+     * Resuelve la URL reproducible de una fuente de replay.
+     *
+     * Las fuentes de Dailymotion requieren una resolucion fresca: sus URL directas
+     * expiran y el proxy del backend puede fallar si las cookies embebidas quedan
+     * obsoletas. Igual que en walactv-desktop, se consulta el metadata de
+     * Dailymotion y se devuelve la mejor calidad directa. El resto de fuentes
+     * se reproducen a traves del proxy del backend.
+     */
+    suspend fun resolveReplayStreamUrl(option: StreamOption): String = withContext(Dispatchers.IO) {
+        val isDailymotion = option.provider?.equals("dailymotion", ignoreCase = true) == true
+        val videoId = option.providerVideoId?.takeIf { it.isNotBlank() }
+            ?: extractDailymotionAccessId(option.url)
+        if (isDailymotion && videoId != null) {
+            val direct = resolveDailymotionStreamUrl(videoId)
+            if (direct != null) {
+                Log.d(TAG, "resolveReplayStreamUrl: dailymotion resuelto directo para $videoId")
+                return@withContext direct
+            }
+            Log.w(TAG, "resolveReplayStreamUrl: fallo resolucion dailymotion, usando proxy")
+        }
+        option.url
+    }
+
+    private suspend fun resolveDailymotionStreamUrl(videoId: String): String? = withContext(Dispatchers.IO) {
+        val metadataUrl = "https://www.dailymotion.com/player/metadata/video/$videoId"
+        var connection: java.net.HttpURLConnection? = null
+        try {
+            connection = java.net.URL(metadataUrl).openConnection() as java.net.HttpURLConnection
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 15_000
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0")
+            connection.setRequestProperty("Accept", "application/json")
+            if (connection.responseCode !in 200..299) {
+                Log.w(TAG, "resolveDailymotionStreamUrl: HTTP ${connection.responseCode} para $videoId")
+                return@withContext null
+            }
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val payload = org.json.JSONObject(body)
+            val qualities = payload.optJSONObject("qualities") ?: return@withContext null
+            val best = pickBestDailymotionQuality(qualities) ?: return@withContext null
+            best.optString("url").takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            Log.w(TAG, "resolveDailymotionStreamUrl failed for $videoId", e)
+            null
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    private fun pickBestDailymotionQuality(qualities: org.json.JSONObject): org.json.JSONObject? {
+        var best: org.json.JSONObject? = null
+        var bestScore = -1
+        val names = qualities.keys()
+        while (names.hasNext()) {
+            val key = names.next()
+            val sources = qualities.optJSONArray(key)
+            if (sources == null || sources.length() == 0) continue
+            val first = sources.optJSONObject(0) ?: continue
+            if (first.optString("url").isBlank()) continue
+            val score = key.toIntOrNull() ?: if (key.equals("auto", ignoreCase = true)) 0 else -1
+            if (score > bestScore) {
+                bestScore = score
+                best = first
+            }
+        }
+        return best
+    }
+
+    private fun extractDailymotionAccessId(url: String): String? {
+        if (url.isBlank()) return null
+        val patterns = listOf(
+            Regex("""/embed/video/([A-Za-z0-9]+)"""),
+            Regex("""/manifest/video/([A-Za-z0-9]+)\.m3u8"""),
+            Regex("""/video/([A-Za-z0-9]+)\.m3u8"""),
+        )
+        for (pattern in patterns) {
+            pattern.find(url)?.groupValues?.get(1)?.let { return it }
+        }
+        return null
     }
 
     suspend fun loadFavoriteChannels(): List<CatalogItem> = withContext(Dispatchers.IO) {

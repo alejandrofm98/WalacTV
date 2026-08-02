@@ -30,4 +30,9 @@ data class ReplayVideoSourceDto(
     val label: String? = null,
     @SerializedName("source_index") val sourceIndex: Int? = null,
     @SerializedName("button_index") val buttonIndex: Int = 0,
+    val provider: String? = null,
+    @SerializedName("provider_video_id") val providerVideoId: String? = null,
+    @SerializedName("provider_url") val providerUrl: String? = null,
+    @SerializedName("stream_url") val streamUrl: String? = null,
+    @SerializedName("stream_format") val streamFormat: String? = null,
 )

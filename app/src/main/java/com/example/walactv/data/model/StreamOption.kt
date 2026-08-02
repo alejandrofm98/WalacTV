@@ -12,6 +12,9 @@ data class StreamOption(
     val headers: Map<String, String> = emptyMap(),
     val language: String? = null,
     val quality: String? = null,
+    val provider: String? = null,
+    val providerVideoId: String? = null,
+    val streamFormat: String? = null,
 )
 
 data class UnifiedStreamOption(

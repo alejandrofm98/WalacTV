@@ -17,6 +17,7 @@ import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.R
 import com.example.walactv.ui.fragment.MovieDetailFragment
 import com.example.walactv.ui.fragment.SeriesDetailFragment
+import com.example.walactv.ui.fragment.UfcDetailFragment
 import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.UnifiedStreamOption
 import com.example.walactv.data.model.toUnifiedOptions
@@ -73,6 +74,15 @@ internal fun ComposeMainFragment.handleCardClick(item: CatalogItem, lineup: List
         requireActivity().supportFragmentManager.beginTransaction()
             .replace(R.id.main_browse_fragment, fragment)
             .addToBackStack("MovieDetailFragment")
+            .commit()
+        return
+    }
+    if (item.kind == ContentKind.UFC) {
+        rememberPlaybackReturnState(item)
+        val fragment = UfcDetailFragment.newInstance(item)
+        requireActivity().supportFragmentManager.beginTransaction()
+            .replace(R.id.main_browse_fragment, fragment)
+            .addToBackStack("UfcDetailFragment")
             .commit()
         return
     }
