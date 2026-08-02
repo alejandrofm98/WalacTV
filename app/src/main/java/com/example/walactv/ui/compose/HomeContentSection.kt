@@ -334,7 +334,9 @@ internal fun ContentSection(
                                     fragment.rememberHomeFocus(sectionIndex, section.title, item, index)
                                     onFocused(item)
                                 },
-                            ) { fragment.handleCardClick(item, section.items) }
+                                onMenuRequest = { fragment.catalogItemMenuItem = it },
+                                onClick = { fragment.handleCardClick(item, section.items) },
+                            )
                         }
                     }
                 }

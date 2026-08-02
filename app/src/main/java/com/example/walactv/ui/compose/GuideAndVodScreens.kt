@@ -683,12 +683,14 @@ internal fun VodGridContent(fragment: ComposeMainFragment, kind: ContentKind) {
                         onFocused = {
                             fragment.contentFocusCanOpenRail = index % gridColumns == 0
                             fragment.selectedHero = item
-                        }) {
-                        fragment.handleCardClick(
-                            item,
-                            displayItemsForGrid
-                        )
-                    }
+                        },
+                        onClick = {
+                            fragment.handleCardClick(
+                                item,
+                                displayItemsForGrid
+                            )
+                        }
+                    )
                 }
                 if (isLoadingPage) item {
                     Box(
@@ -1028,12 +1030,15 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
                                     fragment.contentFocusCanOpenRail = index % gridColumns == 0
                                     fragment.selectedHero = item
                                 }
-                            }) {
-                            fragment.handleCardClick(
-                                item,
-                                displayItemsForGrid
-                            )
-                        }
+                            },
+                            onMenuRequest = { fragment.catalogItemMenuItem = it },
+                            onClick = {
+                                fragment.handleCardClick(
+                                    item,
+                                    displayItemsForGrid
+                                )
+                            },
+                        )
                     }
                 }
                 if (isLoadingPage) item {

@@ -26,10 +26,13 @@ import com.example.walactv.data.remote.repository.IptvRepository
 import com.example.walactv.data.util.normalizeLanguageCode
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import com.example.walactv.ui.compose.LONG_PRESS_THRESHOLD_MS
 import com.example.walactv.ui.compose.buildEpisodeLabel
 import com.example.walactv.ui.compose.tvClickable
 import com.google.gson.Gson
@@ -57,13 +60,22 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
@@ -258,6 +270,8 @@ fun SeriesDetailScreen(
     var isLoading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var focusedEpisode by remember { mutableStateOf<CatalogItem?>(null) }
+    var contextEpisode by remember { mutableStateOf<CatalogItem?>(null) }
+    var progressReloadTrigger by remember { mutableIntStateOf(0) }
 
     val context = LocalContext.current
     val preferredLanguage = remember { PreferencesManager.getPreferredLanguageOrDefault() }
@@ -287,7 +301,7 @@ fun SeriesDetailScreen(
     val allEpisodes = allEpisodesState.value
 
     val watchProgressRepo = remember { (context.applicationContext as WalacApp).appComponent.watchProgressRepository }
-    val progressMap by produceState<Map<String, WatchProgressDto>>(emptyMap(), seriesName) {
+    val progressMap by produceState<Map<String, WatchProgressDto>>(emptyMap(), seriesName, progressReloadTrigger) {
         val inProgress = watchProgressRepo.getContinueWatching().getOrDefault(emptyList())
         val watched = watchProgressRepo.getWatchedItems().getOrDefault(emptyList())
         val all = (inProgress + watched).filter {
@@ -308,6 +322,18 @@ fun SeriesDetailScreen(
     val episodesListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val seasonsListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+
+    val markEpisodes = markEpisodes@ { targets: List<CatalogItem> ->
+        if (targets.isEmpty()) return@markEpisodes
+        coroutineScope.launch {
+            targets.all { ep ->
+                val contentId = ep.providerId ?: ep.stableId.substringAfterLast(":")
+                watchProgressRepo.markAsWatched(contentId, ep.seasonNumber, ep.episodeNumber)
+            }
+            contextEpisode = null
+            progressReloadTrigger++
+        }
+    }
 
     LaunchedEffect(seasons) {
         if (initialSeason == null) {
@@ -562,8 +588,143 @@ fun SeriesDetailScreen(
                                     selectedSeason = epSeason
                                 }
                             },
+                            onMenuRequest = { contextEpisode = it },
                             modifier = if (isInitial) Modifier.focusRequester(episodeFocusRequester) else Modifier,
                         )
+                    }
+                }
+            }
+        }
+    }
+
+    contextEpisode?.let { ep ->
+        EpisodeOptionsMenu(
+            episode = ep,
+            onMarkEpisode = { markEpisodes(listOf(ep)) },
+            onMarkSeason = { markEpisodes(uniqueEpisodes.filter { it.seasonNumber == ep.seasonNumber }) },
+            onMarkPrevious = {
+                markEpisodes(
+                    uniqueEpisodes.filter {
+                        (it.seasonNumber ?: 0) < (ep.seasonNumber ?: 0) ||
+                            (it.seasonNumber == ep.seasonNumber && (it.episodeNumber ?: 0) <= (ep.episodeNumber ?: 0))
+                    },
+                )
+            },
+            onDismiss = { contextEpisode = null },
+        )
+    }
+}
+
+@Composable
+private fun EpisodeOptionsMenu(
+    episode: CatalogItem,
+    onMarkEpisode: () -> Unit,
+    onMarkSeason: () -> Unit,
+    onMarkPrevious: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val options = listOf(
+        stringResource(R.string.episode_menu_mark_this),
+        stringResource(R.string.episode_menu_mark_season),
+        stringResource(R.string.episode_menu_mark_previous),
+    )
+
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        delay(50.milliseconds)
+        try { focusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> {
+                            selectedIndex = (selectedIndex - 1).coerceAtLeast(0)
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            selectedIndex = (selectedIndex + 1).coerceAtMost(options.lastIndex)
+                            true
+                        }
+                        Key.DirectionCenter,
+                        Key.Enter -> {
+                            when (selectedIndex) {
+                                0 -> onMarkEpisode()
+                                1 -> onMarkSeason()
+                                2 -> onMarkPrevious()
+                            }
+                            onDismiss()
+                            true
+                        }
+                        Key.Back,
+                        Key.Escape -> { onDismiss(); true }
+                        else -> false
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(420.dp)
+                    .background(Color(0xFF1A1A2E), RoundedCornerShape(16.dp))
+                    .border(1.dp, Color(0xFF2E2E4E), RoundedCornerShape(16.dp))
+                    .padding(24.dp),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        stringResource(R.string.vod_menu_title),
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        buildEpisodeLabel(episode.seasonNumber, episode.episodeNumber).ifBlank { episode.title },
+                        color = Color.LightGray,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    options.forEachIndexed { index, label ->
+                        val isSelected = index == selectedIndex
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Color.White.copy(alpha = 0.15f) else Color.Transparent)
+                                .border(
+                                    width = if (isSelected) 2.dp else 0.dp,
+                                    color = if (isSelected) Color.White else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                                .tvClickable {
+                                    when (index) {
+                                        0 -> onMarkEpisode()
+                                        1 -> onMarkSeason()
+                                        2 -> onMarkPrevious()
+                                    }
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                        ) {
+                            Text(
+                                label,
+                                color = if (isSelected) Color.White else Color.LightGray,
+                                fontSize = 15.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                        }
                     }
                 }
             }
@@ -578,12 +739,54 @@ fun EpisodeCard(
     onClick: () -> Unit,
     onFocus: () -> Unit,
     modifier: Modifier = Modifier,
+    onMenuRequest: ((CatalogItem) -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    var keyDownMillis by remember { mutableLongStateOf(0L) }
+    var consumeClick by remember { mutableStateOf(false) }
 
     val isWatched = watchProgress?.isWatched == true
     val progressPercent = watchProgress?.progressPercent ?: 0
     val hasProgress = progressPercent in 1..99 && !isWatched
+
+    val clickModifier = if (onMenuRequest != null) {
+        Modifier
+            .clickable { if (!consumeClick) onClick() }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyUp &&
+                    (event.key == Key.Enter || event.key == Key.DirectionCenter) &&
+                    !consumeClick
+                ) {
+                    onClick()
+                    true
+                } else false
+            }
+            .onPreviewKeyEvent { event ->
+                if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
+                    when (event.type) {
+                        KeyEventType.KeyDown -> {
+                            keyDownMillis = event.nativeKeyEvent.downTime
+                            consumeClick = false
+                            false
+                        }
+                        KeyEventType.KeyUp -> {
+                            val elapsed = event.nativeKeyEvent.eventTime - keyDownMillis
+                            if (elapsed >= LONG_PRESS_THRESHOLD_MS) {
+                                consumeClick = true
+                                onMenuRequest(item)
+                                true
+                            } else {
+                                consumeClick = false
+                                false
+                            }
+                        }
+                        else -> false
+                    }
+                } else false
+            }
+    } else {
+        Modifier.tvClickable { onClick() }
+    }
 
     Column(
         modifier = modifier
@@ -593,7 +796,7 @@ fun EpisodeCard(
                 isFocused = it.isFocused
                 if (it.isFocused) onFocus()
             }
-            .tvClickable { onClick() }
+            .then(clickModifier)
             .border(
                 width = 2.dp,
                 color = if (isFocused) Color.White else Color.Transparent,

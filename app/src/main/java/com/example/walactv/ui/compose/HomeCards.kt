@@ -257,8 +257,11 @@ internal fun MediaCard(
     narrowCard: Boolean = false,
     onFocused: () -> Unit,
     onClick: () -> Unit,
+    onMenuRequest: ((CatalogItem) -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    var keyDownMillis by remember { mutableLongStateOf(0L) }
+    var consumeClick by remember { mutableStateOf(false) }
     val isVod = item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES
     val isChannel = item.kind == ContentKind.CHANNEL
     val isEvent = item.kind == ContentKind.EVENT
@@ -280,6 +283,45 @@ internal fun MediaCard(
         Modifier.width(cardWidth)
     }
 
+    val clickModifier = if (onMenuRequest != null) {
+        Modifier
+            .clickable { if (!consumeClick) onClick() }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyUp &&
+                    (event.key == Key.Enter || event.key == Key.DirectionCenter) &&
+                    !consumeClick
+                ) {
+                    onClick()
+                    true
+                } else false
+            }
+            .onPreviewKeyEvent { event ->
+                if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
+                    when (event.type) {
+                        KeyEventType.KeyDown -> {
+                            keyDownMillis = event.nativeKeyEvent.downTime
+                            consumeClick = false
+                            false
+                        }
+                        KeyEventType.KeyUp -> {
+                            val elapsed = event.nativeKeyEvent.eventTime - keyDownMillis
+                            if (elapsed >= LONG_PRESS_THRESHOLD_MS) {
+                                consumeClick = true
+                                onMenuRequest(item)
+                                true
+                            } else {
+                                consumeClick = false
+                                false
+                            }
+                        }
+                        else -> false
+                    }
+                } else false
+            }
+    } else {
+        Modifier.tvClickable { onClick() }
+    }
+
     val baseModifier = modifier
         .then(vodModifier)
         .clip(RoundedCornerShape(10.dp))
@@ -292,7 +334,7 @@ internal fun MediaCard(
             isFocused = it.isFocused
             if (it.isFocused) onFocused()
         }
-        .tvClickable { onClick() }
+        .then(clickModifier)
 
     if (isVod) {
         Box(
@@ -566,7 +608,7 @@ internal fun ContinueWatchingCard(
                         }
                         KeyEventType.KeyUp -> {
                             val elapsed = event.nativeKeyEvent.eventTime - keyDownMillis
-                            if (elapsed >= 800L) {
+                            if (elapsed >= LONG_PRESS_THRESHOLD_MS) {
                                 consumeClick = true
                                 onMenuRequest(item)
                                 true
@@ -773,6 +815,120 @@ internal fun ContinueWatchingOptionsMenu(
                                         1 -> fragment.openContinueWatchingFromStart(item, currentProgress)
                                         2 -> fragment.markContinueWatchingAsWatched(item, currentProgress)
                                         3 -> fragment.clearContinueWatchingProgress(item)
+                                    }
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                        ) {
+                            Text(
+                                label,
+                                color = if (isSelected) IptvTextPrimary else IptvTextMuted,
+                                fontSize = 15.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── VOD options menu (Home / Discover long-press) ─────────────────────────
+
+@Composable
+internal fun VodOptionsMenu(
+    fragment: ComposeMainFragment,
+    item: CatalogItem,
+    onDismiss: () -> Unit,
+) {
+    val options = listOf(
+        stringResource(R.string.cw_menu_go_to_details),
+        stringResource(R.string.vod_menu_mark_watched),
+    )
+
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        delay(50.milliseconds)
+        try { focusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> {
+                            selectedIndex = (selectedIndex - 1).coerceAtLeast(0)
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            selectedIndex = (selectedIndex + 1).coerceAtMost(options.lastIndex)
+                            true
+                        }
+                        Key.DirectionCenter,
+                        Key.Enter -> {
+                            when (selectedIndex) {
+                                0 -> fragment.handleCardClick(item)
+                                1 -> fragment.markCatalogItemAsWatched(item)
+                            }
+                            onDismiss()
+                            true
+                        }
+                        Key.Back,
+                        Key.Escape -> { onDismiss(); true }
+                        else -> false
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(380.dp)
+                    .background(Color(0xFF1A1A2E), RoundedCornerShape(16.dp))
+                    .border(1.dp, IptvSurfaceVariant, RoundedCornerShape(16.dp))
+                    .padding(24.dp),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        stringResource(R.string.vod_menu_title),
+                        color = IptvTextPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        item.title,
+                        color = IptvTextMuted,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    options.forEachIndexed { index, label ->
+                        val isSelected = index == selectedIndex
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) IptvFocusBg else Color.Transparent)
+                                .border(
+                                    width = if (isSelected) 2.dp else 0.dp,
+                                    color = if (isSelected) IptvFocusBorder else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                                .tvClickable {
+                                    when (index) {
+                                        0 -> fragment.handleCardClick(item)
+                                        1 -> fragment.markCatalogItemAsWatched(item)
                                     }
                                     onDismiss()
                                 }

@@ -27,6 +27,7 @@ import com.example.walactv.data.model.idioma
 import com.example.walactv.data.util.normalizeLanguageCode
 import com.example.walactv.data.model.preferredVodPosterUrl
 import com.example.walactv.ui.fragment.tmdbDebug
+import com.example.walactv.data.model.uniqueSeriesEpisodes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -464,6 +465,50 @@ internal fun ComposeMainFragment.clearContinueWatchingProgress(cardItem: Catalog
         catch (e: Exception) { Log.e(TAG, "deleteProgress error $normalizedId", e) }
         loadContinueWatching()
     }
+}
+
+internal fun ComposeMainFragment.markCatalogItemAsWatched(item: CatalogItem) {
+    scope.launch {
+        val success = try {
+            when (item.kind) {
+                ContentKind.SERIES -> markSeriesAllEpisodesWatched(item)
+                ContentKind.MOVIE  -> watchProgressRepo.markAsWatched(
+                    item.providerId.orEmpty().ifBlank { item.stableId.substringAfterLast(":") },
+                )
+                else -> false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error marking catalog item as watched ${item.stableId}", e)
+            false
+        }
+        withContext(Dispatchers.Main) {
+            Toast.makeText(
+                requireContext(),
+                if (success) R.string.cw_mark_watched_success else R.string.cw_mark_watched_error,
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+        loadContinueWatching()
+    }
+}
+
+private suspend fun ComposeMainFragment.markSeriesAllEpisodesWatched(item: CatalogItem): Boolean {
+    val seriesId = item.catalogId?.ifBlank { null } ?: item.providerId?.ifBlank { null }
+    val episodes = if (seriesId != null) {
+        repository.loadSeriesEpisodesById(seriesId)
+    } else {
+        repository.loadSeriesEpisodes(item.seriesName ?: item.title ?: return false)
+    }
+    val unique = episodes.uniqueSeriesEpisodes(PreferencesManager.getPreferredLanguageOrDefault())
+    if (unique.isEmpty()) return false
+    var success = true
+    for (ep in unique) {
+        val contentId = ep.providerId ?: ep.stableId.substringAfterLast(":")
+        if (!watchProgressRepo.markAsWatched(contentId, ep.seasonNumber, ep.episodeNumber)) {
+            success = false
+        }
+    }
+    return success
 }
 
 private fun ComposeMainFragment.setPendingFocusAfterCwRemoval(removedStableId: String) {

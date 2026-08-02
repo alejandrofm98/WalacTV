@@ -32,6 +32,9 @@ import com.example.walactv.data.model.isVodContent
 
 // ── Constantes de diseño ───────────────────────────────────────────────────
 
+// Mantener pulsado (long-press) para abrir el menu contextual de una card
+internal const val LONG_PRESS_THRESHOLD_MS = 800L
+
 // Cards VOD — solo imagen, sin texto debajo (el título está en el hero)
 internal val VOD_CARD_WIDTH        = 120.dp
 internal val VOD_IMAGE_HEIGHT       = 180.dp   // ratio 2:3 exact

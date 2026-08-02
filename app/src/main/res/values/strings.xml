@@ -60,4 +60,9 @@
     <string name="cw_menu_clear_progress">Limpiar progreso</string>
     <string name="cw_mark_watched_error">No se pudo marcar como vista</string>
     <string name="cw_mark_watched_success">Marcada como vista</string>
+    <string name="vod_menu_title">Opciones</string>
+    <string name="vod_menu_mark_watched">Marcar como vista</string>
+    <string name="episode_menu_mark_this">Marcar este capítulo como visto</string>
+    <string name="episode_menu_mark_season">Marcar toda la temporada como vista</string>
+    <string name="episode_menu_mark_previous">Marcar capítulos anteriores como vistos</string>
 </resources>

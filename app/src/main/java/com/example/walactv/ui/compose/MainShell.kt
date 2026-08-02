@@ -145,6 +145,14 @@ internal fun MainShell(fragment: ComposeMainFragment) {
                 )
             }
         }
+
+        fragment.catalogItemMenuItem?.let { item ->
+            VodOptionsMenu(
+                fragment = fragment,
+                item = item,
+                onDismiss = { fragment.catalogItemMenuItem = null },
+            )
+        }
     }
 }
 
