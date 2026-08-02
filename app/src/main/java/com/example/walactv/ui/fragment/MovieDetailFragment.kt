@@ -16,7 +16,8 @@ import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.UnifiedStreamOption
 import com.example.walactv.data.model.preferredVodPosterUrl
 import com.example.walactv.data.model.toUnifiedOptions
-import com.example.walactv.data.preferences.PreferencesManager
+import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
+import com.example.walactv.data.remote.repository.IptvRepository
 import com.example.walactv.data.util.normalizeLanguageCode
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -45,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.bumptech.glide.Glide
 import com.example.walactv.ui.theme.*
 
@@ -110,17 +113,25 @@ class MovieDetailFragment : Fragment() {
 
     @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
     private fun playMovie() {
+        val item = cachedItem ?: return
+        lifecycleScope.launch {
+            val catalogId = item.catalogId ?: item.providerId ?: item.stableId.substringAfter(':')
+            val preference = runCatching {
+                IptvRepository(requireContext()).getPlaybackPreference("movie", catalogId)
+            }.getOrNull()
+            playMovieWithPreference(preference)
+        }
+    }
+
+    @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
+    private fun playMovieWithPreference(preference: PlaybackPreferenceDto?) {
         val item = cachedItem ?: run {
             Log.e(TAG, "playMovie: no cached item")
             return
         }
         Log.d(TAG, "playMovie item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
 
-        val preferenceKey = PreferencesManager.playbackPreferenceKey(
-            item.kind,
-            item.providerId ?: item.stableId,
-        )
-        val savedLanguage = PreferencesManager.getPlaybackTrackPreference(preferenceKey)?.audioLanguage
+        val savedLanguage = preference?.audioLanguage
         val stream = item.streamOptions.firstOrNull {
             savedLanguage != null && normalizeLanguageCode(it.language) == normalizeLanguageCode(savedLanguage)
         } ?: item.streamOptions.firstOrNull()
@@ -178,6 +189,8 @@ class MovieDetailFragment : Fragment() {
                 cachedItem = freshItem
                 playMovie()
             },
+            playbackCatalogId = item.catalogId ?: item.providerId ?: item.stableId.substringAfter(':'),
+            playbackPreference = preference,
         )
         val fm = requireActivity().supportFragmentManager
         fm.findFragmentById(R.id.player_container)?.let { fm.beginTransaction().remove(it).commitNow() }

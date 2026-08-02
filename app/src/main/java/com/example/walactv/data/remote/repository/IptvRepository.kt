@@ -12,6 +12,8 @@ import com.example.walactv.data.remote.api.dto.FilterOptionsResponse
 import com.example.walactv.data.remote.api.dto.HomeCatalogResponse
 import com.example.walactv.data.remote.api.dto.ReplayDto
 import com.example.walactv.data.remote.api.dto.ReplayListResponse
+import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
+import com.example.walactv.data.remote.api.dto.PlaybackPreferenceUpdateBody
 import com.example.walactv.data.remote.api.dto.SearchResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -981,6 +983,30 @@ class IptvRepository @Inject constructor(context: Context) {
         runCatching { block() }
             .onFailure { Log.e(TAG, "Fallo cargando seccion $name", it) }
             .getOrDefault(emptyList())
+
+    suspend fun getPlaybackPreference(
+        contentType: String,
+        catalogId: String,
+    ): PlaybackPreferenceDto? = withContext(Dispatchers.IO) {
+        val response = apiService.getPlaybackPreference(contentType, catalogId)
+        when {
+            response.isSuccessful -> response.body()
+            response.code() == 404 -> null
+            else -> error("Playback preference request failed: ${response.code()}")
+        }
+    }
+
+    suspend fun updatePlaybackPreference(
+        contentType: String,
+        catalogId: String,
+        body: PlaybackPreferenceUpdateBody,
+    ): PlaybackPreferenceDto? = withContext(Dispatchers.IO) {
+        val response = apiService.updatePlaybackPreference(contentType, catalogId, body)
+        if (!response.isSuccessful) {
+            error("Playback preference update failed: ${response.code()}")
+        }
+        response.body()
+    }
 
     // ── Modelos privados ──────────────────────────────────────────────────────
 

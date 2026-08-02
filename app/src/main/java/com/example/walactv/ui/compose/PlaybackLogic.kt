@@ -21,6 +21,7 @@ import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.UnifiedStreamOption
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
+import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
 import com.example.walactv.BuildConfig
 import com.example.walactv.data.model.idioma
 import com.example.walactv.data.util.normalizeLanguageCode
@@ -154,12 +155,15 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         null
     }
     Log.d(TAG, "TMDB_CW_SERIES card=${cardItem.tmdbDebug()} progressSeries=${progress.seriesName} seriesProviderId=${progress.seriesProviderId} episode=${episode.tmdbDebug()}")
-    val seriesId = episode?.seriesKey?.ifBlank { null }
-        ?: progress.seriesProviderId?.ifBlank { null }
-        ?: cardItem.seriesProviderId?.ifBlank { null }
-        ?: cardItem.catalogId?.ifBlank { null }
-        ?: cardItem.providerId?.ifBlank { null }
+    val seriesId = (episode?.catalogId?.ifBlank { null }
+        ?: progress.contentId?.substringAfterLast(":")?.ifBlank { null })
+        ?.takeIf { it.isValidSeriesId() }
+        ?: (progress.seriesProviderId ?: cardItem.seriesProviderId)?.takeIf { it.isValidSeriesId() }
+        ?: cardItem.catalogId?.takeIf { it.isValidSeriesId() }
+        ?: cardItem.providerId?.substringAfterLast(":")?.takeIf { it.isValidSeriesId() }
+        ?: episode?.seriesKey?.takeIf { it.isValidSeriesId() }
     val seriesName = episode?.seriesName?.ifBlank { null }
+        ?: episode?.seriesKey?.ifBlank { null }
         ?: progress.seriesName?.ifBlank { null }
         ?: cardItem.seriesName?.ifBlank { null }
         ?: cardItem.title
@@ -242,7 +246,17 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         }
     } else null
 
-    val stream = targetEpisode.streamOptions.firstOrNull() ?: run {
+    val playbackCatalogId = targetEpisode.seriesKey
+        ?: targetEpisode.seriesProviderId
+        ?: targetEpisode.providerId
+        ?: targetEpisode.stableId.substringAfter(':')
+    val playbackPreference = runCatching {
+        repository.getPlaybackPreference("series", playbackCatalogId)
+    }.getOrNull()
+    val stream = targetEpisode.streamOptions.firstOrNull {
+        playbackPreference?.audioLanguage != null &&
+            normalizeLanguageCode(it.language) == normalizeLanguageCode(playbackPreference.audioLanguage)
+    } ?: targetEpisode.streamOptions.firstOrNull() ?: run {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No hay streams disponibles", Toast.LENGTH_SHORT).show() }
         return
     }
@@ -288,6 +302,8 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
                     playCatalogItemWithUnifiedOption(targetEpisode, selectedOption)
                 }
             } else null,
+            playbackCatalogId = playbackCatalogId,
+            playbackPreference = playbackPreference,
         )
         rememberPlaybackReturnState(cardItem)
         currentItem = cardItem
@@ -310,6 +326,30 @@ internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex:
         }
         return
     }
+    if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
+        scope.launch {
+            val catalogId = if (item.kind == ContentKind.SERIES) {
+                item.seriesKey ?: item.seriesProviderId ?: item.providerId ?: item.stableId.substringAfter(':')
+            } else {
+                item.catalogId ?: item.providerId ?: item.stableId.substringAfter(':')
+            }
+            val preference = runCatching {
+                repository.getPlaybackPreference(item.kind.name.lowercase(), catalogId)
+            }.getOrNull()
+            val preferredIndex = item.streamOptions.indexOfFirst {
+                preference?.audioLanguage != null &&
+                    normalizeLanguageCode(it.language) == normalizeLanguageCode(preference.audioLanguage)
+            }
+            playResolvedCatalogItem(
+                item,
+                if (preferredIndex >= 0) preferredIndex else optionIndex,
+                showOptionsOnStart,
+                playbackPreference = preference,
+                playbackCatalogId = catalogId,
+            )
+        }
+        return
+    }
     playResolvedCatalogItem(item, optionIndex, showOptionsOnStart)
 }
 
@@ -322,7 +362,14 @@ internal fun ComposeMainFragment.playCatalogItemWithUnifiedOption(item: CatalogI
     }
 }
 
-internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false, positionMs: Long = 0) {
+internal fun ComposeMainFragment.playResolvedCatalogItem(
+    item: CatalogItem,
+    optionIndex: Int,
+    showOptionsOnStart: Boolean = false,
+    positionMs: Long = 0,
+    playbackPreference: PlaybackPreferenceDto? = null,
+    playbackCatalogId: String = "",
+) {
     val stream = item.streamOptions.getOrNull(optionIndex) ?: return
     rememberPlaybackReturnState(item)
     currentItem = item
@@ -370,6 +417,8 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(item: CatalogItem, opti
                 playCatalogItemWithUnifiedOption(item, selectedOption)
             }
         } else null,
+        playbackCatalogId = playbackCatalogId,
+        playbackPreference = playbackPreference,
     )
     launchPlayerFragment(playerFragment)
 }
@@ -525,5 +574,4 @@ internal fun ComposeMainFragment.openRecentChannel(): Boolean {
     playCatalogItem(match, 0)
     return true
 }
-
 

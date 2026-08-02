@@ -19,6 +19,7 @@ import com.example.walactv.data.model.idioma
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.model.uniqueSeriesEpisodes
 import com.example.walactv.data.preferences.PreferencesManager
+import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.remote.api.dto.progressPercent
 import com.example.walactv.data.remote.repository.IptvRepository
@@ -64,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
@@ -138,12 +140,24 @@ class SeriesDetailFragment : Fragment() {
 
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
     private fun playEpisode(item: CatalogItem, allEpisodesForSeries: List<CatalogItem>, logicalEpisodes: List<CatalogItem>) {
-        val preferenceKey = PreferencesManager.playbackPreferenceKey(
-            ContentKind.SERIES,
-            item.providerId ?: item.stableId,
-            item,
-        )
-        val preferredLanguage = PreferencesManager.getPlaybackTrackPreference(preferenceKey)?.audioLanguage
+        viewLifecycleOwner.lifecycleScope.launch {
+            val catalogId = item.seriesKey ?: item.seriesProviderId ?: item.providerId ?: item.stableId.substringAfter(':')
+            val preference = runCatching {
+                repository.getPlaybackPreference("series", catalogId)
+            }.getOrNull()
+            playEpisodeWithPreference(item, allEpisodesForSeries, logicalEpisodes, preference, catalogId)
+        }
+    }
+
+    @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
+    private fun playEpisodeWithPreference(
+        item: CatalogItem,
+        allEpisodesForSeries: List<CatalogItem>,
+        logicalEpisodes: List<CatalogItem>,
+        preference: PlaybackPreferenceDto?,
+        catalogId: String,
+    ) {
+        val preferredLanguage = preference?.audioLanguage
             ?: PreferencesManager.getPreferredLanguageOrDefault()
         val episodeToPlay = allEpisodesForSeries.find {
             it.seriesName == item.seriesName &&
@@ -208,6 +222,8 @@ class SeriesDetailFragment : Fragment() {
                 } ?: episodeToPlay
                 playEpisode(freshEpisode, allEpisodesForSeries, logicalEpisodes)
             },
+            playbackCatalogId = catalogId,
+            playbackPreference = preference,
         )
         val fragmentManager = requireActivity().supportFragmentManager
         fragmentManager.findFragmentById(R.id.player_container)?.let { existing ->

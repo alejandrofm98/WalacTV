@@ -49,6 +49,8 @@ Este cliente consume los siguientes endpoints (ver `iptv-api/AGENTS.md` seccion 
 
 - `POST /api/auth/login` — autenticacion
 - `GET /api/watch-progress` — continuar viendo
+- `GET /api/playback-preferences/{movie|series}/{catalog_id}` — preferencias de audio/subtítulos
+- `PUT /api/playback-preferences/{movie|series}/{catalog_id}` — guardar preferencias de audio/subtítulos
 - `PUT /api/watch-progress/{id}` — guardar progreso
 - `DELETE /api/watch-progress/{id}` — eliminar progreso
 - `POST /api/watch-progress/{id}/mark-watched` — marcar contenido como visto

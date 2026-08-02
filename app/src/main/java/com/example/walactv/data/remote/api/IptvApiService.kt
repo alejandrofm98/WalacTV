@@ -14,6 +14,8 @@ import com.example.walactv.data.remote.api.dto.ReplayListResponse
 import com.example.walactv.data.remote.api.dto.WatchProgressListResponse
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.remote.api.dto.SaveWatchProgressBody
+import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
+import com.example.walactv.data.remote.api.dto.PlaybackPreferenceUpdateBody
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
@@ -159,7 +161,23 @@ interface IptvApiService {
     @POST("api/watch-progress/{id}/mark-watched")
     suspend fun markWatched(
         @Path("id") id: String,
+        @Query("season") season: Int? = null,
+        @Query("episode") episode: Int? = null,
+        @Query("completed") completed: Boolean = false,
     ): Response<WatchProgressDto>
+
+    @GET("api/playback-preferences/{contentType}/{catalogId}")
+    suspend fun getPlaybackPreference(
+        @Path("contentType") contentType: String,
+        @Path("catalogId") catalogId: String,
+    ): Response<PlaybackPreferenceDto>
+
+    @PUT("api/playback-preferences/{contentType}/{catalogId}")
+    suspend fun updatePlaybackPreference(
+        @Path("contentType") contentType: String,
+        @Path("catalogId") catalogId: String,
+        @Body body: PlaybackPreferenceUpdateBody,
+    ): Response<PlaybackPreferenceDto>
 
     @GET("api/watch-progress/watched")
     suspend fun getWatchedItems(

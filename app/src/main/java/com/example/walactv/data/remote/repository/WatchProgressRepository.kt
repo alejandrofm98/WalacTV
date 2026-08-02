@@ -113,9 +113,14 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
         }
     }
 
-    suspend fun markAsWatched(contentId: String): Boolean {
+    suspend fun markAsWatched(
+        contentId: String,
+        season: Int? = null,
+        episode: Int? = null,
+        completed: Boolean = false,
+    ): Boolean {
         return try {
-            val response = apiService.markWatched(contentId)
+            val response = apiService.markWatched(contentId, season, episode, completed)
             response.isSuccessful
         } catch (e: Exception) {
             Log.e(TAG, "Error marking as watched: $contentId", e)

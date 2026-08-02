@@ -49,6 +49,8 @@ import com.example.walactv.WalacApp
 import com.example.walactv.data.model.PlaybackError
 import com.example.walactv.data.model.UnifiedStreamOption
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
+import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
+import com.example.walactv.data.remote.api.dto.PlaybackPreferenceUpdateBody
 import com.example.walactv.data.remote.api.dto.shouldRestoreProgress
 import com.example.walactv.data.remote.repository.IntroDbRepository
 import com.example.walactv.data.remote.repository.IntroDbSegments
@@ -93,6 +95,8 @@ class PlayerFragment : Fragment() {
     private var onPlayerClosed: (() -> Unit)? = null
     private var onProgressSaved: ((WatchProgressDto) -> Unit)? = null
     private var customHeaders: Map<String, String> = emptyMap()
+    private var playbackCatalogId: String = ""
+    private var playbackPreference: PlaybackPreferenceDto? = null
 
     init {
         // Default constructor used by Android Fragment system
@@ -127,6 +131,8 @@ class PlayerFragment : Fragment() {
         customHeaders: Map<String, String> = emptyMap(),
         unifiedStreamOptions: List<UnifiedStreamOption> = emptyList(),
         onSelectUnifiedOption: ((Int) -> Unit)? = null,
+        playbackCatalogId: String = "",
+        playbackPreference: PlaybackPreferenceDto? = null,
     ) {
         this.streamUrl = streamUrl
         this.overlayNumber = overlayNumber
@@ -166,6 +172,8 @@ class PlayerFragment : Fragment() {
         this.currentUnifiedOptionIndex = unifiedStreamOptions.indexOfFirst { it.url == streamUrl }
             .coerceAtLeast(0)
         this.onSelectUnifiedOption = onSelectUnifiedOption
+        this.playbackCatalogId = playbackCatalogId
+        this.playbackPreference = playbackPreference
     }
 
     private var currentSeriesEpisode: CatalogItem? = currentEpisode
@@ -763,49 +771,29 @@ class PlayerFragment : Fragment() {
                     repo.markAsWatched(contentId)
                 }
                 ContentKind.SERIES -> {
-                    repo.markAsWatched(contentId)
+                    repo.markAsWatched(
+                        contentId,
+                        currentSeriesEpisode?.seasonNumber,
+                        currentSeriesEpisode?.episodeNumber,
+                    )
                 }
                 else -> Unit
             }
         }
     }
 
-    private fun clearTrackPreferenceAfterCompletion() {
+    private fun markContentCompleted(onCompleted: (() -> Unit)? = null) {
         if (completionCleanupStarted || contentId.isBlank()) return
         completionCleanupStarted = true
-        if (contentKind == ContentKind.MOVIE) {
-            PreferencesManager.clearPlaybackTrackPreference(playbackPreferenceKey())
-            return
-        }
-        if (contentKind != ContentKind.SERIES) return
         lifecycleScope.launch(Dispatchers.IO) {
-            watchProgressRepo?.markAsWatched(contentId)
-            if (isCurrentSeriesFullyWatched()) {
-                PreferencesManager.clearPlaybackTrackPreference(playbackPreferenceKey())
-            }
+            watchProgressRepo?.markAsWatched(
+                contentId,
+                currentSeriesEpisode?.seasonNumber,
+                currentSeriesEpisode?.episodeNumber,
+                completed = true,
+            )
+            if (onCompleted != null) withContext(Dispatchers.Main) { onCompleted() }
         }
-    }
-
-    private suspend fun isCurrentSeriesFullyWatched(): Boolean {
-        val episode = currentSeriesEpisode ?: return false
-        val repository = IptvRepository(requireContext().applicationContext)
-        val episodes = runCatching {
-            val seriesId = episode.seriesProviderId?.ifBlank { null }
-            if (seriesId != null) {
-                repository.loadSeriesEpisodesById(seriesId)
-            } else {
-                val seriesName = episode.seriesName?.ifBlank { null } ?: return false
-                repository.loadSeriesEpisodes(seriesName)
-            }
-        }.getOrElse {
-            Log.w(TAG, "Could not verify whether the series is complete", it)
-            return false
-        }
-        if (episodes.isEmpty()) return false
-        return episodes
-            .groupBy { it.seasonNumber to it.episodeNumber }
-            .values
-            .all { variants -> variants.any { it.isWatched } }
     }
 
     private fun restoreWatchProgress() {
@@ -886,11 +874,12 @@ class PlayerFragment : Fragment() {
             .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
                 if (which != currentIndex) {
                     val selectedOption = options[which]
-                    saveAudioPreference(selectedOption.languageCode, selectedOption.language)
                     if (selectedOption.url == streamUrl) {
                         selectEmbeddedAudioTrack(selectedOption, which)
                     } else {
-                        onSelectUnifiedOption?.invoke(which)
+                        saveAudioPreference(selectedOption.languageCode, selectedOption.language) {
+                            onSelectUnifiedOption?.invoke(which)
+                        }
                     }
                 }
                 dialog.dismiss()
@@ -936,36 +925,60 @@ class PlayerFragment : Fragment() {
         }
     }
 
-    private fun playbackPreferenceKey(): String {
-        return PreferencesManager.playbackPreferenceKey(
-            contentKind,
-            contentId,
-            currentSeriesEpisode,
+    private fun saveAudioPreference(language: String?, label: String?, afterSave: (() -> Unit)? = null) {
+        if (!isVodMode || playbackCatalogId.isBlank()) return
+        playbackPreference = playbackPreference?.copy(
+            audioLanguage = normalizeLanguageCode(language),
+            audioLabel = label,
+        ) ?: PlaybackPreferenceDto(
+            audioLanguage = normalizeLanguageCode(language),
+            audioLabel = label,
         )
-    }
-
-    private fun saveAudioPreference(language: String?, label: String?) {
-        if (!isVodMode || contentId.isBlank()) return
-        PreferencesManager.updatePlaybackTrackPreference(playbackPreferenceKey()) {
-            it.copy(audioLanguage = normalizeLanguageCode(language), audioLabel = label)
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                IptvRepository(requireContext().applicationContext).updatePlaybackPreference(
+                    contentKind.name.lowercase(),
+                    playbackCatalogId,
+                    PlaybackPreferenceUpdateBody(
+                        audioLanguage = normalizeLanguageCode(language),
+                        audioLabel = label,
+                    ),
+                )
+            }.onFailure { Log.w(TAG, "Could not save audio preference", it) }
+            if (afterSave != null) withContext(Dispatchers.Main) { afterSave() }
         }
     }
 
     private fun saveSubtitlePreference(language: String?, label: String?, disabled: Boolean) {
-        if (!isVodMode || contentId.isBlank()) return
-        PreferencesManager.updatePlaybackTrackPreference(playbackPreferenceKey()) {
-            it.copy(
-                subtitleLanguage = language?.let(::normalizeLanguageCode),
-                subtitleLabel = label,
-                subtitlesDisabled = disabled,
-            )
+        if (!isVodMode || playbackCatalogId.isBlank()) return
+        playbackPreference = playbackPreference?.copy(
+            subtitleLanguage = language?.let(::normalizeLanguageCode),
+            subtitleLabel = label,
+            subtitlesDisabled = disabled,
+        ) ?: PlaybackPreferenceDto(
+            subtitleLanguage = language?.let(::normalizeLanguageCode),
+            subtitleLabel = label,
+            subtitlesDisabled = disabled,
+        )
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                IptvRepository(requireContext().applicationContext).updatePlaybackPreference(
+                    contentKind.name.lowercase(),
+                    playbackCatalogId,
+                    PlaybackPreferenceUpdateBody(
+                        subtitleLanguage = language?.let(::normalizeLanguageCode),
+                        subtitleLabel = label,
+                        subtitlesDisabled = disabled,
+                    ),
+                )
+            }.onFailure { Log.w(TAG, "Could not save subtitle preference", it) }
         }
     }
 
     private fun restoreTrackPreferences(tracks: Tracks) {
         if (contentId.isBlank()) return
         val exoPlayer = player ?: return
-        val preference = PreferencesManager.getPlaybackTrackPreference(playbackPreferenceKey())
+        val preference = playbackPreference
         val audioLanguage = preference?.audioLanguage
             ?: PreferencesManager.getPreferredLanguageOrDefault()
         val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
@@ -1851,8 +1864,10 @@ class PlayerFragment : Fragment() {
         override fun onPlaybackStateChanged(playbackState: Int) {
             val stateName = playbackStateName(playbackState)
             Log.d(TAG, "onPlaybackStateChanged: $stateName | isPlaying=${player?.isPlaying} isVod=$isVodMode")
-            if (isVodMode && playbackState == Player.STATE_ENDED && !isReleasing && !isRetrying) {
-                clearTrackPreferenceAfterCompletion()
+            if (isVodMode && playbackState == Player.STATE_ENDED && !isReleasing && !isRetrying &&
+                (contentKind != ContentKind.SERIES || onNextEpisode == null)
+            ) {
+                markContentCompleted()
             }
             when (playbackState) {
                 Player.STATE_READY -> {
@@ -1897,7 +1912,7 @@ class PlayerFragment : Fragment() {
                             advancedToNext = true
                             Log.d(TAG, "VOD STATE_ENDED: advancing to next episode")
                             saveWatchProgress(forceSave = true)
-                            onNextEpisode?.invoke()
+                            markContentCompleted { onNextEpisode?.invoke() }
                         }
                     } else {
                         handler.removeCallbacks(positionWatchdog)

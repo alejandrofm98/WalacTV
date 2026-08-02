@@ -89,7 +89,9 @@ internal fun MandatoryUpdateScreen(fragment: ComposeMainFragment, updateInfo: Ap
             Text("Debes instalar la nueva version para seguir usando WalacTV.", color = IptvTextMuted, fontSize = 18.sp)
             installed?.let { SettingsRow("Version instalada", "${it.versionName} (${it.versionCode})") }
             SettingsRow("Version requerida", "${updateInfo.latestVersionName} (${updateInfo.latestVersionCode})")
-            if (updateInfo.changelog.isNotBlank()) Text(updateInfo.changelog, color = IptvTextPrimary, fontSize = 16.sp)
+            if (updateInfo.changelog.isNotBlank()) {
+                MarkdownText(updateInfo.changelog)
+            }
             Text(fragment.updateStatusMessage, color = IptvAccent, fontSize = 15.sp)
             fragment.updateErrorMessage?.let { Text(it, color = IptvLive, fontSize = 14.sp) }
             if (fragment.isUpdateDownloading) Text("La descarga esta en curso. Al terminar se abrira el instalador.", color = IptvTextMuted, fontSize = 14.sp)

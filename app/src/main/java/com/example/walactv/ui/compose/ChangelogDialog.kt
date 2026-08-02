@@ -222,13 +222,13 @@ private fun parseMarkdown(raw: String): List<MdBlock> {
     var i = 0
     while (i < lines.size) {
         val line = lines[i]
-        val trimmed = line.trimEnd()
+        val trimmed = line.trim()
 
         // Code block fence
         if (trimmed.startsWith("```")) {
             val codeLines = mutableListOf<String>()
             i++
-            while (i < lines.size && !lines[i].trimEnd().startsWith("```")) {
+            while (i < lines.size && !lines[i].trim().startsWith("```")) {
                 codeLines.add(lines[i])
                 i++
             }
@@ -238,10 +238,10 @@ private fun parseMarkdown(raw: String): List<MdBlock> {
         }
 
         when {
-            trimmed.startsWith("# ") -> blocks.add(MdBlock.Heading(1, trimmed.removePrefix("# ")))
-            trimmed.startsWith("## ") -> blocks.add(MdBlock.Heading(2, trimmed.removePrefix("## ")))
-            trimmed.startsWith("### ") -> blocks.add(MdBlock.Heading(3, trimmed.removePrefix("### ")))
             trimmed.startsWith("#### ") -> blocks.add(MdBlock.Heading(4, trimmed.removePrefix("#### ")))
+            trimmed.startsWith("### ") -> blocks.add(MdBlock.Heading(3, trimmed.removePrefix("### ")))
+            trimmed.startsWith("## ") -> blocks.add(MdBlock.Heading(2, trimmed.removePrefix("## ")))
+            trimmed.startsWith("# ") -> blocks.add(MdBlock.Heading(1, trimmed.removePrefix("# ")))
             trimmed.startsWith("---") || trimmed.startsWith("***") || trimmed.startsWith("___") -> {
                 if (trimmed.all { it == '-' } || trimmed.all { it == '*' } || trimmed.all { it == '_' }) {
                     blocks.add(MdBlock.HorizontalRule)
@@ -269,7 +269,7 @@ private fun parseMarkdown(raw: String): List<MdBlock> {
                 val bqLines = mutableListOf(trimmed.removePrefix("> "))
                 while (i + 1 < lines.size && lines[i + 1].trimEnd().startsWith("> ")) {
                     i++
-                    bqLines.add(lines[i].trimEnd().removePrefix("> "))
+                    bqLines.add(lines[i].trim().removePrefix("> "))
                 }
                 blocks.add(MdBlock.Blockquote(bqLines.joinToString("\n")))
             }
@@ -282,7 +282,7 @@ private fun parseMarkdown(raw: String): List<MdBlock> {
 }
 
 @Composable
-private fun MarkdownText(markdown: String) {
+internal fun MarkdownText(markdown: String) {
     val blocks = parseMarkdown(markdown)
     Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
         for ((index, block) in blocks.withIndex()) {
