@@ -12,9 +12,11 @@ import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.CatalogMemory
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.preferences.ChannelStateStore
+import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.data.model.preferredVodPosterUrl
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.remote.repository.IptvRepository
+import com.example.walactv.data.util.normalizeLanguageCode
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -144,7 +146,24 @@ class SearchFragment : Fragment() {
                 return@launch
             }
 
-            val streamIndex = optionIndex.coerceIn(resolvedItem.streamOptions.indices)
+            val savedLanguage = if (resolvedItem.kind == ContentKind.MOVIE || resolvedItem.kind == ContentKind.SERIES) {
+                val key = PreferencesManager.playbackPreferenceKey(
+                    resolvedItem.kind,
+                    resolvedItem.providerId ?: resolvedItem.stableId,
+                    resolvedItem.takeIf { it.kind == ContentKind.SERIES },
+                )
+                PreferencesManager.getPlaybackTrackPreference(key)?.audioLanguage
+            } else {
+                null
+            }
+            val savedStreamIndex = resolvedItem.streamOptions.indexOfFirst {
+                savedLanguage != null && normalizeLanguageCode(it.language) == normalizeLanguageCode(savedLanguage)
+            }
+            val streamIndex = if (savedStreamIndex >= 0) {
+                savedStreamIndex
+            } else {
+                optionIndex.coerceIn(resolvedItem.streamOptions.indices)
+            }
             val stream = resolvedItem.streamOptions[streamIndex]
 
             currentItem = resolvedItem

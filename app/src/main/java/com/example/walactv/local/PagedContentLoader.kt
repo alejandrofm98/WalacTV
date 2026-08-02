@@ -74,7 +74,7 @@ class PagedContentLoader(
                     result.items
                 }
                 ContentKind.UFC -> {
-                    val (items, total) = repository.loadUfcEvents(page + 1)
+                    val (items, total) = repository.loadUfcEvents(page + 1, pageSize)
                     totalCount = total
                     items
                 }

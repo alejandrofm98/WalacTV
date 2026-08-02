@@ -358,30 +358,36 @@ class IptvRepository @Inject constructor(context: Context) {
             .replace(Regex("[^a-zA-Z0-9\\u00f1\\u00d1]+"), "-")
             .trim('-')
             .lowercase()
-        val firstSource = dto.videoSources?.firstOrNull()
-        val sourceIndex = firstSource?.index ?: 0
-        val buttonIndex = firstSource?.buttonIndex ?: 0
-        val streamUrl = if (firstSource?.url.isNullOrBlank()) {
-            val t = token ?: ""
-            "${BuildConfig.IPTV_BASE_URL}/api/replays/$slug/stream/$sourceIndex/$buttonIndex?token=$t"
-        } else {
-            firstSource!!.url
+        val streamOptions = dto.videoSources.orEmpty().flatMap { sourceGroup ->
+            sourceGroup.sources.orEmpty().mapIndexed { fallbackIndex, source ->
+                val sourceIndex = source.sourceIndex ?: fallbackIndex
+                val label = listOfNotNull(
+                    sourceGroup.group?.takeIf { it.isNotBlank() },
+                    source.label?.takeIf { it.isNotBlank() },
+                ).joinToString(" · ").ifBlank { "UFC" }
+                StreamOption(
+                    label = label,
+                    url = "${BuildConfig.IPTV_BASE_URL}/api/replays/$slug/stream/$sourceIndex/${source.buttonIndex}?token=${token.orEmpty()}",
+                    providerId = slug,
+                    quality = null,
+                )
+            }
         }
-        val label = firstSource?.label?.takeIf { it.isNotBlank() } ?: "UFC"
-        val mainFight = dto.matchCard?.firstOrNull()
-        val subtitle = mainFight?.let {
-            "${it.fighter1} vs ${it.fighter2}" + (it.weightClass?.let { w -> " · $w" } ?: "")
-        }.orEmpty()
+        val matchCard = dto.matchCard.orEmpty().filter { it.isNotBlank() }
+        val subtitle = matchCard.firstOrNull().orEmpty()
+        val description = listOf(dto.description?.takeIf { it.isNotBlank() }, matchCard.joinToString("\n"))
+            .filterNotNull()
+            .joinToString("\n\n")
         return CatalogItem(
             stableId = "ufc:$slug",
             kind = ContentKind.UFC,
             title = title,
             subtitle = subtitle,
-            description = dto.description.orEmpty(),
+            description = description,
             imageUrl = dto.featuredImageUrl.orEmpty(),
             group = "UFC",
             badgeText = "UFC",
-            streamOptions = listOf(StreamOption(label = label, url = streamUrl, providerId = slug, quality = null)),
+            streamOptions = streamOptions,
         )
     }
 

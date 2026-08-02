@@ -17,19 +17,17 @@ data class ReplayDto(
     @SerializedName("event_date") val eventDate: String? = null,
     @SerializedName("featured_image_url") val featuredImageUrl: String? = null,
     val description: String? = null,
-    @SerializedName("match_card") val matchCard: List<ReplayMatchCardDto>? = null,
-    @SerializedName("video_sources") val videoSources: List<ReplayVideoSourceDto>? = null,
+    @SerializedName("match_card") val matchCard: List<String>? = null,
+    @SerializedName("video_sources") val videoSources: List<ReplayVideoSourceGroupDto>? = null,
 )
 
-data class ReplayMatchCardDto(
-    val fighter1: String? = null,
-    val fighter2: String? = null,
-    @SerializedName("weight_class") val weightClass: String? = null,
+data class ReplayVideoSourceGroupDto(
+    val group: String? = null,
+    val sources: List<ReplayVideoSourceDto>? = null,
 )
 
 data class ReplayVideoSourceDto(
     val label: String? = null,
-    val url: String? = null,
-    val index: Int = 0,
+    @SerializedName("source_index") val sourceIndex: Int? = null,
     @SerializedName("button_index") val buttonIndex: Int = 0,
 )

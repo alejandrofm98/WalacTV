@@ -16,6 +16,7 @@ data class StreamOption(
 
 data class UnifiedStreamOption(
     val language: String,
+    val languageCode: String,
     val quality: String,
     val url: String,
     val providerId: String? = null,
@@ -33,6 +34,7 @@ fun List<StreamOption>.toUnifiedOptions(): List<UnifiedStreamOption> {
         val displayLang = languageDisplayLabel(normalizeLanguageCode(lang))
         UnifiedStreamOption(
             language = displayLang,
+            languageCode = normalizeLanguageCode(lang),
             quality = quality.uppercase(),
             url = stream.url,
             providerId = stream.providerId,

@@ -6,7 +6,9 @@ import com.example.walactv.data.model.buildSeriesGridItems
 import com.example.walactv.data.model.idioma
 import com.example.walactv.data.model.parseNormalizedMetadata
 import com.example.walactv.data.model.parseSeriesMetadata
+import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.subgrupo
+import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.util.displayCardTitle
 import com.example.walactv.data.util.filterItemsByCountrySelection
 import com.example.walactv.data.util.matchesFilterSearch
@@ -204,6 +206,16 @@ class CatalogModelsTest {
     fun `matches filter search partial match`() {
         assertEquals(true, matchesFilterSearch("ESPN Sports Network", "espn"))
         assertEquals(true, matchesFilterSearch("Sports ESPN", "sports"))
+    }
+
+    @Test
+    fun `keeps language code for embedded audio selection`() {
+        val options = listOf(
+            StreamOption(label = "HD", url = "https://example.com/video.m3u8", language = "ES"),
+            StreamOption(label = "HD", url = "https://example.com/video.m3u8", language = "EN"),
+        ).toUnifiedOptions()
+
+        assertEquals(listOf("ES", "EN"), options.map { it.languageCode })
     }
 
     @Test

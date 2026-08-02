@@ -54,6 +54,8 @@ import com.example.walactv.data.remote.repository.IntroDbRepository
 import com.example.walactv.data.remote.repository.IntroDbSegments
 import com.example.walactv.data.model.categorizePlaybackError
 import com.example.walactv.data.remote.repository.WatchProgressRepository
+import com.example.walactv.data.remote.repository.IptvRepository
+import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.data.util.languageDisplayLabel
 import com.example.walactv.data.util.normalizeLanguageCode
 import com.example.walactv.datasource.StreamWishDataSourceFactory
@@ -82,6 +84,7 @@ class PlayerFragment : Fragment() {
     private var streamOptionLabels: List<String> = emptyList()
     private var currentOptionIndex: Int = 0
     private var unifiedStreamOptions: List<UnifiedStreamOption> = emptyList()
+    private var currentUnifiedOptionIndex: Int = 0
     private var onSelectUnifiedOption: ((Int) -> Unit)? = null
     private var overlayLogoUrl: String = ""
     private var isFavorite: Boolean = false
@@ -143,6 +146,7 @@ class PlayerFragment : Fragment() {
         this.currentEpisode = currentEpisode
         this.currentSeriesEpisode = currentEpisode
         this.advancedToNext = false
+        this.completionCleanupStarted = false
         this.currentSegments = null
         this.segmentButtonsHidden = false
         this.streamOptionLabels = streamOptionLabels
@@ -159,6 +163,8 @@ class PlayerFragment : Fragment() {
         this.onProgressSaved = onProgressSaved
         this.customHeaders = customHeaders
         this.unifiedStreamOptions = unifiedStreamOptions
+        this.currentUnifiedOptionIndex = unifiedStreamOptions.indexOfFirst { it.url == streamUrl }
+            .coerceAtLeast(0)
         this.onSelectUnifiedOption = onSelectUnifiedOption
     }
 
@@ -197,8 +203,10 @@ class PlayerFragment : Fragment() {
     private var closedByHost: Boolean = false
     private var playerClosed: Boolean = false
     private lateinit var trackSelector: DefaultTrackSelector
+    private var trackPreferencesRestored = false
 
     private var watchedMarked = false
+    private var completionCleanupStarted = false
     private var advancedToNext = false
     private var introDbRepository: IntroDbRepository? = null
     private var currentSegments: IntroDbSegments? = null
@@ -371,6 +379,7 @@ class PlayerFragment : Fragment() {
         retryCount = 0
         isReleasing = false
         playerClosed = false
+        trackPreferencesRestored = false
 
         try {
             val isStreamWish = StreamWishDataSourceFactory.isStreamWishUrl(streamUrl)
@@ -761,6 +770,44 @@ class PlayerFragment : Fragment() {
         }
     }
 
+    private fun clearTrackPreferenceAfterCompletion() {
+        if (completionCleanupStarted || contentId.isBlank()) return
+        completionCleanupStarted = true
+        if (contentKind == ContentKind.MOVIE) {
+            PreferencesManager.clearPlaybackTrackPreference(playbackPreferenceKey())
+            return
+        }
+        if (contentKind != ContentKind.SERIES) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            watchProgressRepo?.markAsWatched(contentId)
+            if (isCurrentSeriesFullyWatched()) {
+                PreferencesManager.clearPlaybackTrackPreference(playbackPreferenceKey())
+            }
+        }
+    }
+
+    private suspend fun isCurrentSeriesFullyWatched(): Boolean {
+        val episode = currentSeriesEpisode ?: return false
+        val repository = IptvRepository(requireContext().applicationContext)
+        val episodes = runCatching {
+            val seriesId = episode.seriesProviderId?.ifBlank { null }
+            if (seriesId != null) {
+                repository.loadSeriesEpisodesById(seriesId)
+            } else {
+                val seriesName = episode.seriesName?.ifBlank { null } ?: return false
+                repository.loadSeriesEpisodes(seriesName)
+            }
+        }.getOrElse {
+            Log.w(TAG, "Could not verify whether the series is complete", it)
+            return false
+        }
+        if (episodes.isEmpty()) return false
+        return episodes
+            .groupBy { it.seasonNumber to it.episodeNumber }
+            .values
+            .all { variants -> variants.any { it.isWatched } }
+    }
+
     private fun restoreWatchProgress() {
         if (contentId.isBlank() || !isVodMode) return
         val repo = watchProgressRepo ?: return
@@ -832,19 +879,129 @@ class PlayerFragment : Fragment() {
         if (options.isEmpty()) return
 
         val labels = options.map { it.displayLabel }.toTypedArray()
-        val currentUrl = streamUrl
-        val currentIndex = options.indexOfFirst { it.url == currentUrl }.coerceAtLeast(0)
+        val currentIndex = currentUnifiedOptionIndex.coerceIn(options.indices)
 
         AlertDialog.Builder(ctx, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle(R.string.vod_stream)
             .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
                 if (which != currentIndex) {
-                    onSelectUnifiedOption?.invoke(which)
+                    val selectedOption = options[which]
+                    saveAudioPreference(selectedOption.languageCode, selectedOption.language)
+                    if (selectedOption.url == streamUrl) {
+                        selectEmbeddedAudioTrack(selectedOption, which)
+                    } else {
+                        onSelectUnifiedOption?.invoke(which)
+                    }
                 }
                 dialog.dismiss()
             }
             .setOnDismissListener { player?.play() }
             .show()
+    }
+
+    private fun selectEmbeddedAudioTrack(option: UnifiedStreamOption, optionIndex: Int) {
+        val exoPlayer = player ?: return
+        val targetLanguage = normalizeAudioTrackLanguage(option.languageCode)
+        val audioGroups = exoPlayer.currentTracks.groups.filter { group ->
+            group.type == C.TRACK_TYPE_AUDIO
+        }
+        val match = audioGroups.firstNotNullOfOrNull { group ->
+            (0 until group.length).firstOrNull { trackIndex ->
+                normalizeAudioTrackLanguage(group.getTrackFormat(trackIndex).language) == targetLanguage
+            }?.let { trackIndex -> group to trackIndex }
+        }
+
+        if (match == null) {
+            Log.w(TAG, "No embedded audio track for language=$targetLanguage")
+            Toast.makeText(requireContext(), "Audio no disponible en este video", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val (group, trackIndex) = match
+        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
+            .build()
+        currentUnifiedOptionIndex = optionIndex
+        saveAudioPreference(option.languageCode, option.language)
+        Log.d(TAG, "Selected embedded audio language=$targetLanguage track=$trackIndex")
+    }
+
+    private fun normalizeAudioTrackLanguage(language: String?): String {
+        return when (language?.substringBefore('-')?.lowercase()) {
+            "en", "eng" -> "EN"
+            "es", "spa" -> "ES"
+            "lat", "latam" -> "LATAM"
+            else -> normalizeLanguageCode(language)
+        }
+    }
+
+    private fun playbackPreferenceKey(): String {
+        return PreferencesManager.playbackPreferenceKey(
+            contentKind,
+            contentId,
+            currentSeriesEpisode,
+        )
+    }
+
+    private fun saveAudioPreference(language: String?, label: String?) {
+        if (!isVodMode || contentId.isBlank()) return
+        PreferencesManager.updatePlaybackTrackPreference(playbackPreferenceKey()) {
+            it.copy(audioLanguage = normalizeLanguageCode(language), audioLabel = label)
+        }
+    }
+
+    private fun saveSubtitlePreference(language: String?, label: String?, disabled: Boolean) {
+        if (!isVodMode || contentId.isBlank()) return
+        PreferencesManager.updatePlaybackTrackPreference(playbackPreferenceKey()) {
+            it.copy(
+                subtitleLanguage = language?.let(::normalizeLanguageCode),
+                subtitleLabel = label,
+                subtitlesDisabled = disabled,
+            )
+        }
+    }
+
+    private fun restoreTrackPreferences(tracks: Tracks) {
+        if (contentId.isBlank()) return
+        val exoPlayer = player ?: return
+        val preference = PreferencesManager.getPlaybackTrackPreference(playbackPreferenceKey())
+        val audioLanguage = preference?.audioLanguage
+            ?: PreferencesManager.getPreferredLanguageOrDefault()
+        val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        val audioMatch = audioGroups.firstNotNullOfOrNull { group ->
+            (0 until group.length).firstOrNull { index ->
+                val format = group.getTrackFormat(index)
+                normalizeAudioTrackLanguage(format.language) == normalizeAudioTrackLanguage(audioLanguage) ||
+                    (!preference?.audioLabel.isNullOrBlank() &&
+                        format.label.equals(preference?.audioLabel, ignoreCase = true))
+            }?.let { index -> group to index }
+        }
+        audioMatch?.let { (group, index) ->
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
+                .build()
+        }
+
+        val subtitleDisabled = preference?.subtitlesDisabled ?: return
+        val textGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        if (subtitleDisabled) {
+            applySubtitleSelection(exoPlayer, textGroups, -1, -1)
+            return
+        }
+        val subtitleMatch = textGroups.withIndex().firstNotNullOfOrNull { (groupIndex, group) ->
+            (0 until group.length).firstOrNull { trackIndex ->
+                val format = group.getTrackFormat(trackIndex)
+                (!preference.subtitleLanguage.isNullOrBlank() &&
+                    normalizeLanguageCode(format.language) == normalizeLanguageCode(preference.subtitleLanguage)) ||
+                    (!preference.subtitleLabel.isNullOrBlank() &&
+                        format.label.equals(preference.subtitleLabel, ignoreCase = true))
+            }?.let { trackIndex -> groupIndex to trackIndex }
+        }
+        subtitleMatch?.let { (groupIndex, trackIndex) ->
+            applySubtitleSelection(exoPlayer, textGroups, groupIndex, trackIndex)
+        }
     }
 
     private fun updateDisplayedMetadata(title: String, meta: String) {
@@ -904,6 +1061,12 @@ class PlayerFragment : Fragment() {
             .setSingleChoiceItems(labels, checkedIndex) { dialog, which ->
                 val chosen = choices[which]
                 applySubtitleSelection(exoPlayer, textGroups, chosen.groupIndex, chosen.trackIndex)
+                if (chosen.groupIndex < 0) {
+                    saveSubtitlePreference(null, null, disabled = true)
+                } else {
+                    val format = textGroups[chosen.groupIndex].getTrackFormat(chosen.trackIndex)
+                    saveSubtitlePreference(format.language, format.label, disabled = false)
+                }
                 dialog.dismiss()
             }
             .setOnDismissListener { player?.play() }
@@ -1688,6 +1851,9 @@ class PlayerFragment : Fragment() {
         override fun onPlaybackStateChanged(playbackState: Int) {
             val stateName = playbackStateName(playbackState)
             Log.d(TAG, "onPlaybackStateChanged: $stateName | isPlaying=${player?.isPlaying} isVod=$isVodMode")
+            if (isVodMode && playbackState == Player.STATE_ENDED && !isReleasing && !isRetrying) {
+                clearTrackPreferenceAfterCompletion()
+            }
             when (playbackState) {
                 Player.STATE_READY -> {
                     handler.removeCallbacks(bufferingWatchdog)
@@ -1754,6 +1920,10 @@ class PlayerFragment : Fragment() {
         override fun onTracksChanged(tracks: Tracks) {
             Log.d(TAG, "onTracksChanged")
             updateTrackButtonStates()
+            if (isVodMode && !trackPreferencesRestored) {
+                trackPreferencesRestored = true
+                restoreTrackPreferences(tracks)
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {

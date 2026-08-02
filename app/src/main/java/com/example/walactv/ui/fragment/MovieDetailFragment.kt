@@ -16,6 +16,8 @@ import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.UnifiedStreamOption
 import com.example.walactv.data.model.preferredVodPosterUrl
 import com.example.walactv.data.model.toUnifiedOptions
+import com.example.walactv.data.preferences.PreferencesManager
+import com.example.walactv.data.util.normalizeLanguageCode
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -114,7 +116,14 @@ class MovieDetailFragment : Fragment() {
         }
         Log.d(TAG, "playMovie item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
 
-        val stream = item.streamOptions.firstOrNull()
+        val preferenceKey = PreferencesManager.playbackPreferenceKey(
+            item.kind,
+            item.providerId ?: item.stableId,
+        )
+        val savedLanguage = PreferencesManager.getPlaybackTrackPreference(preferenceKey)?.audioLanguage
+        val stream = item.streamOptions.firstOrNull {
+            savedLanguage != null && normalizeLanguageCode(it.language) == normalizeLanguageCode(savedLanguage)
+        } ?: item.streamOptions.firstOrNull()
         if (stream == null) {
             android.widget.Toast.makeText(requireContext(), R.string.no_streams_available, android.widget.Toast.LENGTH_SHORT).show()
             return

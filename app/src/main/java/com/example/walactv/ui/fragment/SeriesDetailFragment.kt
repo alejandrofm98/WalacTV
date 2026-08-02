@@ -138,14 +138,19 @@ class SeriesDetailFragment : Fragment() {
 
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
     private fun playEpisode(item: CatalogItem, allEpisodesForSeries: List<CatalogItem>, logicalEpisodes: List<CatalogItem>) {
-        val preferredLanguage = PreferencesManager.getPreferredLanguageOrDefault()
+        val preferenceKey = PreferencesManager.playbackPreferenceKey(
+            ContentKind.SERIES,
+            item.providerId ?: item.stableId,
+            item,
+        )
+        val preferredLanguage = PreferencesManager.getPlaybackTrackPreference(preferenceKey)?.audioLanguage
+            ?: PreferencesManager.getPreferredLanguageOrDefault()
         val episodeToPlay = allEpisodesForSeries.find {
-            it.stableId == item.stableId ||
-                    (it.seriesName == item.seriesName &&
-                            it.seasonNumber == item.seasonNumber &&
-                            it.episodeNumber == item.episodeNumber &&
-                            normalizeLanguageCode(it.idioma) == normalizeLanguageCode(preferredLanguage))
-        } ?: item
+            it.seriesName == item.seriesName &&
+                it.seasonNumber == item.seasonNumber &&
+                it.episodeNumber == item.episodeNumber &&
+                normalizeLanguageCode(it.idioma) == normalizeLanguageCode(preferredLanguage)
+        } ?: allEpisodesForSeries.find { it.stableId == item.stableId } ?: item
 
         val stream = episodeToPlay.streamOptions.firstOrNull() ?: return
         Log.d(TAG, "TMDB_SERIES_PLAY item=${item.tmdbDebug()} episode=${episodeToPlay.tmdbDebug()}")
