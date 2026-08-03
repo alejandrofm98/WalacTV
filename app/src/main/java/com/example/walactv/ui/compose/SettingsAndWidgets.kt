@@ -66,7 +66,13 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
             .onFailure { Log.w("MainShellFocus", "settings first row requestFocus failed: ${it.message}") }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp)
+            .onFocusChanged { fragment.contentFocusCanOpenRail = it.hasFocus },
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
         ScreenHeader(title = "Ajustes", subtitle = "Actualizaciones, idioma y sesion")
         Column(
             modifier = Modifier.width(760.dp).background(IptvSurface, RoundedCornerShape(10.dp))

@@ -2,15 +2,25 @@ package com.example.walactv.ui.compose
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -21,6 +31,7 @@ import com.example.walactv.data.model.AppUpdateInfo
 import com.example.walactv.data.model.InstalledAppVersion
 import com.example.walactv.ui.fragment.ComposeMainFragment
 import com.example.walactv.ui.theme.*
+import kotlinx.coroutines.launch
 
 
 // ── Login screen ───────────────────────────────────────────────────────────
@@ -72,6 +83,9 @@ private fun LoginField(value: String, label: String, hidden: Boolean, onValueCha
 @Composable
 internal fun MandatoryUpdateScreen(fragment: ComposeMainFragment, updateInfo: AppUpdateInfo) {
     val installed = fragment.installedAppVersion
+    val scrollState = rememberScrollState()
+    val scrollScope = rememberCoroutineScope()
+    var changelogFocused by remember { mutableStateOf(false) }
 
     LaunchedEffect(updateInfo.latestVersionCode) {
         if (!fragment.isUpdateDownloading) {
@@ -81,16 +95,47 @@ internal fun MandatoryUpdateScreen(fragment: ComposeMainFragment, updateInfo: Ap
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
-            modifier = Modifier.width(700.dp).background(IptvSurface, RoundedCornerShape(12.dp))
-                .border(1.dp, IptvFocusBorder, RoundedCornerShape(12.dp)).padding(32.dp),
+            modifier = Modifier
+                .width(700.dp)
+                .heightIn(max = 720.dp)
+                .background(IptvSurface, RoundedCornerShape(12.dp))
+                .border(1.dp, IptvFocusBorder, RoundedCornerShape(12.dp))
+                .padding(32.dp)
+                .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Text("Actualizacion obligatoria", color = IptvTextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Bold)
             Text("Debes instalar la nueva version para seguir usando WalacTV.", color = IptvTextMuted, fontSize = 18.sp)
-            installed?.let { SettingsRow("Version instalada", "${it.versionName} (${it.versionCode})") }
-            SettingsRow("Version requerida", "${updateInfo.latestVersionName} (${updateInfo.latestVersionCode})")
+            installed?.let { SettingsRow("Version instalada", it.versionName) }
+            SettingsRow("Version requerida", updateInfo.latestVersionName)
             if (updateInfo.changelog.isNotBlank()) {
-                MarkdownText(updateInfo.changelog)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(if (changelogFocused) IptvFocusBg else IptvCard, RoundedCornerShape(10.dp))
+                        .border(1.dp, if (changelogFocused) IptvFocusBorder else IptvSurfaceVariant, RoundedCornerShape(10.dp))
+                        .padding(20.dp)
+                        .onFocusChanged { changelogFocused = it.isFocused }
+                        .focusable()
+                        .onKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                            when (event.key) {
+                                Key.DirectionDown -> {
+                                    scrollScope.launch { scrollState.animateScrollBy(160f) }
+                                    true
+                                }
+
+                                Key.DirectionUp -> {
+                                    scrollScope.launch { scrollState.animateScrollBy(-160f) }
+                                    true
+                                }
+
+                                else -> false
+                            }
+                        },
+                ) {
+                    MarkdownText(updateInfo.changelog)
+                }
             }
             Text(fragment.updateStatusMessage, color = IptvAccent, fontSize = 15.sp)
             fragment.updateErrorMessage?.let { Text(it, color = IptvLive, fontSize = 14.sp) }
