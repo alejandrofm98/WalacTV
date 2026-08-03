@@ -289,6 +289,10 @@ class HomeViewModel @Inject constructor(
                     entryMap["$prefix:${wp.contentId}"] = wp
                     val bareId = (wp.contentId ?: "").substringAfterLast(":")
                     entryMap["$prefix:$bareId"] = wp
+                    wp.providerId?.takeIf { it.isNotBlank() }?.let { pid ->
+                        entryMap[pid] = wp
+                        entryMap["$prefix:$pid"] = wp
+                    }
                     val normalizedKey = when (wp.contentType) {
                         "series" -> wp.seriesName?.trim()?.lowercase()
                         else -> (wp.normalizedTitle ?: "").trim().lowercase()

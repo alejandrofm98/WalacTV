@@ -994,6 +994,7 @@ class IptvRepository @Inject constructor(context: Context) {
                         }
                     }
             ),
+            isWatched = this@toCatalogItem.isWatched == true,
             overviewEn = overviewEn?.takeIf { it.isNotBlank() },
             voteAverage = rating,
             voteCount = voteCount,

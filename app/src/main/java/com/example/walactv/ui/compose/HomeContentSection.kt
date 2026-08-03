@@ -307,7 +307,7 @@ internal fun ContentSection(
                     } else {
                         val wp = cwLookup[item]
                         val itemWithWatched = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES)
-                            item.copy(isWatched = wp?.isWatched == true) else item
+                            item.copy(isWatched = item.isWatched || wp?.isWatched == true) else item
 
                         // ── Eventos usan el nuevo EventVsCard ─────────────
                         if (item.kind == ContentKind.EVENT) {

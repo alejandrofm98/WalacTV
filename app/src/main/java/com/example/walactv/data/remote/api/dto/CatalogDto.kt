@@ -37,6 +37,7 @@ data class CatalogItemDto(
     @SerializedName("vote_count") val voteCount: Int? = null,
     @SerializedName("series_name") val seriesName: String? = null,
     @SerializedName("series_key") val seriesKey: String? = null,
+    @SerializedName("is_watched") val isWatched: Boolean? = null,
     @SerializedName("stream_options") val streams: List<StreamDto>? = null,
     @SerializedName("stream_url") val streamUrl: String? = null,
     @SerializedName("countries") val countries: List<String>? = null,

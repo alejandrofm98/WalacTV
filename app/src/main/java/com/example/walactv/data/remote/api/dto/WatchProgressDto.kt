@@ -10,6 +10,7 @@ data class WatchProgressListResponse(
 data class WatchProgressDto(
     @SerializedName("content_id") val contentId: String? = null,
     @SerializedName("content_type") val contentType: String? = null,
+    @SerializedName("provider_id") val providerId: String? = null,
     @SerializedName("position_ms") val positionMs: Long? = null,
     @SerializedName("duration_ms") val durationMs: Long? = null,
     @SerializedName("normalized_title") val normalizedTitle: String? = null,
