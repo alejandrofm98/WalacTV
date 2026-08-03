@@ -4,19 +4,20 @@ import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.BringIntoViewSpec
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +30,8 @@ import androidx.tv.material3.Text
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.isVodContent
+import com.example.walactv.ui.theme.IptvWatched
+import com.example.walactv.ui.theme.IptvWatchedCheck
 
 // ── Constantes de diseño ───────────────────────────────────────────────────
 
@@ -71,20 +74,21 @@ internal val StremioBringIntoViewSpec = object : BringIntoViewSpec {
 
 @Composable
 internal fun WatchedBadge(modifier: Modifier = Modifier) {
-    Row(
+    Box(
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .size(22.dp)
+            .shadow(elevation = 4.dp, shape = CircleShape, clip = false)
+            .clip(CircleShape)
+            .background(IptvWatched)
+            .border(width = 1.dp, color = Color.White.copy(alpha = 0.10f), shape = CircleShape),
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = Icons.Filled.Visibility,
+            imageVector = Icons.Filled.Check,
             contentDescription = "Visto",
-            tint = Color(0xFF4CAF50),
+            tint = IptvWatchedCheck,
             modifier = Modifier.size(13.dp),
         )
-        Text("VISTO", color = Color(0xFF4CAF50), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
     }
 }
 

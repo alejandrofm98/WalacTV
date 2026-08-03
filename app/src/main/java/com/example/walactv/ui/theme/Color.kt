@@ -21,6 +21,10 @@ val IptvTextAccent = Color(0xFF6E95FF)
 val IptvLive = Color(0xFFE50914)
 val IptvOnline = Color(0xFF1DB954)
 
+// Indicador de "visto": circulo verde solido + check oscuro (Plex/Google Play style)
+val IptvWatched = Color(0xFFB5ECC7)
+val IptvWatchedCheck = Color(0xFF586F5F)
+
 val IptvSidebarBg = Color(0xFF040812)
 val IptvSidebarSelected = Color(0xFF1E3A8A)
 

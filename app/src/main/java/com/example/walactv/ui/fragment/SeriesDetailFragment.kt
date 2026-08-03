@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import com.example.walactv.ui.compose.LONG_PRESS_THRESHOLD_MS
+import com.example.walactv.ui.compose.WatchedBadge
 import com.example.walactv.ui.compose.buildEpisodeLabel
 import com.example.walactv.ui.compose.tvClickable
 import com.google.gson.Gson
@@ -840,6 +841,11 @@ fun EpisodeCard(
             
             if (isWatched) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)))
+                WatchedBadge(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                )
             }
             
             Box(
