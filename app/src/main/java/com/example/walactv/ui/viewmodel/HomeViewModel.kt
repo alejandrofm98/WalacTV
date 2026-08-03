@@ -322,7 +322,7 @@ class HomeViewModel @Inject constructor(
                         buildContinueWatchingItem(wp, searchableSnapshot).also { synthetic ->
                             entryMap[synthetic.stableId] = wp
                         }
-                    }
+                    }.distinctBy { it.stableId }
                     _continueWatchingSection.value = BrowseSection("Continuar viendo", catalogItems)
                     Log.d(TAG, "loadContinueWatching[$requestVersion]: section SET with ${catalogItems.size} items")
                 } else {

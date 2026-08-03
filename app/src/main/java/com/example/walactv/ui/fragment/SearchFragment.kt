@@ -117,7 +117,7 @@ class SearchFragment : Fragment() {
     }
 
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-    private fun playCatalogItem(item: CatalogItem, optionIndex: Int = 0, position: Int = currentItemPosition) {
+    private fun playCatalogItem(item: CatalogItem, optionIndex: Int = 0, position: Int = currentItemPosition, resumePositionMs: Long = 0L) {
         if (item.kind == ContentKind.SERIES && (item.catalogId != null || item.seriesName != null)) {
             val seriesId = item.catalogId?.ifBlank { null }
                 ?: item.providerId?.ifBlank { null }
@@ -211,14 +211,15 @@ class SearchFragment : Fragment() {
                 overlayLogoUrl = resolvedItem.preferredVodPosterUrl(),
                 isFavorite = channelStateStore.isFavorite(resolvedItem),
                 contentId = resolvedItem.providerId ?: resolvedItem.stableId,
+                positionMs = resumePositionMs,
                 onProgressSaved = ComposeMainFragment.progressSavedCallback,
                 unifiedStreamOptions = unifiedOptions,
                 onSelectUnifiedOption = if (resolvedItem.kind == ContentKind.MOVIE || resolvedItem.kind == ContentKind.SERIES) {
-                    { selectedIndex ->
+                    { selectedIndex, resumeMs ->
                         val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
                         val optionIndex = resolvedItem.streamOptions.indexOfFirst { it.url == selectedOption.url }
                         if (optionIndex >= 0) {
-                            playCatalogItem(resolvedItem, optionIndex)
+                            playCatalogItem(resolvedItem, optionIndex, resumePositionMs = resumeMs)
                         }
                     }
                 } else null,

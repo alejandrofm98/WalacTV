@@ -124,7 +124,7 @@ class MovieDetailFragment : Fragment() {
     }
 
     @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
-    private fun playMovieWithPreference(preference: PlaybackPreferenceDto?) {
+    private fun playMovieWithPreference(preference: PlaybackPreferenceDto?, resumePositionMs: Long = 0L) {
         val item = cachedItem ?: run {
             Log.e(TAG, "playMovie: no cached item")
             return
@@ -165,14 +165,14 @@ class MovieDetailFragment : Fragment() {
             overlayLogoUrl = item.preferredVodPosterUrl(),
             isFavorite = false,
             contentId = item.providerId ?: item.stableId,
-            positionMs = 0,
+            positionMs = resumePositionMs,
             onPlayerClosed = {
                 view?.requestFocus()
             },
             onProgressSaved = ComposeMainFragment.progressSavedCallback,
             customHeaders = stream.headers,
             unifiedStreamOptions = unifiedOptions,
-            onSelectUnifiedOption = { selectedIndex ->
+            onSelectUnifiedOption = { selectedIndex, resumeMs ->
                 val selected = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
                 val freshItem = item.copy(
                     streamOptions = listOf(
@@ -187,7 +187,7 @@ class MovieDetailFragment : Fragment() {
                     )
                 )
                 cachedItem = freshItem
-                playMovie()
+                playMovieWithPreference(preference, resumeMs)
             },
             playbackCatalogId = item.catalogId ?: item.providerId ?: item.stableId.substringAfter(':'),
             playbackPreference = preference,

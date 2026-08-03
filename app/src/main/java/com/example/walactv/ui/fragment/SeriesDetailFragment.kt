@@ -151,13 +151,13 @@ class SeriesDetailFragment : Fragment() {
     }
 
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-    private fun playEpisode(item: CatalogItem, allEpisodesForSeries: List<CatalogItem>, logicalEpisodes: List<CatalogItem>) {
+    private fun playEpisode(item: CatalogItem, allEpisodesForSeries: List<CatalogItem>, logicalEpisodes: List<CatalogItem>, resumePositionMs: Long = 0L) {
         viewLifecycleOwner.lifecycleScope.launch {
             val catalogId = item.seriesKey ?: item.seriesProviderId ?: item.providerId ?: item.stableId.substringAfter(':')
             val preference = runCatching {
                 repository.getPlaybackPreference("series", catalogId)
             }.getOrNull()
-            playEpisodeWithPreference(item, allEpisodesForSeries, logicalEpisodes, preference, catalogId)
+            playEpisodeWithPreference(item, allEpisodesForSeries, logicalEpisodes, preference, catalogId, resumePositionMs)
         }
     }
 
@@ -168,6 +168,7 @@ class SeriesDetailFragment : Fragment() {
         logicalEpisodes: List<CatalogItem>,
         preference: PlaybackPreferenceDto?,
         catalogId: String,
+        resumePositionMs: Long = 0L,
     ) {
         val preferredLanguage = preference?.audioLanguage
             ?: PreferencesManager.getPreferredLanguageOrDefault()
@@ -219,12 +220,13 @@ class SeriesDetailFragment : Fragment() {
             allSeriesEpisodes = allEpisodesForSeries,
             currentEpisode = episodeToPlay,
             contentId = seriesContentId,
+            positionMs = resumePositionMs,
             onPlayerClosed = {
                 view?.requestFocus()
             },
             onProgressSaved = ComposeMainFragment.progressSavedCallback,
             unifiedStreamOptions = unifiedOptions,
-            onSelectUnifiedOption = { selectedIndex ->
+            onSelectUnifiedOption = { selectedIndex, resumeMs ->
                 val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
                 val freshEpisode = allEpisodesForSeries.find { ep ->
                     ep.seriesName == episodeToPlay.seriesName &&
@@ -232,7 +234,7 @@ class SeriesDetailFragment : Fragment() {
                         ep.episodeNumber == episodeToPlay.episodeNumber &&
                         ep.streamOptions.any { s -> s.url == selectedOption.url }
                 } ?: episodeToPlay
-                playEpisode(freshEpisode, allEpisodesForSeries, logicalEpisodes)
+                playEpisode(freshEpisode, allEpisodesForSeries, logicalEpisodes, resumeMs)
             },
             playbackCatalogId = catalogId,
             playbackPreference = preference,

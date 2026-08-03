@@ -87,7 +87,7 @@ class PlayerFragment : Fragment() {
     private var currentOptionIndex: Int = 0
     private var unifiedStreamOptions: List<UnifiedStreamOption> = emptyList()
     private var currentUnifiedOptionIndex: Int = 0
-    private var onSelectUnifiedOption: ((Int) -> Unit)? = null
+    private var onSelectUnifiedOption: ((Int, Long) -> Unit)? = null
     private var overlayLogoUrl: String = ""
     private var isFavorite: Boolean = false
     private var contentId: String = ""
@@ -130,7 +130,7 @@ class PlayerFragment : Fragment() {
         onProgressSaved: ((WatchProgressDto) -> Unit)? = null,
         customHeaders: Map<String, String> = emptyMap(),
         unifiedStreamOptions: List<UnifiedStreamOption> = emptyList(),
-        onSelectUnifiedOption: ((Int) -> Unit)? = null,
+        onSelectUnifiedOption: ((Int, Long) -> Unit)? = null,
         playbackCatalogId: String = "",
         playbackPreference: PlaybackPreferenceDto? = null,
     ) {
@@ -798,6 +798,7 @@ class PlayerFragment : Fragment() {
 
     private fun restoreWatchProgress() {
         if (contentId.isBlank() || !isVodMode) return
+        if (_positionMs > 0L) return
         val repo = watchProgressRepo ?: return
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -877,8 +878,9 @@ class PlayerFragment : Fragment() {
                     if (selectedOption.url == streamUrl) {
                         selectEmbeddedAudioTrack(selectedOption, which)
                     } else {
+                        val resumePositionMs = player?.currentPosition ?: _positionMs
                         saveAudioPreference(selectedOption.languageCode, selectedOption.language) {
-                            onSelectUnifiedOption?.invoke(which)
+                            onSelectUnifiedOption?.invoke(which, resumePositionMs)
                         }
                     }
                 }
@@ -1288,7 +1290,7 @@ class PlayerFragment : Fragment() {
                 val nextIndex = currentOptionIndex + 1
                 if (nextIndex < unifiedStreamOptions.size) {
                     Log.d(TAG, "Auto-fallback de calidad: ${streamOptionLabels.getOrNull(currentOptionIndex)} → ${streamOptionLabels.getOrNull(nextIndex)}")
-                    onSelectUnifiedOption?.invoke(nextIndex)
+                    onSelectUnifiedOption?.invoke(nextIndex, player?.currentPosition ?: _positionMs)
                     return
                 }
                 Log.w(TAG, "Auto-fallback: todas las opciones de calidad agotadas")

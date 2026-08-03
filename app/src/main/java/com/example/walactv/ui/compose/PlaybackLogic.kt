@@ -308,9 +308,9 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
             onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
             unifiedStreamOptions = unifiedOptions,
             onSelectUnifiedOption = if (targetEpisode.kind == ContentKind.MOVIE || targetEpisode.kind == ContentKind.SERIES) {
-                { selectedIndex ->
+                { selectedIndex, resumeMs ->
                     val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
-                    playCatalogItemWithUnifiedOption(targetEpisode, selectedOption)
+                    playCatalogItemWithUnifiedOption(targetEpisode, selectedOption, resumeMs)
                 }
             } else null,
             playbackCatalogId = playbackCatalogId,
@@ -325,7 +325,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
 
 // ── Core playback ──────────────────────────────────────────────────────────
 
-internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false) {
+internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false, positionMs: Long = 0) {
     if (item.kind == ContentKind.EVENT) {
         scope.launch {
             val resolved = repository.resolveEventItem(item)
@@ -355,21 +355,22 @@ internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex:
                 item,
                 if (preferredIndex >= 0) preferredIndex else optionIndex,
                 showOptionsOnStart,
+                positionMs = positionMs,
                 playbackPreference = preference,
                 playbackCatalogId = catalogId,
             )
         }
         return
     }
-    playResolvedCatalogItem(item, optionIndex, showOptionsOnStart)
+    playResolvedCatalogItem(item, optionIndex, showOptionsOnStart, positionMs = positionMs)
 }
 
-internal fun ComposeMainFragment.playCatalogItemWithUnifiedOption(item: CatalogItem, option: UnifiedStreamOption) {
+internal fun ComposeMainFragment.playCatalogItemWithUnifiedOption(item: CatalogItem, option: UnifiedStreamOption, positionMs: Long = 0) {
     val optionIndex = item.streamOptions.indexOfFirst { it.url == option.url }
     if (optionIndex >= 0) {
-        playCatalogItem(item, optionIndex)
+        playCatalogItem(item, optionIndex, positionMs = positionMs)
     } else {
-        playResolvedCatalogItem(item, 0)
+        playResolvedCatalogItem(item, 0, positionMs = positionMs)
     }
 }
 
@@ -423,9 +424,9 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(
         customHeaders = stream.headers,
         unifiedStreamOptions = unifiedOptions,
         onSelectUnifiedOption = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
-            { selectedIndex ->
+            { selectedIndex, resumeMs ->
                 val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
-                playCatalogItemWithUnifiedOption(item, selectedOption)
+                playCatalogItemWithUnifiedOption(item, selectedOption, resumeMs)
             }
         } else null,
         playbackCatalogId = playbackCatalogId,
