@@ -23,6 +23,7 @@ import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.remote.api.dto.progressPercent
 import com.example.walactv.data.remote.repository.IptvRepository
+import com.example.walactv.data.util.buildSeriesEpisodeProgressMap
 import com.example.walactv.data.util.normalizeLanguageCode
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -90,6 +91,7 @@ import com.example.walactv.ui.theme.*
 
 class SeriesDetailFragment : Fragment() {
     private lateinit var repository: IptvRepository
+    private var detailProgressReloadTrigger by mutableIntStateOf(0)
 
     companion object {
         private const val TAG = "SeriesDetailFragment"
@@ -126,22 +128,23 @@ class SeriesDetailFragment : Fragment() {
         val seriesId = arguments?.getString(ARG_SERIES_ID)
         val initialSeason = arguments?.getInt(ARG_INITIAL_SEASON)
         val initialEpisode = arguments?.getInt(ARG_INITIAL_EPISODE)
-        val seriesIdentifier = seriesId?.ifBlank { null }
-            ?: catalogItem?.seriesName?.ifBlank { null }
+        val seriesName = catalogItem?.seriesName?.ifBlank { null }
             ?: catalogItem?.title
+            ?: seriesId
             ?: ""
 
-        Log.d(TAG, "SeriesDetailFragment: seriesIdentifier='$seriesIdentifier' seriesId=$seriesId initialSeason=$initialSeason initialEpisode=$initialEpisode")
+        Log.d(TAG, "SeriesDetailFragment: seriesName='$seriesName' seriesId=$seriesId initialSeason=$initialSeason initialEpisode=$initialEpisode")
         return ComposeView(requireContext()).apply {
             setContent {
                 WalacTVTheme {
                     SeriesDetailScreen(
-                        seriesName = seriesIdentifier,
+                        seriesName = seriesName,
                         seriesId = seriesId,
                         initialSeason = initialSeason,
                         initialEpisode = initialEpisode,
                         initialSeriesItem = catalogItem,
                         repository = repository,
+                        progressReloadTrigger = detailProgressReloadTrigger,
                         onBack = { requireActivity().onBackPressedDispatcher.onBackPressed() }
                     ) { item, allEpisodesForSeries, logicalEpisodes ->
                         playEpisode(item, allEpisodesForSeries, logicalEpisodes)
@@ -224,6 +227,7 @@ class SeriesDetailFragment : Fragment() {
             positionMs = resumePositionMs,
             onPlayerClosed = {
                 view?.requestFocus()
+                detailProgressReloadTrigger++
             },
             onProgressSaved = ComposeMainFragment.progressSavedCallback,
             unifiedStreamOptions = unifiedOptions,
@@ -267,6 +271,7 @@ fun SeriesDetailScreen(
     initialEpisode: Int? = null,
     initialSeriesItem: CatalogItem?,
     repository: IptvRepository,
+    progressReloadTrigger: Int = 0,
     onBack: () -> Unit,
     onEpisodeClick: (CatalogItem, List<CatalogItem>, List<CatalogItem>) -> Unit,
 ) {
@@ -274,7 +279,7 @@ fun SeriesDetailScreen(
     var loadError by remember { mutableStateOf<String?>(null) }
     var focusedEpisode by remember { mutableStateOf<CatalogItem?>(null) }
     var contextEpisode by remember { mutableStateOf<CatalogItem?>(null) }
-    var progressReloadTrigger by remember { mutableIntStateOf(0) }
+    var localProgressReloadTrigger by remember { mutableIntStateOf(0) }
 
     val context = LocalContext.current
     val preferredLanguage = remember { PreferencesManager.getPreferredLanguageOrDefault() }
@@ -304,28 +309,43 @@ fun SeriesDetailScreen(
     val allEpisodes = allEpisodesState.value
 
     val watchProgressRepo = remember { (context.applicationContext as WalacApp).appComponent.watchProgressRepository }
-    val episodeSeriesNames = remember(allEpisodes) {
-        allEpisodes.mapNotNull { it.seriesName?.trim()?.lowercase() }.toSet()
+    val episodeSeriesIds = remember(allEpisodes, seriesId, initialSeriesItem) {
+        buildSet {
+            listOf(
+                seriesId,
+                initialSeriesItem?.catalogId,
+                initialSeriesItem?.providerId,
+                initialSeriesItem?.seriesKey,
+                initialSeriesItem?.seriesProviderId,
+                initialSeriesItem?.stableId,
+            ).filterNotNullTo(this)
+            allEpisodes.mapNotNullTo(this) { it.seriesKey }
+            allEpisodes.mapNotNullTo(this) { it.seriesProviderId }
+        }
+    }
+    val episodeSeriesNames = remember(allEpisodes, seriesName, initialSeriesItem) {
+        buildSet {
+            listOf(
+                seriesName,
+                initialSeriesItem?.seriesName,
+                initialSeriesItem?.title,
+                initialSeriesItem?.tmdbTitle,
+            ).filterNotNullTo(this)
+            allEpisodes.mapNotNullTo(this) { it.seriesName }
+        }
     }
     val progressMap by produceState<Map<Pair<Int, Int>, WatchProgressDto>>(
-        emptyMap(), seriesName, seriesId, episodeSeriesNames, progressReloadTrigger
+        emptyMap(), allEpisodes, episodeSeriesIds, episodeSeriesNames,
+        progressReloadTrigger, localProgressReloadTrigger,
     ) {
         val inProgress = watchProgressRepo.getContinueWatching().getOrDefault(emptyList())
         val watched = watchProgressRepo.getWatchedItems().getOrDefault(emptyList())
-        value = (inProgress + watched)
-            .asSequence()
-            .filter { it.contentType == "series" }
-            .filter { it.seasonNumber != null && it.episodeNumber != null }
-            .filter { wp ->
-                val wpName = wp.seriesName?.trim()?.lowercase()
-                wp.seriesName?.equals(seriesName, ignoreCase = true) == true ||
-                    wp.seriesProviderId?.equals(seriesId, ignoreCase = true) == true ||
-                    wp.contentId?.equals(seriesId, ignoreCase = true) == true ||
-                    wp.contentId?.substringAfterLast(":")?.equals(seriesId, ignoreCase = true) == true ||
-                    (wpName != null && wpName in episodeSeriesNames)
-            }
-            .map { (it.seasonNumber!! to it.episodeNumber!!) to it }
-            .toMap()
+        value = buildSeriesEpisodeProgressMap(
+            episodes = allEpisodes,
+            progressItems = inProgress + watched,
+            seriesIds = episodeSeriesIds,
+            seriesNames = episodeSeriesNames,
+        )
     }
 
     val uniqueEpisodes = remember(allEpisodes, preferredLanguage) {
@@ -349,7 +369,7 @@ fun SeriesDetailScreen(
                 watchProgressRepo.markAsWatched(contentId, ep.seasonNumber, ep.episodeNumber)
             }
             contextEpisode = null
-            progressReloadTrigger++
+            localProgressReloadTrigger++
         }
     }
 
@@ -764,7 +784,7 @@ fun EpisodeCard(
     var keyDownMillis by remember { mutableLongStateOf(0L) }
     var consumeClick by remember { mutableStateOf(false) }
 
-    val isWatched = watchProgress?.isWatched == true
+    val isWatched = item.isWatched || watchProgress?.isWatched == true
     val progressPercent = watchProgress?.progressPercent ?: 0
     val hasProgress = progressPercent in 1..99 && !isWatched
 
