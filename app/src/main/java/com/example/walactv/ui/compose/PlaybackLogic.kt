@@ -264,10 +264,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     val playbackPreference = runCatching {
         repository.getPlaybackPreference("series", playbackCatalogId)
     }.getOrNull()
-    val stream = targetEpisode.streamOptions.firstOrNull {
-        playbackPreference?.audioLanguage != null &&
-            normalizeLanguageCode(it.language) == normalizeLanguageCode(playbackPreference.audioLanguage)
-    } ?: targetEpisode.streamOptions.firstOrNull() ?: run {
+    val stream = targetEpisode.streamOptions.firstOrNull() ?: run {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No hay streams disponibles", Toast.LENGTH_SHORT).show() }
         return
     }
@@ -325,7 +322,12 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
 
 // ── Core playback ──────────────────────────────────────────────────────────
 
-internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex: Int, showOptionsOnStart: Boolean = false, positionMs: Long = 0) {
+internal fun ComposeMainFragment.playCatalogItem(
+    item: CatalogItem,
+    optionIndex: Int,
+    showOptionsOnStart: Boolean = false,
+    positionMs: Long = 0,
+) {
     if (item.kind == ContentKind.EVENT) {
         scope.launch {
             val resolved = repository.resolveEventItem(item)
@@ -347,13 +349,9 @@ internal fun ComposeMainFragment.playCatalogItem(item: CatalogItem, optionIndex:
             val preference = runCatching {
                 repository.getPlaybackPreference(item.kind.name.lowercase(), catalogId)
             }.getOrNull()
-            val preferredIndex = item.streamOptions.indexOfFirst {
-                preference?.audioLanguage != null &&
-                    normalizeLanguageCode(it.language) == normalizeLanguageCode(preference.audioLanguage)
-            }
             playResolvedCatalogItem(
                 item,
-                if (preferredIndex >= 0) preferredIndex else optionIndex,
+                optionIndex,
                 showOptionsOnStart,
                 positionMs = positionMs,
                 playbackPreference = preference,
@@ -630,4 +628,3 @@ internal fun ComposeMainFragment.openRecentChannel(): Boolean {
     playCatalogItem(match, 0)
     return true
 }
-

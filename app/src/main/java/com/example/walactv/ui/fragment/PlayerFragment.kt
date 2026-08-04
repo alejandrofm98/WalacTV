@@ -86,7 +86,7 @@ class PlayerFragment : Fragment() {
     private var streamOptionLabels: List<String> = emptyList()
     private var currentOptionIndex: Int = 0
     private var unifiedStreamOptions: List<UnifiedStreamOption> = emptyList()
-    private var currentUnifiedOptionIndex: Int = 0
+    private var currentUnifiedOptionIndex: Int = -1
     private var onSelectUnifiedOption: ((Int, Long) -> Unit)? = null
     private var overlayLogoUrl: String = ""
     private var isFavorite: Boolean = false
@@ -97,6 +97,14 @@ class PlayerFragment : Fragment() {
     private var customHeaders: Map<String, String> = emptyMap()
     private var playbackCatalogId: String = ""
     private var playbackPreference: PlaybackPreferenceDto? = null
+
+    private data class AudioChoice(
+        val label: String,
+        val selected: Boolean,
+        val group: Tracks.Group? = null,
+        val trackIndex: Int = -1,
+        val streamOptionIndex: Int = -1,
+    )
 
     init {
         // Default constructor used by Android Fragment system
@@ -170,7 +178,6 @@ class PlayerFragment : Fragment() {
         this.customHeaders = customHeaders
         this.unifiedStreamOptions = unifiedStreamOptions
         this.currentUnifiedOptionIndex = unifiedStreamOptions.indexOfFirst { it.url == streamUrl }
-            .coerceAtLeast(0)
         this.onSelectUnifiedOption = onSelectUnifiedOption
         this.playbackCatalogId = playbackCatalogId
         this.playbackPreference = playbackPreference
@@ -212,6 +219,7 @@ class PlayerFragment : Fragment() {
     private var playerClosed: Boolean = false
     private lateinit var trackSelector: DefaultTrackSelector
     private var trackPreferencesRestored = false
+    private var sourcePreferenceFallbackAttempted = false
 
     private var watchedMarked = false
     private var completionCleanupStarted = false
@@ -388,6 +396,7 @@ class PlayerFragment : Fragment() {
         isReleasing = false
         playerClosed = false
         trackPreferencesRestored = false
+        sourcePreferenceFallbackAttempted = false
 
         try {
             val isStreamWish = StreamWishDataSourceFactory.isStreamWishUrl(streamUrl)
@@ -518,15 +527,11 @@ class PlayerFragment : Fragment() {
 
     private fun bindVodControls() {
         val streamBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_stream)
-        if (unifiedStreamOptions.size > 1 && onSelectUnifiedOption != null) {
-            streamBtn?.visibility = View.VISIBLE
-            streamBtn?.setOnClickListener {
-                player?.pause()
-                showUnifiedSelector()
-            }
-        } else {
-            streamBtn?.visibility = View.GONE
+        streamBtn?.setOnClickListener {
+            player?.pause()
+            showUnifiedSelector()
         }
+        updateTrackButtonStates()
 
         // Pausa al abrir subtítulos, reanuda al cerrar el diálogo
         playerView.findViewById<ImageButton>(R.id.vod_btn_subtitles)?.setOnClickListener {
@@ -821,6 +826,13 @@ class PlayerFragment : Fragment() {
 
         val exoPlayer = player ?: return
 
+        val streamButton = playerView.findViewById<ImageButton>(R.id.vod_btn_stream)
+        streamButton?.visibility = if (buildAudioChoices(exoPlayer.currentTracks).size > 1) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
+
         val hasSubtitleTracks = exoPlayer.currentTracks.groups.any { group ->
             group.type == C.TRACK_TYPE_TEXT && group.length > 0
         }
@@ -862,26 +874,63 @@ class PlayerFragment : Fragment() {
     //  Unified stream selector (audio + quality)
     // ──────────────────────────────────────────────────────────────────────
 
-    private fun showUnifiedSelector() {
-        val ctx = context ?: return
-        val options = unifiedStreamOptions
-        if (options.isEmpty()) return
+    private fun buildAudioChoices(tracks: Tracks): List<AudioChoice> {
+        val choices = mutableListOf<AudioChoice>()
+        val activeStreamOption = unifiedStreamOptions.getOrNull(currentUnifiedOptionIndex)
+        tracks.groups
+            .filter { it.type == C.TRACK_TYPE_AUDIO }
+            .forEach { group ->
+                for (trackIndex in 0 until group.length) {
+                    val format = group.getTrackFormat(trackIndex)
+                    val label = format.label?.takeIf { it.isNotBlank() }
+                        ?: normalizeAudioTrackLanguage(format.language)?.let(::languageDisplayLabel)
+                        ?: activeStreamOption?.language
+                        ?: "Audio ${choices.size + 1}"
+                    choices += AudioChoice(
+                        label = label,
+                        selected = group.isTrackSelected(trackIndex),
+                        group = group,
+                        trackIndex = trackIndex,
+                    )
+                }
+            }
 
-        val labels = options.map { it.displayLabel }.toTypedArray()
-        val currentIndex = currentUnifiedOptionIndex.coerceIn(options.indices)
+        val hasEmbeddedTracks = choices.isNotEmpty()
+        if (onSelectUnifiedOption != null) {
+            unifiedStreamOptions.forEachIndexed { optionIndex, option ->
+                if (!hasEmbeddedTracks || option.url != streamUrl) {
+                    choices += AudioChoice(
+                        label = option.displayLabel,
+                        selected = !hasEmbeddedTracks && optionIndex == currentUnifiedOptionIndex,
+                        streamOptionIndex = optionIndex,
+                    )
+                }
+            }
+        }
+        return choices
+    }
+
+    private fun showUnifiedSelector() {
+        val exoPlayer = player ?: return
+        val ctx = context ?: return
+        val choices = buildAudioChoices(exoPlayer.currentTracks)
+        if (choices.isEmpty()) return
+
+        val labels = choices.map { it.label }.toTypedArray()
+        val currentIndex = choices.indexOfFirst { it.selected }.coerceAtLeast(0)
 
         AlertDialog.Builder(ctx, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle(R.string.vod_stream)
             .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
-                if (which != currentIndex) {
-                    val selectedOption = options[which]
-                    if (selectedOption.url == streamUrl) {
-                        selectEmbeddedAudioTrack(selectedOption, which)
-                    } else {
-                        val resumePositionMs = player?.currentPosition ?: _positionMs
-                        saveAudioPreference(selectedOption.languageCode, selectedOption.language) {
-                            onSelectUnifiedOption?.invoke(which, resumePositionMs)
-                        }
+                val choice = choices[which]
+                choice.group?.let { group ->
+                    if (!choice.selected) {
+                        selectEmbeddedAudioTrack(group, choice.trackIndex)
+                    }
+                } ?: unifiedStreamOptions.getOrNull(choice.streamOptionIndex)?.let { selectedOption ->
+                    val resumePositionMs = player?.currentPosition ?: _positionMs
+                    saveAudioPreference(selectedOption.languageCode, selectedOption.language) {
+                        onSelectUnifiedOption?.invoke(choice.streamOptionIndex, resumePositionMs)
                     }
                 }
                 dialog.dismiss()
@@ -890,45 +939,42 @@ class PlayerFragment : Fragment() {
             .show()
     }
 
-    private fun selectEmbeddedAudioTrack(option: UnifiedStreamOption, optionIndex: Int) {
+    private fun selectEmbeddedAudioTrack(group: Tracks.Group, trackIndex: Int) {
         val exoPlayer = player ?: return
-        val targetLanguage = normalizeAudioTrackLanguage(option.languageCode)
-        val audioGroups = exoPlayer.currentTracks.groups.filter { group ->
-            group.type == C.TRACK_TYPE_AUDIO
-        }
-        val match = audioGroups.firstNotNullOfOrNull { group ->
-            (0 until group.length).firstOrNull { trackIndex ->
-                normalizeAudioTrackLanguage(group.getTrackFormat(trackIndex).language) == targetLanguage
-            }?.let { trackIndex -> group to trackIndex }
-        }
-
-        if (match == null) {
-            Log.w(TAG, "No embedded audio track for language=$targetLanguage")
-            Toast.makeText(requireContext(), "Audio no disponible en este video", Toast.LENGTH_SHORT).show()
+        if (trackIndex !in 0 until group.length) {
+            Log.w(TAG, "No embedded audio track at index=$trackIndex")
             return
         }
 
-        val (group, trackIndex) = match
+        val format = group.getTrackFormat(trackIndex)
         exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
             .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
             .build()
-        currentUnifiedOptionIndex = optionIndex
-        saveAudioPreference(option.languageCode, option.language)
-        Log.d(TAG, "Selected embedded audio language=$targetLanguage track=$trackIndex")
+        val activeStreamOption = unifiedStreamOptions.getOrNull(currentUnifiedOptionIndex)
+        val language = normalizeAudioTrackLanguage(format.language)
+            ?: activeStreamOption?.languageCode
+        val label = format.label?.takeIf { it.isNotBlank() }
+            ?: activeStreamOption?.language
+        if (language != null) saveAudioPreference(language, label)
+        Log.d(TAG, "Selected embedded audio language=$language track=$trackIndex")
     }
 
-    private fun normalizeAudioTrackLanguage(language: String?): String {
-        return when (language?.substringBefore('-')?.lowercase()) {
+    private fun normalizeAudioTrackLanguage(language: String?): String? {
+        val value = language?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return when (value.substringBefore('-').lowercase()) {
             "en", "eng" -> "EN"
             "es", "spa" -> "ES"
             "lat", "latam" -> "LATAM"
-            else -> normalizeLanguageCode(language)
+            else -> normalizeLanguageCode(value)
         }
     }
 
     private fun saveAudioPreference(language: String?, label: String?, afterSave: (() -> Unit)? = null) {
-        if (!isVodMode || playbackCatalogId.isBlank()) return
+        if (!isVodMode || playbackCatalogId.isBlank()) {
+            afterSave?.invoke()
+            return
+        }
         playbackPreference = playbackPreference?.copy(
             audioLanguage = normalizeLanguageCode(language),
             audioLabel = label,
@@ -992,6 +1038,7 @@ class PlayerFragment : Fragment() {
                         format.label.equals(preference?.audioLabel, ignoreCase = true))
             }?.let { index -> group to index }
         }
+        if (audioMatch == null && switchToPreferredAudioSource(audioLanguage)) return
         audioMatch?.let { (group, index) ->
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
@@ -1017,6 +1064,24 @@ class PlayerFragment : Fragment() {
         subtitleMatch?.let { (groupIndex, trackIndex) ->
             applySubtitleSelection(exoPlayer, textGroups, groupIndex, trackIndex)
         }
+    }
+
+    private fun switchToPreferredAudioSource(audioLanguage: String): Boolean {
+        if (sourcePreferenceFallbackAttempted || onSelectUnifiedOption == null) return false
+        val targetLanguage = normalizeAudioTrackLanguage(audioLanguage) ?: return false
+        val activeOption = unifiedStreamOptions.getOrNull(currentUnifiedOptionIndex)
+        if (normalizeAudioTrackLanguage(activeOption?.languageCode) == targetLanguage) return false
+
+        val optionIndex = unifiedStreamOptions.indexOfFirst { option ->
+            option.url != streamUrl &&
+                normalizeAudioTrackLanguage(option.languageCode) == targetLanguage
+        }
+        if (optionIndex < 0) return false
+
+        sourcePreferenceFallbackAttempted = true
+        Log.d(TAG, "Switching source for preferred audio language=$targetLanguage")
+        onSelectUnifiedOption?.invoke(optionIndex, player?.currentPosition ?: _positionMs)
+        return true
     }
 
     private fun updateDisplayedMetadata(title: String, meta: String) {

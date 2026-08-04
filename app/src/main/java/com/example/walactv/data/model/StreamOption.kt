@@ -44,7 +44,7 @@ fun List<StreamOption>.toUnifiedOptions(): List<UnifiedStreamOption> {
             headers = stream.headers,
         )
     }
-        .distinctBy { "${it.language}_${it.quality}" }
+        .distinctBy { it.url }
         .sortedWith(
             compareByDescending<UnifiedStreamOption> { QUALITY_ORDER[it.quality] ?: 0 }
                 .thenBy { it.language },

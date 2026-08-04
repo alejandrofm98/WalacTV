@@ -211,11 +211,35 @@ class CatalogModelsTest {
     @Test
     fun `keeps language code for embedded audio selection`() {
         val options = listOf(
-            StreamOption(label = "HD", url = "https://example.com/video.m3u8", language = "ES"),
-            StreamOption(label = "HD", url = "https://example.com/video.m3u8", language = "EN"),
+            StreamOption(label = "HD", url = "https://example.com/video-es.m3u8", language = "ES"),
+            StreamOption(label = "HD", url = "https://example.com/video-en.m3u8", language = "EN"),
         ).toUnifiedOptions()
 
         assertEquals(listOf("ES", "EN"), options.map { it.languageCode })
+    }
+
+    @Test
+    fun `keeps separate video sources with the same language and quality`() {
+        val options = listOf(
+            StreamOption(label = "HD", url = "https://example.com/source-1.mkv", language = "EN", quality = "HD"),
+            StreamOption(label = "HD", url = "https://example.com/source-2.mkv", language = "EN", quality = "HD"),
+        ).toUnifiedOptions()
+
+        assertEquals(2, options.size)
+        assertEquals(
+            listOf("https://example.com/source-1.mkv", "https://example.com/source-2.mkv"),
+            options.map { it.url },
+        )
+    }
+
+    @Test
+    fun `deduplicates repeated metadata for the same video source`() {
+        val options = listOf(
+            StreamOption(label = "Directo", url = "https://example.com/video.mkv", language = "ES"),
+            StreamOption(label = "ES", url = "https://example.com/video.mkv", language = "ES"),
+        ).toUnifiedOptions()
+
+        assertEquals(1, options.size)
     }
 
     @Test

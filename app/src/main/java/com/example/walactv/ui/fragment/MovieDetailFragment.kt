@@ -12,13 +12,10 @@ import android.widget.ImageView
 import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
-import com.example.walactv.data.model.StreamOption
-import com.example.walactv.data.model.UnifiedStreamOption
 import com.example.walactv.data.model.preferredVodPosterUrl
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
 import com.example.walactv.data.remote.repository.IptvRepository
-import com.example.walactv.data.util.normalizeLanguageCode
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -112,28 +109,34 @@ class MovieDetailFragment : Fragment() {
     }
 
     @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
-    private fun playMovie() {
+    private fun playMovie(
+        selectedStreamUrl: String? = null,
+        resumePositionMs: Long = 0L,
+    ) {
         val item = cachedItem ?: return
         lifecycleScope.launch {
             val catalogId = item.catalogId ?: item.providerId ?: item.stableId.substringAfter(':')
             val preference = runCatching {
                 IptvRepository(requireContext()).getPlaybackPreference("movie", catalogId)
             }.getOrNull()
-            playMovieWithPreference(preference)
+            playMovieWithPreference(preference, resumePositionMs, selectedStreamUrl)
         }
     }
 
     @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
-    private fun playMovieWithPreference(preference: PlaybackPreferenceDto?, resumePositionMs: Long = 0L) {
+    private fun playMovieWithPreference(
+        preference: PlaybackPreferenceDto?,
+        resumePositionMs: Long = 0L,
+        selectedStreamUrl: String? = null,
+    ) {
         val item = cachedItem ?: run {
             Log.e(TAG, "playMovie: no cached item")
             return
         }
         Log.d(TAG, "playMovie item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
 
-        val savedLanguage = preference?.audioLanguage
-        val stream = item.streamOptions.firstOrNull {
-            savedLanguage != null && normalizeLanguageCode(it.language) == normalizeLanguageCode(savedLanguage)
+        val stream = selectedStreamUrl?.let { url ->
+            item.streamOptions.firstOrNull { it.url == url }
         } ?: item.streamOptions.firstOrNull()
         if (stream == null) {
             android.widget.Toast.makeText(requireContext(), R.string.no_streams_available, android.widget.Toast.LENGTH_SHORT).show()
@@ -174,20 +177,7 @@ class MovieDetailFragment : Fragment() {
             unifiedStreamOptions = unifiedOptions,
             onSelectUnifiedOption = { selectedIndex, resumeMs ->
                 val selected = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
-                val freshItem = item.copy(
-                    streamOptions = listOf(
-                        StreamOption(
-                            label = selected.displayLabel,
-                            url = selected.url,
-                            providerId = selected.providerId,
-                            headers = selected.headers,
-                            language = selected.language,
-                            quality = selected.quality
-                        )
-                    )
-                )
-                cachedItem = freshItem
-                playMovieWithPreference(preference, resumeMs)
+                playMovie(selected.url, resumeMs)
             },
             playbackCatalogId = item.catalogId ?: item.providerId ?: item.stableId.substringAfter(':'),
             playbackPreference = preference,
