@@ -48,13 +48,23 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
 
     suspend fun getWatchedItems(): Result<List<WatchProgressDto>> {
         return try {
-            val response = apiService.getWatchedItems(limit = 200)
-            if (response.isSuccessful) {
-                Result.success(response.body()?.items ?: emptyList())
-            } else {
-                Log.e(TAG, "Error fetching watched items: ${response.code()}")
-                Result.failure(Exception("Error fetching watched items: ${response.code()}"))
+            val all = mutableListOf<WatchProgressDto>()
+            var offset = 0
+            while (offset < MAX_WATCHED_ITEMS) {
+                val response = apiService.getWatchedItems(limit = WATCHED_PAGE_SIZE, offset = offset)
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Error fetching watched items: ${response.code()}")
+                    return Result.failure(Exception("Error fetching watched items: ${response.code()}"))
+                }
+                val body = response.body()
+                val items = body?.items ?: emptyList()
+                all += items
+                val total = body?.total ?: (offset + items.size)
+                offset += items.size
+                if (items.isEmpty() || offset >= total) break
             }
+            Log.d(TAG, "getWatchedItems: fetched ${all.size} watched items")
+            Result.success(all)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching watched items", e)
             Result.failure(e)
@@ -130,5 +140,7 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
 
     companion object {
         private const val TAG = "WatchProgressRepo"
+        private const val WATCHED_PAGE_SIZE = 500
+        private const val MAX_WATCHED_ITEMS = 10_000
     }
 }

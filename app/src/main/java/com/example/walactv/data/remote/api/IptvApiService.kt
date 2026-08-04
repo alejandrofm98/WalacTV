@@ -182,6 +182,7 @@ interface IptvApiService {
     @GET("api/watch-progress/watched")
     suspend fun getWatchedItems(
         @Query("limit") limit: Int = 200,
+        @Query("offset") offset: Int = 0,
     ): Response<WatchProgressListResponse>
 
     // Full catalog sync (streaming)

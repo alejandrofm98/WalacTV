@@ -304,13 +304,28 @@ fun SeriesDetailScreen(
     val allEpisodes = allEpisodesState.value
 
     val watchProgressRepo = remember { (context.applicationContext as WalacApp).appComponent.watchProgressRepository }
-    val progressMap by produceState<Map<String, WatchProgressDto>>(emptyMap(), seriesName, progressReloadTrigger) {
+    val episodeSeriesNames = remember(allEpisodes) {
+        allEpisodes.mapNotNull { it.seriesName?.trim()?.lowercase() }.toSet()
+    }
+    val progressMap by produceState<Map<Pair<Int, Int>, WatchProgressDto>>(
+        emptyMap(), seriesName, seriesId, episodeSeriesNames, progressReloadTrigger
+    ) {
         val inProgress = watchProgressRepo.getContinueWatching().getOrDefault(emptyList())
         val watched = watchProgressRepo.getWatchedItems().getOrDefault(emptyList())
-        val all = (inProgress + watched).filter {
-            it.seriesName?.equals(seriesName, ignoreCase = true) == true
-        }
-        value = all.associateBy { it.contentId.orEmpty() }
+        value = (inProgress + watched)
+            .asSequence()
+            .filter { it.contentType == "series" }
+            .filter { it.seasonNumber != null && it.episodeNumber != null }
+            .filter { wp ->
+                val wpName = wp.seriesName?.trim()?.lowercase()
+                wp.seriesName?.equals(seriesName, ignoreCase = true) == true ||
+                    wp.seriesProviderId?.equals(seriesId, ignoreCase = true) == true ||
+                    wp.contentId?.equals(seriesId, ignoreCase = true) == true ||
+                    wp.contentId?.substringAfterLast(":")?.equals(seriesId, ignoreCase = true) == true ||
+                    (wpName != null && wpName in episodeSeriesNames)
+            }
+            .map { (it.seasonNumber!! to it.episodeNumber!!) to it }
+            .toMap()
     }
 
     val uniqueEpisodes = remember(allEpisodes, preferredLanguage) {
@@ -577,8 +592,9 @@ fun SeriesDetailScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     items(uniqueEpisodes, key = { it.stableId }) { ep ->
-                        val epContentId = ep.providerId ?: ep.stableId
-                        val wp = progressMap[epContentId] ?: progressMap[epContentId.substringAfterLast(":")]
+                        val wp = ep.seasonNumber?.let { s ->
+                            ep.episodeNumber?.let { e -> progressMap[s to e] }
+                        }
                         val isInitial = ep.seasonNumber == initialSeason && ep.episodeNumber == initialEpisode
                         EpisodeCard(
                             item = ep,
