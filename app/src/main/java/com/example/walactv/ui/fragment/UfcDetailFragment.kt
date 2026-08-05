@@ -50,14 +50,15 @@ import kotlinx.coroutines.launch
 
 class UfcDetailFragment : Fragment() {
 
+    private val cachedItems = mutableMapOf<String, CatalogItem>()
+
     companion object {
         private const val TAG = "UfcDetailFragment"
-        private var cachedItem: CatalogItem? = null
 
         fun newInstance(item: CatalogItem): UfcDetailFragment {
-            cachedItem = item
             Log.d(TAG, "newInstance item=${item.title.take(80)} streamOptions=${item.streamOptions.size}")
             return UfcDetailFragment().apply {
+                cachedItems[item.stableId] = item
                 arguments = createItemBundle(item)
             }
         }
@@ -80,7 +81,7 @@ class UfcDetailFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View {
-        val item = cachedItem ?: parseArguments(requireArguments())
+        val item = cachedItems[requireArguments().getString("stableId")] ?: parseArguments(requireArguments())
         return ComposeView(requireContext()).apply {
             setContent {
                 WalacTVTheme {
@@ -96,8 +97,9 @@ class UfcDetailFragment : Fragment() {
 
     @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
     private fun playSelectedSource(selectedIndex: Int) {
-        val item = cachedItem ?: run {
-            Log.e(TAG, "playSelectedSource: no cached item")
+        val stableId = requireArguments().getString("stableId")
+        val item = cachedItems[stableId] ?: run {
+            Log.e(TAG, "playSelectedSource: no cached item for stableId=$stableId")
             return
         }
         val stream = item.streamOptions.getOrNull(selectedIndex) ?: run {

@@ -101,6 +101,9 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
             }
             Text(statusText, color = if (hasUpdate) IptvAccent else IptvOnline, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.focusable())
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (hasUpdate && update != null && !fragment.isUpdateDownloading && fragment.mandatoryUpdate == null) {
+                    FocusButton(label = "Instalar actualizacion", icon = Icons.Outlined.Download, modifier = Modifier.weight(1f)) { fragment.startUpdateFlow(update) }
+                }
                 val changelogText = update?.changelog
                 if (!changelogText.isNullOrBlank()) {
                     FocusButton(label = "Ver novedades", icon = Icons.Outlined.Info, modifier = Modifier.weight(1f)) { showChangelogDialog = true }

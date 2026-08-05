@@ -50,16 +50,16 @@ import com.example.walactv.ui.theme.*
 
 class MovieDetailFragment : Fragment() {
 
+    private val cachedItems = mutableMapOf<String, CatalogItem>()
+
     companion object {
         private const val ARG_CATALOG_ITEM = "catalog_item"
         private const val TAG = "MovieDetailFragment"
 
-        private var cachedItem: CatalogItem? = null
-
         fun newInstance(item: CatalogItem): MovieDetailFragment {
-            cachedItem = item
             Log.d(TAG, "TMDB_DETAIL newInstance item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
             return MovieDetailFragment().apply {
+                cachedItems[item.stableId] = item
                 arguments = createItemBundle(item)
             }
         }
@@ -113,7 +113,11 @@ class MovieDetailFragment : Fragment() {
         selectedStreamUrl: String? = null,
         resumePositionMs: Long = 0L,
     ) {
-        val item = cachedItem ?: return
+        val stableId = requireArguments().getString("stableId")
+        val item = cachedItems[stableId] ?: run {
+            Log.e(TAG, "playMovie: no cached item for stableId=$stableId")
+            return
+        }
         lifecycleScope.launch {
             val catalogId = item.catalogId ?: item.providerId ?: item.stableId.substringAfter(':')
             val preference = runCatching {
@@ -129,8 +133,9 @@ class MovieDetailFragment : Fragment() {
         resumePositionMs: Long = 0L,
         selectedStreamUrl: String? = null,
     ) {
-        val item = cachedItem ?: run {
-            Log.e(TAG, "playMovie: no cached item")
+        val stableId = requireArguments().getString("stableId")
+        val item = cachedItems[stableId] ?: run {
+            Log.e(TAG, "playMovie: no cached item for stableId=$stableId")
             return
         }
         Log.d(TAG, "playMovie item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
@@ -405,7 +410,7 @@ fun MovieDetailScreen(
                         "SK" to "Eslovaquia", "TH" to "Tailandia", "TN" to "Túnez", "TR" to "Turquía",
                         "TW" to "Taiwán", "UA" to "Ucrania", "UK" to "Reino Unido", "US" to "Estados Unidos",
                         "UY" to "Uruguay", "VE" to "Venezuela", "VN" to "Vietnam", "ZA" to "Sudáfrica",
-                        "CO" to "Colombia", "CL" to "Chile", "VE" to "Venezuela",
+                        "CO" to "Colombia", "CL" to "Chile",
                     )
                     val line2Parts = buildList {
                         item.runtimeMinutes?.let { minutes ->

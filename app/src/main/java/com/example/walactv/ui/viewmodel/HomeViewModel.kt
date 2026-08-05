@@ -534,7 +534,7 @@ class HomeViewModel @Inject constructor(
                 .ifBlank { (progressItem.title ?: "").trim().lowercase() }
         }
         if (!normalizedKey.isNullOrBlank()) {
-            newEntryMap["title:$normalizedKey"] = item
+            newEntryMap["title:$normalizedKey"] = progressItem
         }
         _continueWatchingEntries.value = newEntryMap
 

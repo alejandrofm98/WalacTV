@@ -29,7 +29,7 @@ class AppUpdateLogicTest {
         requireNotNull(info)
         assertEquals("1.1.0", info.latestVersionName)
         assertEquals(101, info.latestVersionCode)
-        assertEquals(1, info.minSupportedCode)
+        assertEquals(101, info.minSupportedCode)
         assertEquals("https://example.com/WalacTV-1.1.0.apk", info.apkUrl)
         assertEquals("Mejoras", info.changelog)
         assertEquals(123L, info.fetchedAtMillis)
@@ -83,7 +83,7 @@ class AppUpdateLogicTest {
     }
 
     @Test
-    fun `returns required when newer version exists`() {
+    fun `returns optional when newer version exists but is above min supported`() {
         val installed = InstalledAppVersion(versionName = "1.0.0", versionCode = 4)
         val remote = AppUpdateInfo(
             latestVersionName = "1.1.0",
@@ -94,7 +94,29 @@ class AppUpdateLogicTest {
             fetchedAtMillis = 1L,
         )
 
-        assertEquals(AppUpdateAvailability.REQUIRED, evaluateAppUpdate(installed, remote))
+        assertEquals(AppUpdateAvailability.OPTIONAL, evaluateAppUpdate(installed, remote))
+    }
+
+    @Test
+    fun `parses min supported marker from changelog`() {
+        val info = parseAppUpdateInfo(
+            """
+            {
+              "tag_name": "v1.40",
+              "body": "Novedades\nMIN_SUPPORTED: 1.20",
+              "assets": [
+                { "browser_download_url": "https://example.com/WalacTV-1.40.apk" }
+              ]
+            }
+            """.trimIndent(),
+            fetchedAtMillis = 1L,
+        )
+
+        requireNotNull(info)
+        assertEquals(140, info.latestVersionCode)
+        assertEquals(120, info.minSupportedCode)
+        assertEquals(AppUpdateAvailability.REQUIRED, evaluateAppUpdate(InstalledAppVersion("1.10", 110), info))
+        assertEquals(AppUpdateAvailability.OPTIONAL, evaluateAppUpdate(InstalledAppVersion("1.30", 130), info))
     }
 
     @Test

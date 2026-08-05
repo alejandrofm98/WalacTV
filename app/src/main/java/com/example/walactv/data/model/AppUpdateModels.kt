@@ -36,7 +36,7 @@ fun parseAppUpdateInfo(json: String, fetchedAtMillis: Long = System.currentTimeM
     val info = AppUpdateInfo(
         latestVersionName = versionName,
         latestVersionCode = versionCode,
-        minSupportedCode = 1,
+        minSupportedCode = (extractMinSupportedCode(changelog) ?: versionCode).coerceAtMost(versionCode),
         apkUrl = apkUrl,
         changelog = changelog,
         fetchedAtMillis = fetchedAtMillis,
@@ -46,7 +46,8 @@ fun parseAppUpdateInfo(json: String, fetchedAtMillis: Long = System.currentTimeM
 
 fun evaluateAppUpdate(installed: InstalledAppVersion, remote: AppUpdateInfo): AppUpdateAvailability {
     return when {
-        installed.versionCode < remote.latestVersionCode -> AppUpdateAvailability.REQUIRED
+        installed.versionCode < remote.minSupportedCode -> AppUpdateAvailability.REQUIRED
+        installed.versionCode < remote.latestVersionCode -> AppUpdateAvailability.OPTIONAL
         else -> AppUpdateAvailability.UP_TO_DATE
     }
 }
@@ -61,6 +62,16 @@ private fun AppUpdateInfo.isValid(): Boolean {
     if (latestVersionCode <= 0) return false
     if (!isValidUpdateUrl(apkUrl)) return false
     return true
+}
+
+// Busca un marcador tipo "MIN_SUPPORTED: 1.20" en las notas de la version.
+// Si falta, todas las versiones anteriores son opcionales (min = latest).
+private fun extractMinSupportedCode(changelog: String): Int? {
+    val marker = Regex("(?i)\\bmin[_ -]?supported\\b\\s*[:=]?\\s*v?(\\d+[.]\\d+)").find(changelog) ?: return null
+    val parts = marker.groupValues[1].split(".")
+    val major = parts.getOrNull(0)?.toIntOrNull() ?: return null
+    val minor = parts.getOrNull(1)?.toIntOrNull() ?: return null
+    return major * 100 + minor
 }
 
 private fun extractJsonString(json: String, key: String): String {

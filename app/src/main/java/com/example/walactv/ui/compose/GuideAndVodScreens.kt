@@ -247,21 +247,6 @@ internal fun GuideContent(fragment: ComposeMainFragment, kind: ContentKind) {
         }
     }
 
-    LaunchedEffect(forceFocusFirstItem) {
-        if (!forceFocusFirstItem) return@LaunchedEffect
-        var retries = 3
-        while (retries-- > 0 && displayItemsForGrid.isEmpty()) {
-            delay(100.milliseconds)
-        }
-        if (displayItemsForGrid.isEmpty()) return@LaunchedEffect
-        Log.d("FocusTrace", "forceFocusFirstItem EXECUTING -> scrollToItem(0) + requestFocus kind=$kind")
-        lazyGridState.scrollToItem(0)
-        delay(50.milliseconds)
-        itemFocusRequesters.firstOrNull()?.requestFocus()
-        forceFocusFirstItem = false
-        Log.d("FocusTrace", "forceFocusFirstItem DONE kind=$kind")
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()

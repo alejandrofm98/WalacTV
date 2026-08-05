@@ -213,6 +213,7 @@ class PlayerFragment : Fragment() {
     private var shouldShowOptionsOnStart: Boolean = false
 
     private var retryCount: Int = 0
+    private var forceRestartAttempted: Boolean = false
     private var isPlayerInitialized: Boolean = false
     private var isReleasing: Boolean = false
     private var closedByHost: Boolean = false
@@ -393,6 +394,7 @@ class PlayerFragment : Fragment() {
 
         handler.removeCallbacksAndMessages(null)
         retryCount = 0
+        forceRestartAttempted = false
         isReleasing = false
         playerClosed = false
         trackPreferencesRestored = false
@@ -1383,7 +1385,7 @@ class PlayerFragment : Fragment() {
         if (retryCount < MAX_RETRIES) {
             retryCount += 1
             isRetrying = true
-            showErrorOverlay(categorizedError)
+            showErrorOverlay(categorizedError, autoClose = false)
             val delay = if (!isVodMode) {
                 when (retryCount) {
                     1 -> 0L
@@ -1410,14 +1412,26 @@ class PlayerFragment : Fragment() {
                     }
                 }
             }, delay)
-        } else {
-            isRetrying = false
-            showErrorOverlay(categorizedError)
+        } else if (!forceRestartAttempted) {
+            forceRestartAttempted = true
+            retryCount = 0
+            showErrorOverlay(categorizedError, autoClose = false)
             handler.postDelayed({
                 if (!isReleasing) {
-                    retryCount = 0
                     releasePlayer()
                     initializePlayer()
+                }
+            }, FORCE_RESTART_DELAY_MS)
+        } else {
+            isRetrying = false
+            showErrorOverlay(categorizedError, autoClose = false)
+            handler.postDelayed({
+                if (isReleasing) return@postDelayed
+                val hasMoreOptions = isEventMode && liveOptionIndex < streamOptionLabels.size - 1
+                if (hasMoreOptions) {
+                    onNavigateOption?.invoke(1)
+                } else {
+                    closeFromHost()
                 }
             }, FORCE_RESTART_DELAY_MS)
         }
@@ -1691,6 +1705,19 @@ class PlayerFragment : Fragment() {
     //  Live key handling
     // ──────────────────────────────────────────────────────────────────────
 
+    private fun focusLiveMenuButton(direction: Int) {
+        handler.removeCallbacks(hideOverlayRunnable)
+        val buttons = listOfNotNull(btnGuide, btnFavorites, btnChannel)
+        val focusedIndex = buttons.indexOfFirst { it.isFocused }
+        val target = if (focusedIndex >= 0) {
+            buttons[(focusedIndex + direction).coerceIn(0, buttons.size - 1)]
+        } else {
+            buttons.firstOrNull()
+        }
+        val focusResult = target?.requestFocus() ?: false
+        Log.v(TAG, "FAV_DIRECTION($direction): focusedIndex=$focusedIndex target=${target?.let { describeView(it) }} result=$focusResult")
+    }
+
     private fun handleLiveKeyPress(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
         if (contentKind == ContentKind.CHANNEL) {
@@ -1705,9 +1732,7 @@ class PlayerFragment : Fragment() {
             KeyEvent.KEYCODE_DPAD_UP -> {
                 if (isMenuFocused()) return true
                 if (::overlayView.isInitialized && overlayView.isVisible) {
-                    handler.removeCallbacks(hideOverlayRunnable)
-                    val focusResult = btnGuide?.requestFocus() ?: false
-                    Log.v(TAG, "FAV_UP: btnGuide.requestFocus()=$focusResult")
+                    focusLiveMenuButton(-1)
                     return true
                 }
                 val newIndex = liveOptionIndex - 1
@@ -1724,9 +1749,7 @@ class PlayerFragment : Fragment() {
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (isMenuFocused()) return true
                 if (::overlayView.isInitialized && overlayView.isVisible) {
-                    handler.removeCallbacks(hideOverlayRunnable)
-                    val focusResult = btnGuide?.requestFocus() ?: false
-                    Log.v(TAG, "FAV_DOWN: btnGuide.requestFocus()=$focusResult")
+                    focusLiveMenuButton(1)
                     return true
                 }
                 val newIndex = liveOptionIndex + 1
