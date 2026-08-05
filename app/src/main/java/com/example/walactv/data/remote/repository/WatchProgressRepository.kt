@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.walactv.data.remote.api.IptvApiService
 import com.example.walactv.data.remote.api.dto.SaveWatchProgressBody
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 
 class WatchProgressRepository @Inject constructor(private val apiService: IptvApiService) {
@@ -81,8 +82,8 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
         seriesName: String? = null,
         seasonNumber: Int? = null,
         episodeNumber: Int? = null,
-    ) {
-        try {
+    ): Result<WatchProgressDto> {
+        return try {
             val body = SaveWatchProgressBody(
                 contentType = contentType,
                 positionMs = positionMs,
@@ -97,13 +98,23 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
             val response = apiService.saveWatchProgress(contentId, body)
             Log.d(TAG, "saveProgress: API RESPONSE code=${response.code()} isSuccessful=${response.isSuccessful}")
             if (response.isSuccessful) {
-                Log.d(TAG, "saveProgress: SUCCESS $contentId at ${positionMs}ms")
+                val saved = response.body()
+                if (saved != null) {
+                    Log.d(TAG, "saveProgress: SUCCESS $contentId at ${positionMs}ms")
+                    Result.success(saved)
+                } else {
+                    Result.failure(Exception("Empty body saving progress for $contentId"))
+                }
             } else {
                 val errorBody = response.errorBody()?.string()
                 Log.e(TAG, "saveProgress: FAILED $contentId code=${response.code()} error=$errorBody")
+                Result.failure(Exception("Failed to save progress for $contentId: HTTP ${response.code()}"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "saveProgress: EXCEPTION $contentId", e)
+            Result.failure(e)
         }
     }
 

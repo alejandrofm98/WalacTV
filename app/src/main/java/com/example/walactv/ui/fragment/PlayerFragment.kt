@@ -627,32 +627,35 @@ class PlayerFragment : Fragment() {
             Log.e(TAG, "saveWatchProgress: onProgressSaved callback threw exception", e)
         }
         
-        // Guardar en backend (asíncrono)
-        Log.d(TAG, "saveWatchProgress: launching lifecycleScope coroutine...")
-        lifecycleScope.launch(Dispatchers.IO) {
+        // Guardar en backend (asíncrono). Se usa el scope de la aplicación para que el
+        // guardado final (forceSave) complete aunque el fragment se destruya justo después
+        // de cerrar el player; con lifecycleScope la corrutina se cancelaba a mitad del PUT.
+        val app = requireActivity().application as WalacApp
+        Log.d(TAG, "saveWatchProgress: launching applicationScope coroutine...")
+        app.applicationScope.launch(Dispatchers.IO) {
             Log.d(TAG, "saveWatchProgress: coroutine STARTED for contentId='$contentId'")
-            try {
-                repo.saveProgress(
-                    contentId = contentId,
-                    contentType = contentType,
-                    positionMs = position,
-                    durationMs = duration,
-                    title = overlayTitle,
-                    imageUrl = overlayLogoUrl,
-                    seriesName = currentSeriesEpisode?.seriesName,
-                    seasonNumber = currentSeriesEpisode?.seasonNumber,
-                    episodeNumber = currentSeriesEpisode?.episodeNumber,
-                )
-                Log.d(TAG, "saveWatchProgress: coroutine COMPLETED successfully for contentId='$contentId'")
-                // Verificar que el backend realmente guardó el item
-                val verifyItem = repo.getProgress(contentId)
-                if (verifyItem != null) {
-                    Log.d(TAG, "saveWatchProgress: VERIFY OK - backend returned item contentId=${verifyItem.contentId} position=${verifyItem.positionMs}")
-                } else {
-                    Log.w(TAG, "saveWatchProgress: VERIFY FAIL - backend returned null for contentId='$contentId' after successful PUT")
+            repo.saveProgress(
+                contentId = contentId,
+                contentType = contentType,
+                positionMs = position,
+                durationMs = duration,
+                title = overlayTitle,
+                imageUrl = overlayLogoUrl,
+                seriesName = currentSeriesEpisode?.seriesName,
+                seasonNumber = currentSeriesEpisode?.seasonNumber,
+                episodeNumber = currentSeriesEpisode?.episodeNumber,
+            ).onSuccess { saved ->
+                Log.d(TAG, "saveWatchProgress: coroutine COMPLETED successfully for contentId='$contentId' savedPosition=${saved.positionMs}")
+                // Actualizar Home directamente (HomeViewModel es singleton): el callback
+                // estático del ComposeMainFragment puede estar a null si su vista ya se
+                // destruyó, y entonces el home nunca se actualizaba en memoria.
+                runCatching {
+                    app.appComponent.homeViewModel.upsertContinueWatchingEntry(saved)
+                }.onFailure { e ->
+                    Log.e(TAG, "saveWatchProgress: homeViewModel upsert failed", e)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "saveWatchProgress: coroutine FAILED for contentId='$contentId'", e)
+            }.onFailure { e ->
+                Log.e(TAG, "saveWatchProgress: SAVE FAILED for contentId='$contentId'", e)
             }
         }
 
@@ -769,8 +772,9 @@ class PlayerFragment : Fragment() {
 
         watchedMarked = true
         val repo = watchProgressRepo ?: return
+        val app = requireActivity().application as WalacApp
 
-        lifecycleScope.launch(Dispatchers.IO) {
+        app.applicationScope.launch(Dispatchers.IO) {
             when (contentKind) {
                 ContentKind.MOVIE -> {
                     repo.markAsWatched(contentId)
@@ -790,7 +794,7 @@ class PlayerFragment : Fragment() {
     private fun markContentCompleted(onCompleted: (() -> Unit)? = null) {
         if (completionCleanupStarted || contentId.isBlank()) return
         completionCleanupStarted = true
-        lifecycleScope.launch(Dispatchers.IO) {
+        (requireActivity().application as WalacApp).applicationScope.launch(Dispatchers.IO) {
             watchProgressRepo?.markAsWatched(
                 contentId,
                 currentSeriesEpisode?.seasonNumber,
