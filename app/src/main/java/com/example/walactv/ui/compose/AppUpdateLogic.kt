@@ -40,8 +40,9 @@ internal fun ComposeMainFragment.restoreCachedUpdateState() {
             updateStatusMessage = "Aplicacion actualizada"
         }
         AppUpdateAvailability.OPTIONAL -> {
-            mandatoryUpdate = null
-            updateStatusMessage = "Actualizacion disponible"
+            mandatoryUpdate = cachedUpdate
+            updateStatusMessage = "Actualizacion obligatoria disponible"
+            startUpdateFlowIfReady()
         }
     }
 }
@@ -77,8 +78,9 @@ internal fun ComposeMainFragment.checkForAppUpdates(showToast: Boolean = false) 
                 updateStatusMessage = "Aplicacion actualizada"
             }
             AppUpdateAvailability.OPTIONAL -> {
-                mandatoryUpdate = null
-                updateStatusMessage = "Actualizacion disponible"
+                mandatoryUpdate = remoteUpdate
+                updateStatusMessage = "Actualizacion obligatoria disponible"
+                startUpdateFlowIfReady()
             }
         }
         if (showToast) Toast.makeText(requireContext(), updateStatusMessage, Toast.LENGTH_SHORT).show()
