@@ -173,6 +173,7 @@ internal fun SideRail(
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "railWidthAnim",
     )
+    var focusedRailIndex by remember { mutableStateOf(-1) }
 
     Column(
         modifier = Modifier
@@ -187,19 +188,33 @@ internal fun SideRail(
                 if (keyEvent.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN)
                     return@onPreviewKeyEvent false
 
-                if (keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) {
-                    Log.d(TAG, "DPAD_RIGHT rail mode=${fragment.currentMode} expanded=${fragment.isRailExpanded}")
-                    fragment.isRailExpanded = false
-                    if (fragment.currentMode == MainMode.Home) {
-                        val restored = fragment.requestHomeFocusRestoreFromRail()
-                        Log.d(TAG, "home explicit restore requested restored=$restored")
-                        return@onPreviewKeyEvent true
-                    }
+                when (keyEvent.nativeKeyEvent.keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        Log.d(TAG, "DPAD_RIGHT rail mode=${fragment.currentMode} expanded=${fragment.isRailExpanded}")
+                        fragment.isRailExpanded = false
+                        if (fragment.currentMode == MainMode.Home) {
+                            val restored = fragment.requestHomeFocusRestoreFromRail()
+                            Log.d(TAG, "home explicit restore requested restored=$restored")
+                            return@onPreviewKeyEvent true
+                        }
 
-                    fragment.contentFocusTrigger++
-                    Log.d(TAG, "content focus trigger=${fragment.contentFocusTrigger} mode=${fragment.currentMode}")
-                    true
-                } else false
+                        fragment.contentFocusTrigger++
+                        Log.d(TAG, "content focus trigger=${fragment.contentFocusTrigger} mode=${fragment.currentMode}")
+                        true
+                    }
+                    android.view.KeyEvent.KEYCODE_DPAD_UP,
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        val currentIndex = focusedRailIndex
+                        if (currentIndex < 0) return@onPreviewKeyEvent false
+                        val delta = if (keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) -1 else 1
+                        val targetIndex = currentIndex + delta
+                        if (targetIndex !in focusRequesters.indices) return@onPreviewKeyEvent false
+                        Log.d(TAG, "DPAD_VERTICAL rail $currentIndex -> $targetIndex mode=${fragment.currentMode}")
+                        runCatching { focusRequesters[targetIndex].requestFocus() }
+                        true
+                    }
+                    else -> false
+                }
             },
     ) {
         RailHeader(expanded = fragment.isRailExpanded)
@@ -217,6 +232,7 @@ internal fun SideRail(
                     expanded = fragment.isRailExpanded,
                     modifier = Modifier.focusRequester(focusRequesters[index]),
                 onFocusChanged = { focused ->
+                    if (focused) focusedRailIndex = index
                     if (BuildConfig.DEBUG) Log.d(TAG, "rail item focus label=${item.label} focused=$focused mode=${fragment.currentMode}")
                 }
                 ) { item.onClick?.invoke() ?: item.mode?.let(fragment::changeMode) }
@@ -230,6 +246,7 @@ internal fun SideRail(
                 expanded = fragment.isRailExpanded,
                 modifier = Modifier.focusRequester(focusRequesters.last()),
                 onFocusChanged = { focused ->
+                    if (focused) focusedRailIndex = focusRequesters.lastIndex
                     if (BuildConfig.DEBUG) Log.d(TAG, "rail item focus label=Ajustes focused=$focused mode=${fragment.currentMode}")
                 }
             ) { fragment.changeMode(MainMode.Settings) }
