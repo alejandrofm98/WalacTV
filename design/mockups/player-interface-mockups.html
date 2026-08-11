@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WalacTV · Mockups del reproductor</title>
+<style>
+  /* ────────────────────────────────────────────────────────────
+     Tokens (fieles al tema de la app: ui/theme/Color.kt)
+     ──────────────────────────────────────────────────────────── */
+  :root {
+    --ink: #05070E;
+    --bg: #070B16;
+    --surface: #0C1427;
+    --surface-2: #131D38;
+    --card: #101931;
+    --accent: #3260F0;
+    --accent-soft: rgba(50, 96, 240, 0.18);
+    --text: #F5F7FC;
+    --text-2: #B8C2D8;
+    --text-3: #8692AA;
+    --live: #E50914;
+    --ok: #1DB954;
+    --line: rgba(245, 247, 252, 0.09);
+    --radius: 14px;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);   /* ease-out-quint */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #101c3d 0%, transparent 60%),
+      radial-gradient(900px 500px at 0% 110%, #0a1230 0%, transparent 55%),
+      var(--ink);
+    color: var(--text);
+    font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+
+  .page { max-width: 1440px; margin: 0 auto; padding: 34px clamp(16px, 3vw, 48px) 72px; }
+
+  /* ── Header ─────────────────────────────────────────────── */
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 22px; }
+  .head h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+  .head p { color: var(--text-3); font-size: 13.5px; margin-top: 6px; max-width: 62ch; line-height: 1.55; }
+
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tab {
+    appearance: none; border: 1px solid var(--line); background: rgba(12, 20, 39, 0.6);
+    color: var(--text-2); border-radius: 999px; padding: 9px 16px; font-size: 13px;
+    font-weight: 600; cursor: pointer; transition: all .18s var(--ease);
+  }
+  .tab:hover { color: var(--text); border-color: rgba(245,247,252,.22); }
+  .tab:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .tab.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .caption { color: var(--text-3); font-size: 13px; margin-top: 14px; line-height: 1.6; }
+  .caption b { color: var(--text-2); font-weight: 600; }
+
+  /* ── Marco de TV ─────────────────────────────────────────── */
+  .frame {
+    container-type: inline-size;
+    width: min(1280px, 100%);
+    aspect-ratio: 16 / 9;
+    border-radius: 18px;
+    overflow: hidden;
+    background: var(--ink);
+    box-shadow:
+      0 0 0 1px rgba(245,247,252,.08),
+      0 40px 90px -30px rgba(0,0,0,.85);
+    position: relative;
+  }
+
+  /* Escala tipográfica: 1cqw = 1% del ancho del frame */
+  .screen { position: absolute; inset: 0; display: none; }
+  .screen.active { display: block; }
+
+  /* ── Escenas de "video" (placeholders, se sustituyen por el stream real) ── */
+  .scene { position: absolute; inset: 0; overflow: hidden; }
+
+  .scene-series {
+    background:
+      linear-gradient(160deg, #0b1326 0%, #17284a 34%, #2c3a63 52%, #1b2b4e 72%, #0a1124 100%);
+  }
+  .scene-series::before {  /* ventana con luz cálida */
+    content: ""; position: absolute; right: 13%; top: 16%; width: 9%; height: 16%;
+    background: linear-gradient(200deg, #f4c98a, #c07b3a);
+    border-radius: 3px; box-shadow: 0 0 80px 22px rgba(240, 180, 100, 0.22);
+    transform: skewY(-8deg);
+  }
+  .scene-series::after {   /* horizonte montañoso */
+    content: ""; position: absolute; inset: auto 0 0 0; height: 34%;
+    background: linear-gradient(180deg, transparent, #070d1f 28%, #040810 100%);
+  }
+
+  .scene-movie {
+    background:
+      radial-gradient(140% 90% at 70% 20%, #0e2a33 0%, #0a1f26 38%, #061014 62%, #030708 100%);
+  }
+  .scene-movie::before {   /* haz del faro */
+    content: ""; position: absolute; left: 8%; top: -10%; width: 46%; height: 120%;
+    background: conic-gradient(from 250deg at 12% 12%, transparent 0deg, rgba(255,236,180,0.16) 16deg, rgba(255,236,180,0.05) 22deg, transparent 40deg);
+    filter: blur(6px);
+  }
+  .scene-movie::after {    /* torre del faro */
+    content: ""; position: absolute; left: 7%; bottom: 0; width: 6%; height: 52%;
+    background: linear-gradient(90deg, #0a1620, #12242f 55%, #0a1620);
+    box-shadow: 0 0 60px 10px rgba(255,240,200,0.10);
+    border-radius: 6px 6px 0 0;
+  }
+
+  .scene-ufc {
+    background:
+      radial-gradient(120% 90% at 50% 0%, #2b0d14 0%, #1a0a10 30%, #0a0508 62%, #050305 100%);
+  }
+  .scene-ufc::before {   /* focos del octágono */
+    content: ""; position: absolute; left: 50%; top: 0; width: 130%; height: 120%;
+    transform: translateX(-50%);
+    background:
+      radial-gradient(26% 42% at 22% 8%, rgba(255,235,200,0.14), transparent 60%),
+      radial-gradient(26% 42% at 78% 8%, rgba(255,235,200,0.14), transparent 60%),
+      radial-gradient(40% 30% at 50% 12%, rgba(255,240,210,0.10), transparent 70%);
+  }
+  .scene-ufc::after {    /* lona */
+    content: ""; position: absolute; left: 50%; top: 62%; width: 74%; height: 20%;
+    transform: translateX(-50%);
+    background: radial-gradient(60% 100% at 50% 50%, #3a8f5f 0%, #1d5236 55%, #123522 100%);
+    border-radius: 50%;
+    box-shadow: 0 0 90px 18px rgba(58,143,95,0.20);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .scene > .grain { position: absolute; inset: 0; opacity: .5;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.05'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+  /* ── Scrims (gradientes sobre el video) ─────────────────── */
+  .scrim-top  { position: absolute; inset: 0 0 auto 0; height: 34%; background: linear-gradient(180deg, rgba(5,7,14,.82), rgba(5,7,14,.25) 62%, transparent); }
+  .scrim-bottom { position: absolute; inset: auto 0 0 0; height: 46%; background: linear-gradient(0deg, rgba(5,7,14,.9) 0%, rgba(5,7,14,.4) 45%, transparent); }
+  .scrim-full { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(5,7,14,.88) 0%, rgba(5,7,14,.55) 46%, rgba(5,7,14,.12) 100%); }
+
+  /* ── Capa de UI ─────────────────────────────────────────── */
+  .ui { position: absolute; inset: 0; padding: 3.4cqw 3.2cqw 2.6cqw; display: flex; flex-direction: column; justify-content: space-between; }
+
+  .top-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 3cqw; }
+  .bottom-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 3cqw; }
+
+  /* ── Reloj superior derecha: AHORA + TERMINA ─────────────── */
+  .clock {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 0.2cqw;
+    padding: 0.7cqw 0;
+    flex-shrink: 0;
+  }
+  .clock svg { display: none; }
+  .clock .cols { display: flex; flex-direction: column; }
+  .clock .cols:first-of-type .lbl { display: none; }
+  .clock .cols:first-of-type .val { margin-left: 4.9cqw; }
+  .clock .cols + .cols { flex-direction: row; align-items: baseline; gap: 0.5cqw; }
+  .clock .cols + .cols .lbl { width: 4.9cqw; }
+  .clock .cols + .cols .lbl { color: var(--text); }
+  .clock .lbl { font-size: 0.78cqw; letter-spacing: 0.14em; color: var(--text-3); font-weight: 600; }
+  .clock .val { font-size: 1.55cqw; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .clock .val.end { color: var(--text-2); }
+  .clock .val.ended { color: var(--ok); }
+
+  .clock-options { margin-top: 28px; }
+  .clock-options h2 { font-size: 16px; font-weight: 700; }
+  .clock-options > p { color: var(--text-3); font-size: 13px; margin-top: 6px; }
+  .clock-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+  .clock-option { min-height: 116px; padding: 16px; background: rgba(12,20,39,.72); border: 1px solid var(--line); border-radius: 12px; }
+  .clock-option h3 { font-size: 12px; color: var(--text-2); margin-bottom: 14px; }
+  .clock-option p { color: var(--text-3); font-size: 11px; line-height: 1.45; margin-top: 12px; }
+  .clock-clean { display: flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+  .clock-clean strong { font-size: 22px; }
+  .clock-clean span { color: var(--text-3); font-size: 11px; }
+  .clock-clean em { color: var(--text-2); font-size: 14px; font-style: normal; }
+  .clock-line { display: flex; align-items: center; gap: 9px; color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .clock-line i { width: 38px; height: 3px; border-radius: 99px; background: var(--accent); }
+  .clock-stack { display: grid; grid-template-columns: auto auto; column-gap: 12px; row-gap: 3px; font-variant-numeric: tabular-nums; }
+  .clock-stack small { color: var(--text-3); font-size: 10px; letter-spacing: .08em; }
+  .clock-stack strong { font-size: 18px; }
+  .clock-stack strong:last-child { color: var(--text-2); }
+  .pause-lab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+  .pause-lab span { color: var(--text-3); font-size: 12px; }
+  .pause-lab button { border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text-2); padding: 7px 11px; cursor: pointer; font-size: 11px; }
+  .pause-lab button.is-selected { background: var(--accent); border-color: var(--accent); color: var(--text); }
+
+  /* ── Bloque de titulo + descripcion (pausa) ─────────────── */
+  .meta-block { max-width: 46cqw; }
+  .ep-badge {
+    display: inline-flex; align-items: center; gap: 0.6cqw;
+    background: var(--accent); color: #fff; font-weight: 700;
+    font-size: 0.92cqw; letter-spacing: 0.06em;
+    padding: 0.32cqw 0.9cqw; border-radius: 999px; margin-bottom: 1cqw;
+  }
+  .ep-badge.alt { background: rgba(245,247,252,.12); border: 1px solid var(--line); color: var(--text-2); }
+  .title { font-size: 2.7cqw; font-weight: 800; letter-spacing: -0.015em; line-height: 1.04; text-shadow: 0 2px 18px rgba(0,0,0,.6); }
+  .ep-title { font-size: 1.5cqw; font-weight: 600; color: var(--text-2); margin-top: 0.55cqw; }
+  .rating { margin-top: 0.55cqw; color: #f0c75e; font-size: 1.05cqw; font-weight: 700; }
+  .ep-line { display: flex; align-items: baseline; gap: 1cqw; }
+  .ep-line .rating { margin-top: 0; }
+  .meta-row { display: flex; align-items: center; gap: 0.8cqw; margin-top: 1cqw; color: var(--text-2); font-size: 1.02cqw; font-weight: 500; }
+  .meta-row .dot { width: 0.32cqw; height: 0.32cqw; border-radius: 50%; background: var(--text-3); }
+  .age-chip { border: 1px solid var(--line); border-radius: 3px; padding: 0.06cqw 0.42cqw; font-size: 0.9cqw; color: var(--text-2); }
+
+  .desc {
+    margin-top: 1.3cqw; font-size: 1.28cqw; line-height: 1.55; color: var(--text-2);
+    max-width: 46cqw;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    text-shadow: 0 1px 10px rgba(0,0,0,.5);
+  }
+
+  /* Animacion al pausar: la descripcion aparece con fade+sublida */
+  .reveal { opacity: 0; transform: translateY(1.4cqw); transition: opacity .28s var(--ease), transform .28s var(--ease); }
+  .screen.paused .reveal { opacity: 1; transform: translateY(0); }
+
+  /* La pausa baja solo la imagen, dejando los controles legibles. */
+  .screen.paused .scene { filter: brightness(var(--pause-brightness, .72)); }
+
+  /* ── Seekbar ─────────────────────────────────────────────── */
+  .seek-wrap { flex: 1; }
+  .seek {
+    position: relative; height: 1.4cqw; display: flex; align-items: center;
+    --p: 0%; --b: 0%;
+  }
+  .seek__track { position: absolute; inset: 0 auto; width: 100%; height: 0.28cqw; border-radius: 999px; background: rgba(245,247,252,.18); }
+  .seek__buffered { position: absolute; left: 0; top: 0; bottom: 0; width: var(--b); border-radius: 999px; background: rgba(245,247,252,.30); }
+  .seek__played  { position: absolute; left: 0; top: 0; bottom: 0; width: var(--p); border-radius: 999px; background: var(--accent); }
+  .seek__knob { position: absolute; left: var(--p); top: 50%; transform: translate(-50%, -50%);
+    width: 1.2cqw; height: 1.2cqw; border-radius: 50%; background: var(--text);
+    box-shadow: 0 2px 8px rgba(0,0,0,.6); transition: width .15s var(--ease), height .15s var(--ease); }
+  .seek:focus-within .seek__knob { width: 1.5cqw; height: 1.5cqw; }
+  .seek__track::after { /* area táctil */
+    content: ""; position: absolute; inset: -0.9cqw 0; }
+
+  .seek input[type=range] { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+  .seek input[type=range]:focus-visible { outline: none; }
+  .seek:focus-within .seek__played { background: #5b85ff; }
+
+  /* markers de capitulos / rondas */
+  .seek__markers { position: absolute; inset: 0 auto; width: 100%; height: 0; top: 50%; pointer-events: none; }
+  .seek__markers i { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 2px; height: 1.1cqw; border-radius: 2px; background: rgba(5,7,14,.55); }
+  .seek__round { position: absolute; top: 50%; transform: translate(-50%, -100%); font-size: 0.72cqw; font-weight: 700; color: rgba(245,247,252,.75); background: rgba(5,7,14,.5); padding: 0.15cqw 0.5cqw; border-radius: 999px; margin-top: -0.6cqw; }
+
+  .time-row { display: flex; justify-content: space-between; margin-top: 0.55cqw; font-size: 1cqw; font-variant-numeric: tabular-nums; color: var(--text-2); }
+  .time-row .remaining { color: var(--text-3); }
+  .time-row .remaining.ended { color: var(--ok); font-weight: 600; }
+
+  /* ── Controles ───────────────────────────────────────────── */
+  .controls { display: flex; align-items: center; gap: 1cqw; margin-top: 0.9cqw; }
+  .ctrl {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5cqw;
+    height: 3.4cqw; min-width: 3.4cqw; padding: 0 0.9cqw;
+    border-radius: 999px; border: 1px solid var(--line);
+    background: rgba(12, 20, 39, 0.5); color: var(--text-2);
+    cursor: pointer; font-size: 0.95cqw; font-weight: 600;
+    transition: all .16s var(--ease);
+  }
+  .ctrl svg { width: 1.5cqw; height: 1.5cqw; flex-shrink: 0; }
+  .ctrl:hover { background: rgba(12,20,39,.85); color: var(--text); }
+  .ctrl:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; background: rgba(12,20,39,.9); color: var(--text); }
+  .ctrl.icon { border-radius: 50%; padding: 0; }
+  .ctrl .tag { font-size: 0.85cqw; color: var(--text-3); font-weight: 600; }
+  .ctrl.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .ctrl.accent:hover { background: #4172ff; }
+
+  .ctrl-group { display: flex; align-items: center; gap: 0.8cqw; }
+
+  /* ── Skip button (intro / presentacion) ──────────────────── */
+  .skip { position: absolute; right: 3.2cqw; bottom: 15cqw; display: none; }
+  .skip.show { display: flex; }
+  .skip-btn {
+    display: inline-flex; align-items: center; gap: 0.6cqw;
+    padding: 0.8cqw 1.6cqw; border-radius: 5px;
+    background: rgba(12, 20, 39, 0.72); border: 1px solid var(--line);
+    color: var(--text); font-size: 1cqw; font-weight: 600; cursor: pointer;
+    backdrop-filter: blur(6px);
+    transition: all .16s var(--ease);
+  }
+  .skip-btn svg { width: 1.3cqw; height: 1.3cqw; color: var(--text-3); }
+  .skip-btn .cnt { color: var(--text-3); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .skip-btn:hover { background: rgba(12,20,39,.95); }
+  .skip-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  /* ── Variante Stremio: descripcion abajo sobre el seekbar ── */
+  .stremio-desc { position: absolute; left: 3.2cqw; right: 3.2cqw; bottom: 17.5cqw; }
+  .stremio-desc .desc { max-width: 46cqw; -webkit-line-clamp: 2; }
+
+  /* ── Variante panel (Nuvio): panel lateral de info ───────── */
+  .info-panel {
+    position: absolute; left: 3.2cqw; top: 50%; transform: translateY(-50%);
+    width: 38cqw; display: flex; gap: 1.8cqw;
+    background: rgba(12, 20, 39, 0.78);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 1.8cqw 1.8cqw 1.6cqw;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 24px 60px -20px rgba(0,0,0,.8);
+  }
+  .poster {
+    width: 9.5cqw; aspect-ratio: 2/3; border-radius: 8px; flex-shrink: 0;
+    display: grid; place-items: center; text-align: center;
+    padding: 0.8cqw; font-weight: 800; letter-spacing: -0.01em;
+  }
+  .poster.movie {
+    background: linear-gradient(200deg, #27406b, #101c38 70%);
+    border: 1px solid var(--line);
+    font-size: 1.15cqw; color: rgba(245,247,252,.92);
+  }
+  .poster.ufc {
+    background: linear-gradient(200deg, #3a1a24, #140a0f 70%);
+    border: 1px solid var(--line); font-size: 1cqw; color: #f2c9c9;
+  }
+  .info-panel .ip-title { font-size: 2cqw; font-weight: 800; letter-spacing: -0.015em; line-height: 1.1; }
+  .info-panel .ip-meta { margin-top: 0.8cqw; color: var(--text-2); font-size: 1cqw; }
+  .info-panel .ip-desc { margin-top: 1cqw; font-size: 1.06cqw; line-height: 1.55; color: var(--text-2); max-height: 9.4cqw; overflow: hidden; }
+  .info-panel .ip-actions { display: flex; gap: 0.9cqw; margin-top: 1.4cqw; }
+  .info-panel .ip-progress { margin-top: 1.3cqw; }
+  .info-panel .ip-progress .lbl { display: flex; justify-content: space-between; font-size: 0.85cqw; color: var(--text-3); margin-bottom: 0.4cqw; font-variant-numeric: tabular-nums; }
+
+  /* ── Variante reproduciendo: chrome minimo ───────────────── */
+  .mini-title { position: absolute; left: 3.2cqw; top: 3.4cqw; }
+  .mini-title .title { font-size: 1.7cqw; font-weight: 700; }
+  .mini-title .ep-title { font-size: 1.05cqw; margin-top: 0.3cqw; }
+  .screen:not(.paused) .chrome-hide, .screen.playing .chrome-hide { opacity: 0; pointer-events: none; }
+  .fade-soft { transition: opacity .5s var(--ease); }
+
+  .eq { position: absolute; left: 3.2cqw; bottom: 4cqw; display: flex; align-items: flex-end; gap: 0.3cqw; height: 2.2cqw; }
+  .eq i { width: 0.55cqw; background: var(--text-2); border-radius: 2px; animation: eq 1s ease-in-out infinite; }
+  .eq i:nth-child(1) { animation-delay: 0s; } .eq i:nth-child(2) { animation-delay: .2s; }
+  .eq i:nth-child(3) { animation-delay: .4s; } .eq i:nth-child(4) { animation-delay: .1s; }
+  .eq i:nth-child(5) { animation-delay: .3s; }
+  @keyframes eq { 0%,100% { height: 25%; } 50% { height: 100%; } }
+
+  .spacer { flex: 1; }
+
+  /* hint de teclado */
+  .hint { position: absolute; right: 3.2cqw; bottom: 2.6cqw; font-size: 0.8cqw; color: var(--text-3); display: flex; align-items: center; gap: 0.5cqw; opacity: .8; }
+  .kbd { border: 1px solid var(--line); border-radius: 4px; background: rgba(12,20,39,.7); padding: 0.12cqw 0.5cqw; font-weight: 600; color: var(--text-2); }
+
+  @media (max-width: 900px) { .clock-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 720px) { .head h1 { font-size: 19px; } .clock-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="head">
+    <div>
+      <h1>WalacTV · Reproductor VOD</h1>
+       <p>Mockups interactivos para películas y series. Compara cuatro relojes, prueba el oscurecimiento de pausa y revisa el encabezado sin botón central. Navega con <b>flechas + Enter</b>, pausa con <b>Espacio</b>.</p>
+    </div>
+    <nav class="tabs" aria-label="Variantes">
+      <button class="tab is-active" data-tab="s-netflix">Netflix</button>
+      <button class="tab" data-tab="s-stremio">Stremio</button>
+      <button class="tab" data-tab="s-panel">Panel</button>
+      <button class="tab" data-tab="s-playing">Reproduciendo</button>
+      <button class="tab" data-tab="s-ufc">UFC Replay</button>
+    </nav>
+  </header>
+
+  <!-- ══════════════════════ 1 · NETFLIX (pausa) ══════════════════════ -->
+  <section class="frame">
+    <div class="screen active paused" id="s-netflix" data-duration="3131" data-skip="Saltar intro" data-skip-until="0:00:14">
+      <div class="scene scene-series"><div class="grain"></div></div>
+      <div class="scrim-top"></div>
+      <div class="scrim-bottom"></div>
+
+      <div class="ui">
+        <div class="top-row">
+          <div class="meta-block reveal">
+            <span class="ep-badge">T2 · E5</span>
+            <div class="title">Rumbo Norte</div>
+            <div class="ep-line"><div class="ep-title">La tormenta</div><div class="rating">★ 8.4</div></div>
+            <div class="meta-row">
+              <span>2024</span><span class="dot"></span><span>Drama</span><span class="dot"></span><span>52 min</span><span class="dot"></span><span class="age-chip">16+</span>
+            </div>
+            <p class="desc">Mientras la tormenta corta la luz de todo el valle, Mara descubre en el desván de la estación un diario que reabre una investigación cerrada hace veinte años. A contrarreloj, decide cruzar la frontera para entregarlo antes de que amanezca.</p>
+          </div>
+
+          <div class="clock reveal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <div class="cols"><span class="lbl">AHORA</span><span class="val now">21:42</span></div>
+             <div class="cols"><span class="lbl">Termina a:</span><span class="val end">22:14</span></div>
+          </div>
+        </div>
+
+        <div class="bottom-row">
+          <div class="seek-wrap">
+            <div class="seek">
+              <div class="seek__track"></div>
+              <div class="seek__buffered"></div>
+              <div class="seek__played"></div>
+              <div class="seek__markers"></div>
+              <div class="seek__knob"></div>
+              <input type="range" min="0" max="3131" step="1" value="42" aria-label="Posición">
+            </div>
+            <div class="time-row">
+              <span class="position">0:42</span>
+              <span class="remaining">Faltan 31:58 · fin 22:14</span>
+            </div>
+            <div class="controls">
+              <button class="ctrl icon accent" data-action="toggle" aria-label="Pausar"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+              <button class="ctrl icon" data-action="next" aria-label="Episodio siguiente"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4.5 5.6L14 12l-9.5 6.4z"/></svg></button>
+              <div class="spacer"></div>
+              <div class="ctrl-group">
+                <button class="ctrl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 10v4a2 2 0 0 0 2 2h2l5 3V5L7 8H5a2 2 0 0 0-2 2z"/><path d="M17 9a4 4 0 0 1 0 6"/><path d="M20 6a8 8 0 0 1 0 12"/></svg><span class="tag">ES · 5.1</span></button>
+                <button class="ctrl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M8 10l-2 2 2 2M16 10l2 2-2 2M13 8l-2 8"/></svg><span class="tag">Subs · ES</span></button>
+                <button class="ctrl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg><span class="tag">HD</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="skip"><button class="skip-btn" data-action="skip"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18V6l8 6z"/><path d="M18 6h2v12h-2z"/></svg>Saltar intro</button></div>
+      <div class="hint"><span class="kbd">Espacio</span> pausa / <span class="kbd">←</span><span class="kbd">→</span> avanza</div>
+    </div>
+
+    <!-- ══════════════════════ 2 · STREMIO (pausa) ══════════════════════ -->
+    <div class="screen paused" id="s-stremio" data-duration="3131">
+      <div class="scene scene-series"><div class="grain"></div></div>
+      <div class="scrim-top"></div>
+      <div class="scrim-bottom"></div>
+
+      <div class="ui">
+        <div class="top-row">
+          <div class="meta-block reveal">
+            <span class="ep-badge alt">T2 · E5 · La tormenta</span>
+            <div class="title" style="font-size:2cqw">Rumbo Norte</div>
+          </div>
+          <div class="clock reveal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <div class="cols"><span class="lbl">AHORA</span><span class="val now">21:42</span></div>
+             <div class="cols"><span class="lbl">Termina a:</span><span class="val end">22:14</span></div>
+          </div>
+        </div>
+
+        <div class="stremio-desc reveal">
+          <p class="desc">Mientras la tormenta corta la luz de todo el valle, Mara descubre en el desván de la estación un diario que reabre una investigación cerrada hace veinte años.</p>
+        </div>
+
+        <div class="bottom-row">
+          <div class="seek-wrap">
+            <div class="seek">
+              <div class="seek__track"></div>
+              <div class="seek__buffered"></div>
+              <div class="seek__played"></div>
+              <div class="seek__markers"></div>
+              <div class="seek__knob"></div>
+              <input type="range" min="0" max="3131" step="1" value="42" aria-label="Posición">
+            </div>
+            <div class="time-row">
+              <span class="position">0:42</span>
+              <span class="remaining">− 31:58</span>
+            </div>
+            <div class="controls">
+              <button class="ctrl icon accent" data-action="toggle" aria-label="Pausar"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+              <button class="ctrl icon" data-action="prev" aria-label="Episodio anterior"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zm13.5.6L10 12l9.5 6.4z"/></svg></button>
+              <button class="ctrl icon" data-action="next" aria-label="Episodio siguiente"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4.5 5.6L14 12l-9.5 6.4z"/></svg></button>
+              <div class="spacer"></div>
+              <div class="ctrl-group">
+                <button class="ctrl"><span class="tag">ES</span></button>
+                <button class="ctrl"><span class="tag">Subs ES</span></button>
+                <button class="ctrl"><span class="tag">1080p</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hint"><span class="kbd">Espacio</span> pausa</div>
+    </div>
+
+    <!-- ══════════════════════ 3 · PANEL DE INFORMACION (Nuvio) ══════════════════════ -->
+    <div class="screen paused" id="s-panel" data-duration="7080">
+      <div class="scene scene-movie"><div class="grain"></div></div>
+      <div class="scrim-full"></div>
+
+      <div class="ui">
+        <div class="top-row">
+          <div class="spacer"></div>
+          <div class="clock reveal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <div class="cols"><span class="lbl">AHORA</span><span class="val now">21:42</span></div>
+             <div class="cols"><span class="lbl">Termina a:</span><span class="val end">23:40</span></div>
+          </div>
+        </div>
+
+        <div class="info-panel reveal">
+          <div class="poster movie">EL<br>ÚLTIMO<br>FARERO</div>
+          <div>
+            <div class="ip-title">El último farero</div>
+            <div class="ip-meta">2023 · Drama · 118 min · <span style="border:1px solid var(--line);border-radius:3px;padding:0 4px">12+</span></div>
+            <p class="ip-desc">Un farero retirado vive en la isla donde se apagó el último faro de la costa. Cuando una tormenta deja aislada a la aldea, su hija reaparece con un secreto que lo obliga a volver a encender la luz y a enfrentar lo que dejó atrás hace veinte años.</p>
+            <div class="ip-actions">
+              <button class="ctrl accent" data-action="toggle"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M8 5v14l11-7z"/></svg>Reanudar</button>
+              <button class="ctrl">Ver capítulos</button>
+            </div>
+            <div class="ip-progress">
+              <div class="lbl"><span>Reanudar en 1:06:12</span><span>56% visto</span></div>
+              <div class="seek">
+                <div class="seek__track"></div>
+                <div class="seek__buffered"></div>
+                <div class="seek__played" style="--p:0%;width:56%;background:var(--text-3)"></div>
+                <input type="range" min="0" max="7080" step="1" value="3972" aria-label="Posición">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bottom-row">
+          <div class="seek-wrap" style="opacity:0;pointer-events:none"><div class="seek"><div class="seek__track"></div></div></div>
+        </div>
+      </div>
+      <div class="hint" style="bottom:2.6cqw"><span class="kbd">Espacio</span> pausa</div>
+    </div>
+
+    <!-- ══════════════════════ 4 · REPRODUCIENDO (chrome minimo) ══════════════════════ -->
+    <div class="screen playing" id="s-playing" data-duration="3131">
+      <div class="scene scene-series"><div class="grain"></div></div>
+      <div class="scrim-top"></div>
+      <div class="scrim-bottom" style="height:30%;opacity:.7"></div>
+
+      <div class="mini-title fade-soft">
+        <div class="title">Rumbo Norte</div>
+        <div class="ep-title">T2 · E5 · La tormenta</div>
+      </div>
+
+      <div class="clock fade-soft">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <div class="cols"><span class="lbl">AHORA</span><span class="val now">21:42</span></div>
+         <div class="cols"><span class="lbl">Termina a:</span><span class="val end">22:14</span></div>
+      </div>
+
+      <div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+
+      <div class="skip"><button class="skip-btn" data-action="skip"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18V6l8 6z"/><path d="M18 6h2v12h-2z"/></svg>Saltar intro</button></div>
+
+      <div class="ui">
+        <div class="bottom-row" style="pointer-events:none">
+          <div class="seek-wrap">
+            <div class="seek">
+              <div class="seek__track"></div>
+              <div class="seek__buffered"></div>
+              <div class="seek__played"></div>
+              <div class="seek__knob"></div>
+              <input type="range" min="0" max="3131" step="1" value="42" aria-label="Posición" tabindex="-1">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="hint"><span class="kbd">Espacio</span> pausa</div>
+    </div>
+
+    <!-- ══════════════════════ 5 · UFC REPLAY (como VOD) ══════════════════════ -->
+    <div class="screen paused" id="s-ufc" data-duration="10020" data-rounds='[0.13,0.27,0.41,0.55,0.69]'>
+      <div class="scene scene-ufc"><div class="grain"></div></div>
+      <div class="scrim-top"></div>
+      <div class="scrim-bottom"></div>
+
+      <div class="ui">
+        <div class="top-row">
+          <div class="meta-block reveal">
+            <span class="ep-badge" style="background:var(--ok)">REPLAY</span>
+            <div class="title">UFC 312 · Du Plessis vs Strickland</div>
+            <div class="ep-line"><div class="ep-title">Pelea completa · Pelea estelar</div><div class="rating">★ 8.7</div></div>
+            <div class="meta-row">
+              <span>17 feb 2025</span><span class="dot"></span><span>MMA</span><span class="dot"></span><span>2 h 47 min</span><span class="dot"></span><span class="age-chip">16+</span>
+            </div>
+            <p class="desc">Revive la velada completa desde el Madison Square Garden: la revancha por el título del peso medio y las mejores peleas de la noche, en un replay con rondas navegables y sin cortes publicitarios.</p>
+          </div>
+
+          <div class="clock reveal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <div class="cols"><span class="lbl">AHORA</span><span class="val now">21:42</span></div>
+             <div class="cols"><span class="lbl">Termina a:</span><span class="val end">00:29</span></div>
+          </div>
+        </div>
+
+        <div class="bottom-row">
+          <div class="seek-wrap">
+            <div class="seek">
+              <div class="seek__track"></div>
+              <div class="seek__buffered"></div>
+              <div class="seek__played"></div>
+              <div class="seek__markers"></div>
+              <div class="seek__knob"></div>
+              <input type="range" min="0" max="10020" step="1" value="1800" aria-label="Posición">
+            </div>
+            <div class="time-row">
+              <span class="position">0:30:00</span>
+              <span class="remaining">Faltan 2:17:00 · fin 00:29</span>
+            </div>
+            <div class="controls">
+              <button class="ctrl icon" data-action="prev" aria-label="Pelea anterior"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zm13.5.6L10 12l9.5 6.4z"/></svg></button>
+              <button class="ctrl icon accent" data-action="toggle" aria-label="Pausar"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+              <button class="ctrl icon" data-action="next" aria-label="Siguiente pelea"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4.5 5.6L14 12l-9.5 6.4z"/></svg></button>
+              <div class="spacer"></div>
+              <div class="ctrl-group">
+                <button class="ctrl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 10v4a2 2 0 0 0 2 2h2l5 3V5L7 8H5a2 2 0 0 0-2 2z"/><path d="M17 9a4 4 0 0 1 0 6"/><path d="M20 6a8 8 0 0 1 0 12"/></svg><span class="tag">EN · Comentarios</span></button>
+                <button class="ctrl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M8 10l-2 2 2 2M16 10l2 2-2 2M13 8l-2 8"/></svg><span class="tag">Off</span></button>
+                <button class="ctrl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg><span class="tag">4K</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="skip"><button class="skip-btn" data-action="skip"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18V6l8 6z"/><path d="M18 6h2v12h-2z"/></svg>Saltar presentación</button></div>
+      <div class="hint"><span class="kbd">Espacio</span> pausa</div>
+    </div>
+  </section>
+
+  <section class="clock-options" aria-labelledby="clock-options-title">
+    <h2 id="clock-options-title">Opciones para AHORA / TERMINA</h2>
+    <p>La imagen se oscurece ligeramente al pausar. Compara el reloj y prueba la intensidad antes de llevarla al reproductor.</p>
+    <div class="clock-grid">
+      <article class="clock-option">
+        <h3>01 · Limpio</h3>
+        <div class="clock-clean"><strong>21:42</strong><span>ahora</span><em>·</em><strong>22:14</strong><span>termina</span></div>
+        <p>Sin contenedor. El contenido manda.</p>
+      </article>
+      <article class="clock-option">
+        <h3>02 · Separado</h3>
+        <div class="clock-stack"><small>AHORA</small><small>TERMINA</small><strong>21:42</strong><strong>22:14</strong></div>
+        <p>Jerarquía clara, discreta y legible.</p>
+      </article>
+      <article class="clock-option">
+        <h3>03 · Línea de progreso</h3>
+        <div class="clock-line"><span>21:42</span><i></i><span>22:14</span></div>
+        <p>Relaciona la hora de fin con el avance.</p>
+      </article>
+      <article class="clock-option">
+        <h3>04 · Estado</h3>
+        <div class="clock-clean"><span>Ahora</span><strong>21:42</strong></div>
+        <div class="clock-clean"><span>Fin</span><strong>22:14</strong></div>
+        <p>Más natural y fácil de escanear.</p>
+      </article>
+    </div>
+    <div class="pause-lab" aria-label="Intensidad de oscurecimiento">
+      <span>Oscurecimiento al pausar:</span>
+      <button data-dim=".84">Sutil 16%</button>
+      <button data-dim=".72" class="is-selected">Medio 28%</button>
+      <button data-dim=".60">Marcado 40%</button>
+    </div>
+  </section>
+
+  <p class="caption">
+    <b>Reloj:</b> hora de finalización calculada como <i>hora actual + duración restante</i>; cambia al hacer seek o pausar.
+    <b>Al pausar:</b> aparece la descripción del capítulo/película/evento (fade + subida, 280&nbsp;ms, ease-out-quint).
+    <b>UFC Replay:</b> mismo controlador VOD que películas/series: reanudar progreso, marcadores de rondas en el seekbar, saltar presentación y continuar viendo.
+  </p>
+</div>
+
+<script>
+  // ── Estados de cada pantalla ─────────────────────────────────
+  const screens = Array.from(document.querySelectorAll('.screen')).map(screen => {
+    const dur = Number(screen.dataset.duration);
+    const range = screen.querySelector('input[type=range]');
+    const rounds = screen.dataset.rounds ? JSON.parse(screen.dataset.rounds) : [];
+    const state = {
+      el: screen, dur, range, playing: screen.classList.contains('playing'),
+      pos: Number(range ? range.value : 0),
+      rounds,
+    };
+    // markers de capitulos (netflix/stremio)
+    const markerLayer = screen.querySelector('.seek__markers');
+    if (markerLayer && !rounds.length) {
+      [0.25, 0.5, 0.75].forEach(f => {
+        const m = document.createElement('i'); m.style.left = (f * 100) + '%'; markerLayer.appendChild(m);
+      });
+    }
+    if (markerLayer && rounds.length) {
+      rounds.forEach((f, i) => {
+        const m = document.createElement('i'); m.style.left = (f * 100) + '%';
+        const l = document.createElement('span'); l.className = 'seek__round'; l.textContent = 'R' + (i + 1);
+        l.style.left = (f * 100) + '%';
+        markerLayer.appendChild(m); markerLayer.appendChild(l);
+      });
+    }
+    return state;
+  });
+
+  let active = screens.find(s => s.el.classList.contains('active'));
+
+  const fmt = s => {
+    s = Math.max(0, Math.floor(s));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    const mm = String(m).padStart(2, '0');
+    if (h > 0) return `${h}:${mm}:${String(sec).padStart(2,'0')}`;
+    return `${m}:${String(sec).padStart(2,'0')}`;
+  };
+
+  function render(s) {
+    if (!s) return;
+    const p = s.pos, d = s.dur;
+    const pct = d > 0 ? (p / d) * 100 : 0;
+    const buf = Math.min(pct + 8, 100);
+    s.el.style.setProperty('--p', pct + '%');
+    s.el.style.setProperty('--b', buf + '%');
+    const played = s.el.querySelector('.seek__played');
+    const buffered = s.el.querySelector('.seek__buffered');
+    const knob = s.el.querySelector('.seek__knob');
+    if (played) played.style.width = pct + '%';
+    if (buffered) buffered.style.width = buf + '%';
+    if (knob) knob.style.left = pct + '%';
+
+    const posEl = s.el.querySelector('.time-row .position');
+    const remEl = s.el.querySelector('.time-row .remaining');
+    if (posEl) posEl.textContent = fmt(p);
+    if (remEl) {
+      const rem = d - p;
+      const now = new Date();
+      const end = new Date(now.getTime() + rem * 1000);
+      const endStr = end.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      if (remEl.classList.contains('remaining')) {
+        remEl.innerHTML = `Faltan ${fmt(rem)} · fin <b>${endStr}</b>`;
+        remEl.classList.toggle('ended', rem <= 0);
+      }
+    }
+    // clock
+    const clock = s.el.querySelector('.clock');
+    if (clock) {
+      const now = new Date();
+      const nowEl = clock.querySelector('.val.now');
+      const endEl = clock.querySelector('.val.end');
+      if (nowEl) nowEl.textContent = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      if (endEl) {
+        const end = new Date(now.getTime() + (d - p) * 1000);
+        endEl.textContent = end.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        endEl.classList.toggle('ended', (d - p) <= 0);
+      }
+    }
+  }
+
+  function setPlaying(s, playing) {
+    s.playing = playing;
+    s.el.classList.toggle('playing', playing);
+    s.el.classList.toggle('paused', !playing);
+    // swap play/pause icon
+    s.el.querySelectorAll('svg[id=ic-play]').forEach(() => {});
+    const icons = s.el.querySelectorAll('[data-action=toggle] svg');
+    icons.forEach(icon => {
+      icon.innerHTML = playing ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>' : '<path d="M8 5v14l11-7z"/>';
+    });
+  }
+
+  // ── tick global (1s) ────────────────────────────────────────
+  setInterval(() => {
+    render(active);
+    if (active && active.playing) {
+      active.pos = Math.min(active.pos + 1, active.dur);
+      if (active.range) active.range.value = active.pos;
+    }
+  }, 1000);
+
+  // ── seek ────────────────────────────────────────────────────
+  screens.forEach(s => {
+    if (!s.range) return;
+    s.range.addEventListener('input', () => {
+      s.pos = Number(s.range.value);
+      render(s);
+    });
+  });
+
+  // ── tabs ────────────────────────────────────────────────────
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('is-active'));
+      tab.classList.add('is-active');
+      screens.forEach(s => s.el.classList.remove('active'));
+      active = screens.find(s => s.el.id === tab.dataset.tab);
+      active.el.classList.add('active');
+      render(active);
+       const first = active.el.querySelector('.ctrl, .skip-btn, input[type=range]');
+      if (first) first.focus();
+    });
+  });
+
+  // ── roving focus D-pad + espacio ────────────────────────────
+  const focusablesOf = s => Array.from(s.el.querySelectorAll('.ctrl, .skip-btn, .tab, input[type=range]')).filter(e => e.offsetParent !== null && !e.hasAttribute('tabindex') || e.getAttribute('tabindex') === '0');
+
+  document.addEventListener('keydown', e => {
+    const cur = document.activeElement;
+    const list = focusablesOf(active).filter(el => !el.classList.contains('tab'));
+    const idx = list.indexOf(cur);
+
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      setPlaying(active, !active.playing);
+      return;
+    }
+    if (['ArrowDown', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+      const next = list[(idx + 1) % list.length];
+      if (next) next.focus();
+    } else if (['ArrowUp', 'ArrowLeft'].includes(e.key)) {
+      e.preventDefault();
+      const prev = list[(idx - 1 + list.length) % list.length];
+      if (prev) prev.focus();
+    }
+  });
+
+  // acciones de botones
+  document.querySelectorAll('.screen').forEach(screenEl => {
+    screenEl.addEventListener('click', ev => {
+      const btn = ev.target.closest('[data-action]');
+      if (!btn) return;
+      const s = screens.find(x => x.el === screenEl);
+      if (btn.dataset.action === 'toggle') setPlaying(s, !s.playing);
+      if (btn.dataset.action === 'prev') { s.pos = Math.max(0, s.pos - 600); if (s.range) s.range.value = s.pos; render(s); }
+      if (btn.dataset.action === 'next') { s.pos = Math.min(s.dur, s.pos + 600); if (s.range) s.range.value = s.pos; render(s); }
+      if (btn.dataset.action === 'skip') {
+        const skip = screenEl.querySelector('.skip');
+        if (skip) { skip.classList.remove('show'); s.pos = Math.min(s.dur, s.pos + 120); if (s.range) s.range.value = s.pos; render(s); }
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-dim]').forEach(button => {
+    button.addEventListener('click', () => {
+      document.documentElement.style.setProperty('--pause-brightness', button.dataset.dim);
+      document.querySelectorAll('[data-dim]').forEach(item => item.classList.remove('is-selected'));
+      button.classList.add('is-selected');
+    });
+  });
+
+  // mostrar skip mientras está dentro del rango inicial (netflix/ufc/playing)
+  screens.forEach(s => {
+    const skip = s.el.querySelector('.skip');
+    if (skip && s.el.dataset.skipUntil) {
+      const until = parseFloat(s.el.dataset.skipUntil);
+      if (s.pos < until) skip.classList.add('show');
+    } else if (skip) {
+      skip.classList.add('show');
+    }
+  });
+
+  // init
+  screens.forEach(render);
+</script>
+</body>
+</html>

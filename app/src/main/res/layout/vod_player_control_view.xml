@@ -8,6 +8,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <View
+        android:id="@+id/vod_pause_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/vod_pause_scrim"
+        android:visibility="gone" />
+
     <!-- Top gradient + title bar -->
     <FrameLayout
         android:id="@+id/vod_top_bar"
@@ -26,35 +33,139 @@
             android:layout_marginStart="40dp"
             android:layout_marginTop="28dp"
             android:layout_marginEnd="40dp"
-            android:orientation="vertical">
+            android:gravity="top"
+            android:orientation="horizontal">
 
-            <TextView
-                android:id="@+id/vod_title"
+            <!-- Columna izquierda: titulo, episodio y descripcion -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/vod_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:shadowColor="#80000000"
+                    android:shadowDx="0"
+                    android:shadowDy="2"
+                    android:shadowRadius="8"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:fontFamily="sans-serif-medium"
+                    tools:text="Breaking Bad" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/vod_subtitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="#99FFFFFF"
+                        android:textSize="14sp"
+                        android:fontFamily="sans-serif"
+                        tools:text="S3 · E7 · One Minute" />
+
+                    <TextView
+                        android:id="@+id/vod_rating"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:fontFamily="sans-serif-medium"
+                        android:textColor="#F0C75E"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:visibility="gone"
+                        tools:text="★ 8.4"
+                        tools:visibility="visible" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/vod_description"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:ellipsize="end"
+                    android:fontFamily="sans-serif"
+                    android:maxLines="3"
+                    android:shadowColor="#80000000"
+                    android:shadowDx="0"
+                    android:shadowDy="2"
+                    android:shadowRadius="8"
+                    android:textColor="#D9FFFFFF"
+                    android:textSize="14sp"
+                    android:visibility="gone"
+                    tools:text="Mientras la tormenta corta la luz de todo el valle, Mara descubre en el desvan de la estacion un diario que reabre una investigacion cerrada hace veinte anos."
+                    tools:visibility="visible" />
+            </LinearLayout>
+
+            <!-- Reloj superior derecho: hora actual + hora de fin -->
+            <LinearLayout
+                android:id="@+id/vod_clock"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:shadowColor="#80000000"
-                android:shadowDx="0"
-                android:shadowDy="2"
-                android:shadowRadius="8"
-                android:textColor="#FFFFFFFF"
-                android:textSize="22sp"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-medium"
-                tools:text="Breaking Bad" />
-
-            <TextView
-                android:id="@+id/vod_subtitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_marginStart="24dp"
                 android:layout_marginTop="4dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="#99FFFFFF"
-                android:textSize="14sp"
-                android:fontFamily="sans-serif"
-                tools:text="S3 · E7 · One Minute" />
+                 android:orientation="vertical"
+                 android:paddingTop="8dp"
+                 android:paddingBottom="8dp">
+
+                 <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                     android:orientation="vertical">
+                     <TextView
+                         android:id="@+id/vod_clock_now_value"
+                         android:layout_width="wrap_content"
+                         android:layout_height="wrap_content"
+                         android:layout_marginStart="60dp"
+                        android:fontFamily="sans-serif-medium"
+                        android:textColor="#FFFFFFFF"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        tools:text="21:42" />
+                </LinearLayout>
+
+                 <LinearLayout
+                     android:layout_width="wrap_content"
+                     android:layout_height="wrap_content"
+                     android:layout_marginTop="4dp"
+                     android:gravity="center_vertical"
+                     android:orientation="horizontal">
+
+                     <TextView
+                         android:layout_width="60dp"
+                         android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-medium"
+                         android:text="@string/vod_clock_end"
+                         android:textColor="#FFFFFFFF"
+                         android:textSize="10sp"
+                         android:textStyle="bold" />
+
+                    <TextView
+                         android:id="@+id/vod_clock_end_value"
+                         android:layout_width="wrap_content"
+                         android:layout_height="wrap_content"
+                          android:layout_marginStart="0dp"
+                        android:fontFamily="sans-serif-medium"
+                        android:textColor="#D9FFFFFF"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        tools:text="22:14" />
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
     </FrameLayout>
 
@@ -112,21 +223,6 @@
                     android:contentDescription="@string/vod_play_pause"
                     android:focusable="true"
                     android:scaleType="centerInside" />
-
-                <!-- Previous episode (only visible for series when previous exists) -->
-                <ImageButton
-                    android:id="@+id/vod_btn_prev"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="20dp"
-                    android:background="@drawable/bg_vod_icon_button"
-                    android:contentDescription="@string/vod_prev_episode"
-                    android:focusable="true"
-                    android:scaleType="centerInside"
-                    android:src="@drawable/ic_vod_next"
-                    android:rotation="180"
-                    android:visibility="gone"
-                    tools:visibility="visible" />
 
                 <!-- Next episode (only visible for series) -->
                 <ImageButton

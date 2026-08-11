@@ -239,6 +239,8 @@ class SeriesDetailFragment : Fragment() {
             overlayNumber = item.kind.name,
             overlayTitle = episodeToPlay.title,
             overlayMeta = buildEpisodeLabel(episodeToPlay.seasonNumber, episodeToPlay.episodeNumber).ifBlank { episodeToPlay.subtitle },
+            overlayDescription = episodeToPlay.description.ifBlank { item.description },
+            overlayRating = episodeToPlay.voteAverage ?: item.voteAverage,
             contentKind = item.kind,
             onNavigateChannel = { _ -> },
             onNavigateOption = { _ -> },
@@ -361,15 +363,29 @@ fun SeriesDetailScreen(
             allEpisodes.mapNotNullTo(this) { it.seriesName }
         }
     }
-    val progressMap by produceState<Map<Pair<Int, Int>, WatchProgressDto>>(
-        emptyMap(), allEpisodes, episodeSeriesIds, episodeSeriesNames,
+    val continueWatchingItems by produceState<List<WatchProgressDto>>(
+        emptyList(), allEpisodes, episodeSeriesIds, episodeSeriesNames,
         progressReloadTrigger, localProgressReloadTrigger,
     ) {
-        val inProgress = watchProgressRepo.getContinueWatching().getOrDefault(emptyList())
-        val watched = watchProgressRepo.getWatchedItems().getOrDefault(emptyList())
-        value = buildSeriesEpisodeProgressMap(
+        if (allEpisodes.isEmpty()) return@produceState
+        value = watchProgressRepo.getContinueWatching().getOrDefault(emptyList())
+    }
+
+    val watchedItems by produceState<List<WatchProgressDto>>(
+        emptyList(), allEpisodes, episodeSeriesIds, episodeSeriesNames,
+        progressReloadTrigger, localProgressReloadTrigger,
+    ) {
+        if (allEpisodes.isEmpty()) return@produceState
+        value = watchProgressRepo.getWatchedItems().getOrDefault(emptyList())
+    }
+
+    val progressMap = remember(
+        allEpisodes, episodeSeriesIds, episodeSeriesNames,
+        continueWatchingItems, watchedItems,
+    ) {
+        buildSeriesEpisodeProgressMap(
             episodes = allEpisodes,
-            progressItems = inProgress + watched,
+            progressItems = continueWatchingItems + watchedItems,
             seriesIds = episodeSeriesIds,
             seriesNames = episodeSeriesNames,
         )

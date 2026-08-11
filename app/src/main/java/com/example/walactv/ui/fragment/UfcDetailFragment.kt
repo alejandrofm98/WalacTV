@@ -125,6 +125,8 @@ class UfcDetailFragment : Fragment() {
             overlayNumber = item.kind.name,
             overlayTitle = item.title,
             overlayMeta = item.subtitle.ifBlank { item.badgeText },
+            overlayDescription = item.description,
+            overlayRating = item.voteAverage,
             contentKind = item.kind,
             onNavigateChannel = { _ -> },
             onNavigateOption = { _ -> },
@@ -139,6 +141,10 @@ class UfcDetailFragment : Fragment() {
             overlayLogoUrl = item.imageUrl,
             isFavorite = false,
             contentId = item.stableId,
+            onProgressSaved = { progressItem ->
+                (requireActivity().application as com.example.walactv.WalacApp)
+                    .appComponent.homeViewModel.upsertContinueWatchingEntry(progressItem)
+            },
             customHeaders = stream.headers,
         )
         val fm = requireActivity().supportFragmentManager

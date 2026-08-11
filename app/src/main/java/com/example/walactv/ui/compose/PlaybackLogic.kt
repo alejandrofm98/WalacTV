@@ -97,6 +97,7 @@ internal fun ComposeMainFragment.openContinueWatchingItem(cardItem: CatalogItem,
         when (progress.contentType) {
             "movie"  -> openContinueWatchingMovie(cardItem, progress)
             "series" -> openContinueWatchingSeries(cardItem, progress)
+            "replays" -> openContinueWatchingReplay(cardItem, progress)
             else     -> Log.w(TAG, "Unsupported continue watching type: ${progress.contentType}")
         }
     }
@@ -130,6 +131,13 @@ internal fun ComposeMainFragment.openContinueWatchingDetails(cardItem: CatalogIt
             requireActivity().supportFragmentManager.beginTransaction()
                 .replace(R.id.main_browse_fragment, fragment)
                 .addToBackStack("SeriesDetailFragment")
+                .commit()
+        }
+        "replays" -> {
+            val fragment = UfcDetailFragment.newInstance(cardItem)
+            requireActivity().supportFragmentManager.beginTransaction()
+                .replace(R.id.main_browse_fragment, fragment)
+                .addToBackStack("UfcDetailFragment")
                 .commit()
         }
         else -> Log.w(TAG, "Unsupported continue watching type for details: ${progress.contentType}")
@@ -289,11 +297,13 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     Log.d(TAG, "openContinueWatchingSeries: streamUrl=$streamUrl")
 
     withContext(Dispatchers.Main) {
-        val playerFragment = PlayerFragment()
-        val unifiedOptions = targetEpisode.streamOptions.toUnifiedOptions()
-        playerFragment.initialize(
-            streamUrl = streamUrl, overlayNumber = targetEpisode.kind.name, overlayTitle = targetEpisode.title,
-            overlayMeta = if (targetEpisode.kind == ContentKind.SERIES) buildEpisodeLabel(targetEpisode.seasonNumber, targetEpisode.episodeNumber) else targetEpisode.subtitle, contentKind = targetEpisode.kind,
+    val playerFragment = PlayerFragment()
+    val unifiedOptions = targetEpisode.streamOptions.toUnifiedOptions()
+    playerFragment.initialize(
+        streamUrl = streamUrl, overlayNumber = targetEpisode.kind.name, overlayTitle = targetEpisode.title,
+        overlayMeta = if (targetEpisode.kind == ContentKind.SERIES) buildEpisodeLabel(targetEpisode.seasonNumber, targetEpisode.episodeNumber) else targetEpisode.subtitle, contentKind = targetEpisode.kind,
+        overlayDescription = targetEpisode.description,
+        overlayRating = targetEpisode.voteAverage,
             onNavigateChannel = { _ -> }, onNavigateOption = { _ -> }, onDirectChannelNumber = { _ -> false },
             onToggleFavorite = { false }, onOpenFavorites = { false }, onOpenRecents = { false },
             onNextEpisode = nextEpisodeCallback,
@@ -317,6 +327,41 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         currentItem = cardItem
         currentStreamIndex = 0
         launchPlayerFragment(playerFragment)
+    }
+}
+
+private suspend fun ComposeMainFragment.openContinueWatchingReplay(cardItem: CatalogItem, progress: WatchProgressDto) {
+    val contentId = progress.contentId.orEmpty()
+    val slug = contentId.substringAfterLast(":")
+    val replay = runCatching {
+        repository.loadUfcEvents(page = 1, pageSize = 200).first.firstOrNull {
+            it.stableId == contentId || it.stableId.substringAfter(":") == slug || it.providerId == slug
+        }
+    }.getOrNull() ?: cardItem.takeIf { it.kind == ContentKind.UFC && it.streamOptions.isNotEmpty() }
+    if (replay == null) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(requireContext(), "No se pudo abrir el replay", Toast.LENGTH_SHORT).show()
+        }
+        return
+    }
+    val stream = replay.streamOptions.firstOrNull()
+    if (stream == null) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(requireContext(), "No hay fuentes disponibles", Toast.LENGTH_SHORT).show()
+        }
+        return
+    }
+    val resolvedUrl = try {
+        repository.resolveReplayStreamUrl(stream)
+    } catch (e: Exception) {
+        Log.e(TAG, "resolveReplayStreamUrl failed, usando proxy", e)
+        stream.url
+    }
+    val resumed = replay.copy(streamOptions = listOf(stream.copy(url = resolvedUrl)))
+    withContext(Dispatchers.Main) {
+        activePlaybackLineup = emptyList()
+        playResolvedCatalogItem(resumed, 0, positionMs = progress.positionMs ?: 0L)
+        rememberPlaybackReturnState(cardItem)
     }
 }
 
@@ -400,6 +445,8 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(
         },
         overlayTitle = item.title,
             overlayMeta = if (item.kind == ContentKind.SERIES) buildEpisodeLabel(item.seasonNumber, item.episodeNumber) else item.subtitle,
+        overlayDescription = item.description,
+        overlayRating = item.voteAverage,
         contentKind = item.kind,
         onNavigateChannel = ::navigateChannel,
         onNavigateOption = ::navigateOption,
@@ -415,8 +462,9 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(
         isFavorite = channelStateStore.isFavorite(favoriteTarget),
         contentId = item.providerId ?: item.stableId,
         positionMs = positionMs,
+        currentEpisode = if (item.kind == ContentKind.SERIES) item else null,
         onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
-        onProgressSaved = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
+        onProgressSaved = if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES || item.kind == ContentKind.UFC) {
             { progressItem -> upsertContinueWatchingEntry(progressItem) }
         } else null,
         customHeaders = stream.headers,

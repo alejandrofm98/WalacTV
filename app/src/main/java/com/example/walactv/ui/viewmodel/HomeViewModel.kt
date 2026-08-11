@@ -19,6 +19,7 @@ import com.example.walactv.ui.compose.buildEpisodeLabel
 import com.example.walactv.ui.compose.buildTmdbImageUrl
 import com.example.walactv.ui.compose.cleanDisplayText
 import com.example.walactv.ui.compose.matchesByProviderId
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -130,6 +131,11 @@ class HomeViewModel @Inject constructor(
 
     private var continueWatchingRequestVersion: Int = 0
 
+    // Raw continue-watching payloads cached so the section can be rebuilt
+    // with a fresh catalog snapshot without another network round-trip.
+    private var lastInProgressItems: List<WatchProgressDto> = emptyList()
+    private var lastWatchedItems: List<WatchProgressDto> = emptyList()
+
     // ── Day-change tracking ───────────────────────────────────────────────
 
     private var lastFetchedCalendarDate: String? = null
@@ -151,6 +157,8 @@ class HomeViewModel @Inject constructor(
             _errorMessage.value = null
             _contentSyncState.value = ContentSyncState.CHECKING
             Log.d(TAG, "startLoad: beginning content sync (forceRefresh=$forceRefresh)")
+
+            loadContinueWatching()
 
             val token = runCatching { repository.getAccessToken() }.getOrNull() ?: ""
 
@@ -254,23 +262,22 @@ class HomeViewModel @Inject constructor(
         if (_selectedHero.value == null || catalog.searchableItems.none { it.stableId == _selectedHero.value?.stableId }) {
             _selectedHero.value = defaultItemForMode()
         }
-        loadContinueWatching()
+        rebuildContinueWatchingFromCache()
     }
 
     // ── Continue watching ──────────────────────────────────────────────────
 
     fun loadContinueWatching() {
         val requestVersion = ++continueWatchingRequestVersion
-        val searchableSnapshot = _searchableItems.value
         Log.d(TAG, "loadContinueWatching[$requestVersion]: START")
         viewModelScope.launch {
             try {
-                val inProgressResult = watchProgressRepo.getContinueWatching()
-                val watchedResult = watchProgressRepo.getWatchedItems()
+                val inProgressDeferred = async { watchProgressRepo.getContinueWatching() }
+                val watchedDeferred = async { watchProgressRepo.getWatchedItems() }
 
+                val inProgressResult = inProgressDeferred.await()
                 val inProgressItems = inProgressResult.getOrDefault(emptyList())
-                val watchedItems = watchedResult.getOrDefault(emptyList())
-                Log.d(TAG, "loadContinueWatching[$requestVersion]: inProgress=${inProgressItems.size} watched=${watchedItems.size}")
+                Log.d(TAG, "loadContinueWatching[$requestVersion]: inProgress=${inProgressItems.size}")
 
                 if (inProgressResult.isFailure) {
                     Log.w(TAG, "CW in-progress fetch failed[$requestVersion], keeping existing data: ${inProgressResult.exceptionOrNull()?.message}")
@@ -281,58 +288,14 @@ class HomeViewModel @Inject constructor(
                     Log.d(TAG, "loadContinueWatching[$requestVersion]: IN_PROGRESS contentId=${wp.contentId} type=${wp.contentType} title=${wp.title} pos=${wp.positionMs} dur=${wp.durationMs} isWatched=${wp.isWatched} seriesName=${wp.seriesName}")
                 }
 
-                val entryMap = mutableMapOf<String, WatchProgressDto>()
+                lastInProgressItems = inProgressItems
+                lastWatchedItems = emptyList()
+                buildContinueWatchingSection(inProgressItems, emptyList(), requestVersion)
 
-                (inProgressItems + watchedItems).forEach { wp ->
-                    val prefix = if (wp.contentType == "series") "series" else "movie"
-                    entryMap[wp.contentId.orEmpty()] = wp
-                    entryMap["$prefix:${wp.contentId}"] = wp
-                    val bareId = (wp.contentId ?: "").substringAfterLast(":")
-                    entryMap["$prefix:$bareId"] = wp
-                    wp.providerId?.takeIf { it.isNotBlank() }?.let { pid ->
-                        entryMap[pid] = wp
-                        entryMap["$prefix:$pid"] = wp
-                    }
-                    val normalizedKey = when (wp.contentType) {
-                        "series" -> wp.seriesName?.trim()?.lowercase()
-                        else -> (wp.normalizedTitle ?: "").trim().lowercase()
-                            .ifBlank { (wp.title ?: "").trim().lowercase() }
-                    }
-                    if (!normalizedKey.isNullOrBlank()) {
-                        entryMap["title:$normalizedKey"] = wp
-                    }
-                }
-
-                if (requestVersion != continueWatchingRequestVersion) return@launch
-                _continueWatchingEntries.value = entryMap
-
-                val dedupedItems = inProgressItems
-                    .groupBy { wp ->
-                        if (wp.contentType == "series" && wp.seriesName != null)
-                            "series:${wp.seriesName}"
-                        else
-                            "movie:${wp.contentId}"
-                    }
-                    .map { (_, entries) -> entries.maxByOrNull { it.lastWatchedAt.orEmpty() }!! }
-                    .sortedByDescending { it.lastWatchedAt.orEmpty() }
-
-                Log.d(TAG, "loadContinueWatching[$requestVersion]: dedupedItems=${dedupedItems.size}")
-                dedupedItems.forEach { wp ->
-                    Log.d(TAG, "loadContinueWatching[$requestVersion]: DEDUPED contentId=${wp.contentId} title=${wp.title} pos=${wp.positionMs} seriesName=${wp.seriesName}")
-                }
-
-                if (dedupedItems.isNotEmpty()) {
-                    val catalogItems = dedupedItems.map { wp ->
-                        buildContinueWatchingItem(wp, searchableSnapshot).also { synthetic ->
-                            entryMap[synthetic.stableId] = wp
-                        }
-                    }.distinctBy { it.stableId }
-                    _continueWatchingSection.value = BrowseSection("Continuar viendo", catalogItems)
-                    Log.d(TAG, "loadContinueWatching[$requestVersion]: section SET with ${catalogItems.size} items")
-                } else {
-                    _continueWatchingSection.value = null
-                    Log.d(TAG, "loadContinueWatching[$requestVersion]: section SET to null (no items)")
-                }
+                val watchedItems = watchedDeferred.await().getOrDefault(emptyList())
+                Log.d(TAG, "loadContinueWatching[$requestVersion]: watched=${watchedItems.size}")
+                lastWatchedItems = watchedItems
+                buildContinueWatchingSection(lastInProgressItems, watchedItems, requestVersion)
 
             } catch (e: Exception) {
                 Log.w(TAG, "Could not load continue watching[$requestVersion]: ${e.message}", e)
@@ -340,26 +303,108 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    private fun rebuildContinueWatchingFromCache() {
+        if (lastInProgressItems.isEmpty() && lastWatchedItems.isEmpty()) return
+        val requestVersion = ++continueWatchingRequestVersion
+        Log.d(TAG, "loadContinueWatching[$requestVersion]: rebuild from cache (inProgress=${lastInProgressItems.size} watched=${lastWatchedItems.size})")
+        buildContinueWatchingSection(lastInProgressItems, lastWatchedItems, requestVersion)
+    }
+
+    private fun buildContinueWatchingSection(
+        inProgressItems: List<WatchProgressDto>,
+        watchedItems: List<WatchProgressDto>,
+        requestVersion: Int,
+    ) {
+        if (requestVersion != continueWatchingRequestVersion) return
+
+        val entryMap = mutableMapOf<String, WatchProgressDto>()
+
+        (inProgressItems + watchedItems).forEach { wp ->
+            val prefix = if (wp.contentType == "series") "series" else "movie"
+            entryMap[wp.contentId.orEmpty()] = wp
+            entryMap["$prefix:${wp.contentId}"] = wp
+            val bareId = (wp.contentId ?: "").substringAfterLast(":")
+            entryMap["$prefix:$bareId"] = wp
+            wp.providerId?.takeIf { it.isNotBlank() }?.let { pid ->
+                entryMap[pid] = wp
+                entryMap["$prefix:$pid"] = wp
+            }
+            val normalizedKey = when (wp.contentType) {
+                "series" -> wp.seriesName?.trim()?.lowercase()
+                else -> (wp.normalizedTitle ?: "").trim().lowercase()
+                    .ifBlank { (wp.title ?: "").trim().lowercase() }
+            }
+            if (!normalizedKey.isNullOrBlank()) {
+                entryMap["title:$normalizedKey"] = wp
+            }
+        }
+
+        if (requestVersion != continueWatchingRequestVersion) return
+        _continueWatchingEntries.value = entryMap
+
+        val dedupedItems = inProgressItems
+            .groupBy { wp ->
+                if (wp.contentType == "series" && wp.seriesName != null)
+                    "series:${wp.seriesName}"
+                else
+                    "movie:${wp.contentId}"
+            }
+            .map { (_, entries) -> entries.maxByOrNull { it.lastWatchedAt.orEmpty() }!! }
+            .sortedByDescending { it.lastWatchedAt.orEmpty() }
+
+        Log.d(TAG, "loadContinueWatching[$requestVersion]: dedupedItems=${dedupedItems.size}")
+        dedupedItems.forEach { wp ->
+            Log.d(TAG, "loadContinueWatching[$requestVersion]: DEDUPED contentId=${wp.contentId} title=${wp.title} pos=${wp.positionMs} seriesName=${wp.seriesName}")
+        }
+
+        if (dedupedItems.isNotEmpty()) {
+            val catalogItems = dedupedItems.map { wp ->
+                buildContinueWatchingItem(wp).also { synthetic ->
+                    entryMap[synthetic.stableId] = wp
+                }
+            }.distinctBy { it.stableId }
+            _continueWatchingSection.value = BrowseSection("Continuar viendo", catalogItems)
+            Log.d(TAG, "loadContinueWatching[$requestVersion]: section SET with ${catalogItems.size} items")
+        } else {
+            _continueWatchingSection.value = null
+            Log.d(TAG, "loadContinueWatching[$requestVersion]: section SET to null (no items)")
+        }
+    }
+
     // ── Continue watching item builder ─────────────────────────────────────
 
     private fun buildContinueWatchingItem(
         wp: WatchProgressDto,
-        searchableSnapshot: List<CatalogItem>,
     ): CatalogItem {
-        val kind = if (wp.contentType == "series") ContentKind.SERIES else ContentKind.MOVIE
+        val kind = when (wp.contentType) {
+            "series" -> ContentKind.SERIES
+            "replays" -> ContentKind.UFC
+            else -> ContentKind.MOVIE
+        }
         val subtitle = if (wp.contentType == "series") buildEpisodeLabel(wp.seasonNumber, wp.episodeNumber) else ""
         val fallbackTitle = wp.normalizedTitle.cleanDisplayText()
             .ifBlank { wp.seriesName.cleanDisplayText() }
             .ifBlank { wp.title.cleanDisplayText() }
-        val fallbackStableId = if (wp.contentType == "series") "cw_series:${wp.contentId}" else "cw_movie:${wp.contentId}"
+        val fallbackStableId = when (wp.contentType) {
+            "series" -> "cw_series:${wp.contentId}"
+            "replays" -> "cw_ufc:${wp.contentId}"
+            else -> "cw_movie:${wp.contentId}"
+        }
 
         val homeSnapshot = _homeSections.value.asSequence().flatMap { it.items.asSequence() }.toList()
-        val richSnapshot = homeSnapshot + searchableSnapshot
+        val richSnapshot = homeSnapshot + _searchableItems.value
 
         val matched = when (wp.contentType) {
             "movie" -> richSnapshot.firstOrNull { it.kind == ContentKind.MOVIE && it.matchesByProviderId(wp.contentId.orEmpty()) }
             "series" -> findSeriesMatch(wp, richSnapshot)
                 ?: richSnapshot.firstOrNull { it.kind == ContentKind.SERIES && it.matchesByProviderId(wp.contentId.orEmpty()) }
+            "replays" -> {
+                val slug = wp.contentId.orEmpty().substringAfterLast(":")
+                richSnapshot.firstOrNull {
+                    it.kind == ContentKind.UFC &&
+                        (it.stableId == wp.contentId || it.stableId.substringAfter(":") == slug || it.providerId == slug)
+                }
+            }
             else -> null
         }
 
@@ -513,7 +558,6 @@ class HomeViewModel @Inject constructor(
     }
 
     fun upsertContinueWatchingEntry(item: WatchProgressDto) {
-        val searchableSnapshot = _searchableItems.value
         val previous = _continueWatchingEntries.value[item.contentId.orEmpty()]
             ?: _continueWatchingEntries.value["${item.contentType}:${item.contentId}"]
             ?: _continueWatchingEntries.value[(item.contentId ?: "").substringAfterLast(":")]
@@ -538,7 +582,7 @@ class HomeViewModel @Inject constructor(
         }
         _continueWatchingEntries.value = newEntryMap
 
-        val synthetic = buildContinueWatchingItem(progressItem, searchableSnapshot)
+        val synthetic = buildContinueWatchingItem(progressItem)
         newEntryMap[synthetic.stableId] = progressItem
 
         val currentCwItems = _continueWatchingSection.value?.items?.toMutableList() ?: mutableListOf()
@@ -563,7 +607,7 @@ class HomeViewModel @Inject constructor(
             .map { it.first }
 
         val catalogItems = reorderedItems.map { wp ->
-            buildContinueWatchingItem(wp, searchableSnapshot).also { syn ->
+            buildContinueWatchingItem(wp).also { syn ->
                 newEntryMap[syn.stableId] = wp
             }
         }
@@ -575,6 +619,8 @@ class HomeViewModel @Inject constructor(
         _homeCatalog.value = null
         _continueWatchingSection.value = null
         _continueWatchingEntries.value = emptyMap()
+        lastInProgressItems = emptyList()
+        lastWatchedItems = emptyList()
         _searchableItems.value = emptyList()
         _channelLineup.value = emptyList()
         _selectedHero.value = null

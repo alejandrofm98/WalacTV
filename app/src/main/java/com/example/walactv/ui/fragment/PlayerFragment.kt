@@ -71,6 +71,8 @@ class PlayerFragment : Fragment() {
     private var overlayNumber: String = ""
     private var overlayTitle: String = ""
     private var overlayMeta: String = ""
+    private var overlayDescription: String = ""
+    private var overlayRating: Double? = null
     private var contentKind: ContentKind = ContentKind.MOVIE
     private var onNavigateChannel: ((Int) -> Unit)? = null
     private var onNavigateOption: ((Int) -> Unit)? = null
@@ -115,6 +117,8 @@ class PlayerFragment : Fragment() {
         overlayNumber: String,
         overlayTitle: String,
         overlayMeta: String,
+        overlayDescription: String = "",
+        overlayRating: Double? = null,
         contentKind: ContentKind,
         onNavigateChannel: (Int) -> Unit,
         onNavigateOption: (Int) -> Unit,
@@ -146,6 +150,8 @@ class PlayerFragment : Fragment() {
         this.overlayNumber = overlayNumber
         this.overlayTitle = overlayTitle
         this.overlayMeta = overlayMeta
+        this.overlayDescription = overlayDescription
+        this.overlayRating = overlayRating
         this.contentKind = contentKind
         this.onNavigateChannel = onNavigateChannel
         this.onNavigateOption = onNavigateOption
@@ -192,6 +198,10 @@ class PlayerFragment : Fragment() {
     private lateinit var overlayTitleView: TextView
     private lateinit var overlayMetaView: TextView
     private lateinit var bottomPanelView: LinearLayout
+    private var vodDescriptionView: TextView? = null
+    private var vodPauseScrimView: View? = null
+    private var vodClockNowView: TextView? = null
+    private var vodClockEndView: TextView? = null
     private var channelLogoView: ImageView? = null
     private var channelProgressBar: ProgressBar? = null
     private var btnGuide: View? = null
@@ -239,7 +249,9 @@ class PlayerFragment : Fragment() {
     private val positionWatchdog = Runnable { checkPositionStuck() }
 
     private val isVodMode: Boolean
-        get() = contentKind == ContentKind.MOVIE || contentKind == ContentKind.SERIES
+        get() = contentKind == ContentKind.MOVIE ||
+            contentKind == ContentKind.SERIES ||
+            contentKind == ContentKind.UFC
 
     private val isEventMode: Boolean
         get() = contentKind == ContentKind.EVENT
@@ -271,6 +283,8 @@ class PlayerFragment : Fragment() {
         playerView.controllerAutoShow = true
         playerView.requestFocus()
 
+        bindVodPauseOverlay()
+
         if (contentKind == ContentKind.SERIES) {
             introDbRepository = (requireActivity().application as WalacApp).appComponent.introDbRepository
             fetchIntroDbSegments()
@@ -290,6 +304,10 @@ class PlayerFragment : Fragment() {
                     playerView.findViewById<TextView>(R.id.vod_title)?.text = overlayTitle
                     playerView.findViewById<TextView>(R.id.vod_subtitle)?.text = overlayMeta
                     updateVodTimeDisplay()
+                    updatePausedOverlay()
+                } else {
+                    vodDescriptionView?.visibility = View.GONE
+                    vodPauseScrimView?.visibility = View.GONE
                 }
             },
         )
@@ -297,10 +315,80 @@ class PlayerFragment : Fragment() {
         playerView.post { playerView.showController() }
     }
 
+    /**
+     * Overlay de pausa: descripcion y reloj.
+     * La descripcion solo aparece cuando el video esta pausado
+     * y el controlador es visible.
+     */
+    private fun bindVodPauseOverlay() {
+        vodDescriptionView = playerView.findViewById(R.id.vod_description)
+        vodPauseScrimView = playerView.findViewById(R.id.vod_pause_scrim)
+        playerView.findViewById<TextView>(R.id.vod_rating)?.let { ratingView ->
+            overlayRating?.takeIf { it > 0.0 }?.let { rating ->
+                ratingView.text = "★ ${String.format(java.util.Locale.US, "%.1f", rating)}"
+                ratingView.visibility = View.VISIBLE
+            } ?: run {
+                ratingView.visibility = View.GONE
+            }
+        }
+        vodClockNowView = playerView.findViewById(R.id.vod_clock_now_value)
+        vodClockEndView = playerView.findViewById(R.id.vod_clock_end_value)
+
+        vodDescriptionView?.text = overlayDescription
+
+    }
+
+    private fun updatePausedOverlay() {
+        val paused = player?.isPlaying == false
+        // Al pausar, mantener el overlay visible (estilo Netflix); al reproducir, timeout normal.
+        playerView.controllerShowTimeoutMs = if (paused) Integer.MAX_VALUE else VOD_CONTROLLER_TIMEOUT_MS
+        val controllerVisible = playerView.isControllerFullyVisible
+        if (paused && controllerVisible) {
+            vodPauseScrimView?.visibility = View.VISIBLE
+            if (overlayDescription.isNotBlank()) {
+                vodDescriptionView?.visibility = View.VISIBLE
+            }
+        } else {
+            vodPauseScrimView?.visibility = View.GONE
+            vodDescriptionView?.visibility = View.GONE
+        }
+    }
+
     private fun updateVodTimeDisplay() {
         val exoPlayer = player ?: return
         playerView.findViewById<TextView>(R.id.vod_position)?.text = formatTime(exoPlayer.currentPosition)
         playerView.findViewById<TextView>(R.id.vod_duration)?.text = formatTime(exoPlayer.duration)
+        updateVodClock(exoPlayer)
+    }
+
+    /**
+     * Reloj superior derecho: hora actual y hora estimada de finalizacion.
+     * Fin = ahora + (duracion - posicion), por lo que cambia al pausar o hacer seek.
+     */
+    private fun updateVodClock(exoPlayer: ExoPlayer) {
+        val now = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        vodClockNowView?.text = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(now.time)
+
+        val duration = exoPlayer.duration
+        if (duration > 0L) {
+            val remaining = duration - exoPlayer.currentPosition
+            if (remaining > 0L) {
+                val end = (now.timeInMillis + remaining).let {
+                    java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(it))
+                }
+                vodClockEndView?.text = end
+                vodClockEndView?.setTextColor(0xFFD9FFFFFF.toInt())
+            } else {
+                vodClockEndView?.text = "--:--"
+                vodClockEndView?.setTextColor(0xFF1DB954.toInt())
+            }
+        } else {
+            vodClockEndView?.text = "--:--"
+            vodClockEndView?.setTextColor(0xFFD9FFFFFF.toInt())
+        }
     }
 
     private fun setupLiveMode(view: View) {
@@ -553,18 +641,6 @@ class PlayerFragment : Fragment() {
             nextBtn?.visibility = View.GONE
         }
 
-        val prevBtn = playerView.findViewById<ImageButton>(R.id.vod_btn_prev)
-        if (contentKind == ContentKind.SERIES && onPreviousEpisode != null) {
-            prevBtn?.visibility = View.VISIBLE
-            prevBtn?.setOnClickListener {
-                watchedMarked = false
-                advancedToNext = false
-                onPreviousEpisode?.invoke()
-            }
-        } else {
-            prevBtn?.visibility = View.GONE
-        }
-
         bindSkipButtons()
 
         handler.removeCallbacks(timeUpdateRunnable)
@@ -595,6 +671,7 @@ class PlayerFragment : Fragment() {
         val contentType = when (contentKind) {
             ContentKind.MOVIE -> "movie"
             ContentKind.SERIES -> "series"
+            ContentKind.UFC -> "replays"
             else -> { Log.w(TAG, "saveWatchProgress: unknown contentKind=$contentKind"); return }
         }
 
@@ -778,7 +855,7 @@ class PlayerFragment : Fragment() {
 
         app.applicationScope.launch(Dispatchers.IO) {
             when (contentKind) {
-                ContentKind.MOVIE -> {
+                ContentKind.MOVIE, ContentKind.UFC -> {
                     repo.markAsWatched(contentId)
                 }
                 ContentKind.SERIES -> {
@@ -1624,7 +1701,6 @@ class PlayerFragment : Fragment() {
             R.id.vod_btn_stream,
             R.id.vod_btn_subtitles,
             R.id.vod_btn_next,
-            R.id.vod_btn_prev,
         )
         return customButtonIds
             .mapNotNull { id -> playerView.findViewById<View>(id) }
@@ -1661,7 +1737,6 @@ class PlayerFragment : Fragment() {
 
     private fun moveFocusToFirstCustomButton() {
         val customButtonIds = listOf(
-            R.id.vod_btn_prev,
             R.id.vod_btn_next,
             R.id.vod_btn_stream,
             R.id.vod_btn_subtitles,
@@ -2048,6 +2123,14 @@ class PlayerFragment : Fragment() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             val stateName = playbackStateName(player?.playbackState ?: -1)
             Log.d(TAG, "onIsPlayingChanged: isPlaying=$isPlaying playbackState=$stateName isVod=$isVodMode")
+            if (isVodMode) {
+                if (!isPlaying && !isReleasing) {
+                    playerView.showController()
+                }
+                updatePausedOverlay()
+                if (isPlaying) {
+                }
+            }
             if (isPlaying && !isVodMode) {
                 lastKnownPositionMs = Long.MIN_VALUE
                 stuckPositionCount = 0

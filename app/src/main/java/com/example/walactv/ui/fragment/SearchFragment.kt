@@ -199,6 +199,8 @@ class SearchFragment : Fragment() {
                 },
                 overlayTitle = resolvedItem.title,
                 overlayMeta = if (resolvedItem.kind == ContentKind.SERIES) buildEpisodeLabel(resolvedItem.seasonNumber, resolvedItem.episodeNumber) else resolvedItem.subtitle,
+                overlayDescription = resolvedItem.description,
+                overlayRating = resolvedItem.voteAverage,
                 contentKind = resolvedItem.kind,
                 onNavigateChannel = ::navigateChannel,
                 onNavigateOption = ::navigateOption,

@@ -728,9 +728,11 @@ internal fun ContinueWatchingOptionsMenu(
         stringResource(R.string.cw_menu_clear_progress),
     )
     val displayTitle = if (item.kind == ContentKind.SERIES) {
-        progress.seriesName?.takeIf { it.isNotBlank() }
-            ?: item.seriesName?.takeIf { it.isNotBlank() }
-            ?: item.title
+        progress.tmdbTitle.cleanDisplayText()
+            .ifBlank { item.tmdbTitle.cleanDisplayText() }
+            .ifBlank { progress.seriesName.cleanDisplayText() }
+            .ifBlank { item.seriesName.cleanDisplayText() }
+            .ifBlank { item.title }
     } else {
         item.title
     }

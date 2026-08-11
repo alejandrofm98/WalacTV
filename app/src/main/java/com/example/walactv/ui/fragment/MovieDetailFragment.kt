@@ -155,6 +155,8 @@ class MovieDetailFragment : Fragment() {
             overlayNumber = item.kind.name,
             overlayTitle = item.title,
             overlayMeta = item.subtitle,
+            overlayDescription = item.description,
+            overlayRating = item.voteAverage,
             contentKind = item.kind,
             onNavigateChannel = { _ -> },
             onNavigateOption = { _ -> },

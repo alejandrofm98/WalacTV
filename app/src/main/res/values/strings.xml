@@ -48,6 +48,11 @@
     <string name="vod_audio_dialog_title">Audio</string>
     <string name="vod_no_subtitles_available">No hay subtitulos disponibles</string>
     <string name="vod_no_audio_available">No hay pistas de audio disponibles</string>
+    <string name="vod_clock_now">AHORA</string>
+    <string name="vod_clock_end">Termina a:</string>
+    <string name="vod_center_play">Reproducir</string>
+    <string name="vod_center_pause">Pausar</string>
+    <string name="vod_description_hidden">--</string>
     <string name="episode_not_available_in_language">Este capitulo no esta disponible en el idioma seleccionado</string>
     <string name="codec_unsupported_device">Este dispositivo no soporta el formato de video</string>
     <string name="skip_intro">Saltar introduccion</string>
