@@ -168,7 +168,7 @@ class PlayerFragment : Fragment() {
         this.advancedToNext = false
         this.completionCleanupStarted = false
         this.currentSegments = null
-        this.skippedSegmentTypes.clear()
+        this.segmentButtonsHidden = false
         this.streamOptionLabels = streamOptionLabels
         this.currentOptionIndex = currentOptionIndex
         this.liveOptionIndex = currentOptionIndex
@@ -237,7 +237,7 @@ class PlayerFragment : Fragment() {
     private var advancedToNext = false
     private var introDbRepository: IntroDbRepository? = null
     private var currentSegments: IntroDbSegments? = null
-    private val skippedSegmentTypes = mutableSetOf<String>()
+    private var segmentButtonsHidden = false
 
     private var errorState: PlaybackError? = null
     private var isRetrying: Boolean = false
@@ -600,7 +600,7 @@ class PlayerFragment : Fragment() {
         override fun run() {
             if (player != null && !isReleasing && isVodMode) {
                 updateVodTimeDisplay()
-                 autoSkipSegments()
+                 updateSkipButtons()
                 handler.postDelayed(this, 1000)
             }
         }
@@ -640,6 +640,8 @@ class PlayerFragment : Fragment() {
         } else {
             nextBtn?.visibility = View.GONE
         }
+
+        bindSkipButtons()
 
         handler.removeCallbacks(timeUpdateRunnable)
         handler.post(timeUpdateRunnable)
@@ -749,7 +751,7 @@ class PlayerFragment : Fragment() {
         val season = episode.seasonNumber ?: return
         val ep = episode.episodeNumber ?: return
         val repo = introDbRepository ?: return
-        skippedSegmentTypes.clear()
+        segmentButtonsHidden = false
         currentSegments = null
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -761,21 +763,87 @@ class PlayerFragment : Fragment() {
         }
     }
 
-    private fun autoSkipSegments() {
+    private fun bindSkipButtons() {
+        val skipIntroBtn = playerView.findViewById<TextView>(R.id.skip_intro)
+        val skipRecapBtn = playerView.findViewById<TextView>(R.id.skip_recap)
+        val skipCreditsBtn = playerView.findViewById<TextView>(R.id.skip_credits)
+
+        skipIntroBtn?.setOnClickListener {
+            player?.let { p ->
+                val endMs = currentSegments?.intro?.endMs ?: return@setOnClickListener
+                segmentButtonsHidden = true
+                p.seekTo(endMs)
+            }
+        }
+
+        skipRecapBtn?.setOnClickListener {
+            player?.let { p ->
+                val endMs = currentSegments?.recap?.endMs ?: return@setOnClickListener
+                segmentButtonsHidden = true
+                p.seekTo(endMs)
+            }
+        }
+
+        skipCreditsBtn?.setOnClickListener {
+            player?.let { p ->
+                val endMs = currentSegments?.outro?.endMs ?: return@setOnClickListener
+                segmentButtonsHidden = true
+                p.seekTo(endMs)
+            }
+        }
+    }
+
+    private fun updateSkipButtons() {
+        if (segmentButtonsHidden) return
         val segments = currentSegments ?: return
         val exoPlayer = player ?: return
         val position = exoPlayer.currentPosition
-        listOf(
-            "intro" to segments.intro,
-            "recap" to segments.recap,
-            "outro" to segments.outro,
-        ).forEach { (type, segment) ->
-            val startMs = segment?.startMs ?: return@forEach
-            val endMs = segment.endMs ?: return@forEach
-            if (type !in skippedSegmentTypes && position in startMs until endMs) {
-                skippedSegmentTypes += type
-                exoPlayer.seekTo(endMs)
+        val isControllerVisible = playerView.isControllerFullyVisible
+
+        val overlay = playerView.findViewById<View>(R.id.skip_overlay) ?: return
+        val skipIntroBtn = playerView.findViewById<TextView>(R.id.skip_intro)
+        val skipRecapBtn = playerView.findViewById<TextView>(R.id.skip_recap)
+        val skipCreditsBtn = playerView.findViewById<TextView>(R.id.skip_credits)
+
+        val bufferMs = 3000L
+        var anyVisible = false
+
+        segments.intro?.let {
+            val startMs = it.startMs ?: return@let
+            val endMs = it.endMs ?: return@let
+            if (position in startMs..(endMs + bufferMs)) {
+                skipIntroBtn?.visibility = View.VISIBLE
+                anyVisible = true
+            } else {
+                skipIntroBtn?.visibility = View.GONE
             }
+        }
+
+        segments.recap?.let {
+            val startMs = it.startMs ?: return@let
+            val endMs = it.endMs ?: return@let
+            if (position in startMs..(endMs + bufferMs)) {
+                skipRecapBtn?.visibility = View.VISIBLE
+                anyVisible = true
+            } else {
+                skipRecapBtn?.visibility = View.GONE
+            }
+        }
+
+        segments.outro?.let {
+            val startMs = it.startMs ?: return@let
+            if (position >= startMs) {
+                skipCreditsBtn?.visibility = View.VISIBLE
+                anyVisible = true
+            } else {
+                skipCreditsBtn?.visibility = View.GONE
+            }
+        }
+
+        if (isControllerVisible) {
+            overlay.visibility = View.VISIBLE
+        } else {
+            overlay.visibility = if (anyVisible) View.VISIBLE else View.GONE
         }
     }
 
