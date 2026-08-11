@@ -160,8 +160,9 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
                                         try {
                                             val pageSize = 24
                                             val nextPage = sectionToLoad.currentPage + 1
+                                            val contentType = sectionToLoad.contentType ?: return@launch
                                             val (newItems, hasNext) = fragment.repository.loadContentPage(
-                                                sectionToLoad.contentType!!, sectionToLoad.groupName, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
+                                                contentType, sectionToLoad.groupName, nextPage, pageSize, sectionToLoad.year, sectionToLoad.sectionTitle
                                             )
                                             val actuallyHasNext = if (newItems.isEmpty()) false else hasNext
                                             val updated = sectionToLoad.copy(

@@ -27,7 +27,7 @@ class AppUpdateRepository(context: Context) {
         .build()
 
     fun installedVersion(): InstalledAppVersion {
-        val packageInfo = appContext.packageManager.getPackageInfo(appContext.packageName, 0)!!
+        val packageInfo = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
         val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             packageInfo.longVersionCode.toInt()
         } else {

@@ -2147,7 +2147,7 @@ class PlayerFragment : Fragment() {
                 val state = player?.playbackState
                 if (state == Player.STATE_BUFFERING) {
                     handler.postDelayed({
-                        if (player != null && !isReleasing && player?.playbackState == Player.STATE_BUFFERING && !player!!.isPlaying) {
+                        if (!isReleasing && player?.playbackState == Player.STATE_BUFFERING && player?.isPlaying == false) {
                             handlePlaybackError(null)
                         }
                     }, STALL_RECOVERY_MS)

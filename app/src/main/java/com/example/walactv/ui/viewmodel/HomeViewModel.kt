@@ -349,7 +349,7 @@ class HomeViewModel @Inject constructor(
                 else
                     "movie:${wp.contentId}"
             }
-            .map { (_, entries) -> entries.maxByOrNull { it.lastWatchedAt.orEmpty() }!! }
+            .map { (_, entries) -> entries.maxBy { it.lastWatchedAt.orEmpty() } }
             .sortedByDescending { it.lastWatchedAt.orEmpty() }
 
         Log.d(TAG, "loadContinueWatching[$requestVersion]: dedupedItems=${dedupedItems.size}")

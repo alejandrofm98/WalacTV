@@ -52,8 +52,9 @@ import com.example.walactv.ui.theme.*
 internal fun ComposeRoot(fragment: ComposeMainFragment) {
     Box(modifier = Modifier.fillMaxSize().background(IptvBackground)) {
         with(fragment) {
+            val update = mandatoryUpdate
             when {
-                mandatoryUpdate != null                           -> MandatoryUpdateScreen(fragment, mandatoryUpdate!!)
+                update != null                                     -> MandatoryUpdateScreen(fragment, update)
                 !isSignedIn                                      -> LoginScreen(fragment)
                 errorMessage != null                             -> ErrorScreen(fragment, errorMessage.orEmpty())
                 contentSyncState == ContentSyncState.ERROR && !isLoaded ->
