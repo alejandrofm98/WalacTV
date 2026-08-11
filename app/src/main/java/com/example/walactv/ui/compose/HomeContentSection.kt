@@ -111,7 +111,7 @@ internal fun ContentSection(
         }
     }
 
-    LaunchedEffect(fragment.pendingFocusItem, fragment.pendingFocusTrigger) {
+    LaunchedEffect(fragment.pendingFocusTrigger) {
         val target = fragment.pendingFocusItem ?: return@LaunchedEffect
         val targetId = target.stableId
         Log.d("HomeContent", "=== LaunchedEffect FOCUS RESTORE: section=${section.title} targetId=$targetId items=${section.items.size} ===")

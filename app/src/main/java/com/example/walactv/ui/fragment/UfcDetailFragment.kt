@@ -50,15 +50,12 @@ import kotlinx.coroutines.launch
 
 class UfcDetailFragment : Fragment() {
 
-    private val cachedItems = mutableMapOf<String, CatalogItem>()
-
     companion object {
         private const val TAG = "UfcDetailFragment"
 
         fun newInstance(item: CatalogItem): UfcDetailFragment {
             Log.d(TAG, "newInstance item=${item.title.take(80)} streamOptions=${item.streamOptions.size}")
             return UfcDetailFragment().apply {
-                cachedItems[item.stableId] = item
                 arguments = createItemBundle(item)
             }
         }
@@ -72,6 +69,7 @@ class UfcDetailFragment : Fragment() {
                 putString("imageUrl", item.imageUrl)
                 putString("group", item.group)
                 putString("badgeText", item.badgeText)
+                putSerializable("streamOptions", ArrayList(item.streamOptions))
             }
         }
     }
@@ -81,7 +79,7 @@ class UfcDetailFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View {
-        val item = cachedItems[requireArguments().getString("stableId")] ?: parseArguments(requireArguments())
+        val item = parseArguments(requireArguments())
         return ComposeView(requireContext()).apply {
             setContent {
                 WalacTVTheme {
@@ -97,11 +95,7 @@ class UfcDetailFragment : Fragment() {
 
     @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
     private fun playSelectedSource(selectedIndex: Int) {
-        val stableId = requireArguments().getString("stableId")
-        val item = cachedItems[stableId] ?: run {
-            Log.e(TAG, "playSelectedSource: no cached item for stableId=$stableId")
-            return
-        }
+        val item = parseArguments(requireArguments())
         val stream = item.streamOptions.getOrNull(selectedIndex) ?: run {
             android.widget.Toast.makeText(
                 requireContext(),
@@ -157,6 +151,7 @@ class UfcDetailFragment : Fragment() {
         runCatching { container.requestFocus() }
     }
 
+    @Suppress("DEPRECATION", "UNCHECKED_CAST")
     private fun parseArguments(args: Bundle): CatalogItem {
         return CatalogItem(
             stableId = args.getString("stableId") ?: "",
@@ -167,6 +162,7 @@ class UfcDetailFragment : Fragment() {
             kind = ContentKind.UFC,
             group = args.getString("group") ?: "",
             badgeText = args.getString("badgeText") ?: "",
+            streamOptions = (args.getSerializable("streamOptions") as? List<StreamOption>) ?: emptyList(),
         )
     }
 }

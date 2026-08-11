@@ -367,9 +367,11 @@ class IptvRepository @Inject constructor(context: Context) {
                     sourceGroup.group?.takeIf { it.isNotBlank() },
                     source.label?.takeIf { it.isNotBlank() },
                 ).joinToString(" · ").ifBlank { "UFC" }
+                val proxyUrl = "${BuildConfig.IPTV_BASE_URL}/api/replays/$slug/stream/$sourceIndex/${source.buttonIndex}?token=${token.orEmpty()}"
+                val directUrl = source.streamUrl?.takeIf { it.isNotBlank() }
                 StreamOption(
                     label = label,
-                    url = "${BuildConfig.IPTV_BASE_URL}/api/replays/$slug/stream/$sourceIndex/${source.buttonIndex}?token=${token.orEmpty()}",
+                    url = directUrl ?: proxyUrl,
                     providerId = slug,
                     quality = null,
                     provider = source.provider?.takeIf { it.isNotBlank() },

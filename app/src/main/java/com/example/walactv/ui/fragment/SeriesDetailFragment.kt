@@ -49,7 +49,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.runtime.*
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.awaitAll
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -386,13 +388,29 @@ fun SeriesDetailScreen(
     val seasonsListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
+    val seriesContentId = remember(seriesId, initialSeriesItem, allEpisodes) {
+        listOf(
+            initialSeriesItem?.catalogId,
+            initialSeriesItem?.seriesKey,
+            initialSeriesItem?.providerId,
+            initialSeriesItem?.seriesProviderId,
+            seriesId,
+            allEpisodes.firstOrNull()?.seriesKey,
+        )
+            .mapNotNull { it?.trim()?.takeIf(String::isNotEmpty)?.substringAfterLast(":") }
+            .firstOrNull { it.isNotBlank() }
+    }
+
     val markEpisodes = markEpisodes@ { targets: List<CatalogItem> ->
         if (targets.isEmpty()) return@markEpisodes
         coroutineScope.launch {
-            targets.all { ep ->
-                val contentId = ep.providerId ?: ep.stableId.substringAfterLast(":")
-                watchProgressRepo.markAsWatched(contentId, ep.seasonNumber, ep.episodeNumber)
+            val results = targets.map { ep ->
+                async {
+                    val contentId = seriesContentId ?: ep.providerId ?: ep.stableId.substringAfterLast(":")
+                    watchProgressRepo.markAsWatched(contentId, ep.seasonNumber, ep.episodeNumber)
+                }
             }
+            results.awaitAll()
             contextEpisode = null
             localProgressReloadTrigger++
         }

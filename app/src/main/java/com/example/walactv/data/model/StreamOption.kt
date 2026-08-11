@@ -2,6 +2,7 @@ package com.example.walactv.data.model
 
 import com.example.walactv.data.util.languageDisplayLabel
 import com.example.walactv.data.util.normalizeLanguageCode
+import java.io.Serializable
 
 private val KNOWN_QUALITY_TOKENS = setOf("UHD", "4K", "FHD", "HD", "SD", "HEVC", "H265", "HQ", "LQ")
 
@@ -15,7 +16,7 @@ data class StreamOption(
     val provider: String? = null,
     val providerVideoId: String? = null,
     val streamFormat: String? = null,
-)
+) : Serializable
 
 data class UnifiedStreamOption(
     val language: String,
