@@ -727,6 +727,21 @@ internal fun ContinueWatchingOptionsMenu(
         stringResource(R.string.cw_menu_mark_watched),
         stringResource(R.string.cw_menu_clear_progress),
     )
+    val displayTitle = if (item.kind == ContentKind.SERIES) {
+        progress.seriesName?.takeIf { it.isNotBlank() }
+            ?: item.seriesName?.takeIf { it.isNotBlank() }
+            ?: item.title
+    } else {
+        item.title
+    }
+    val episodeLabel = if (item.kind == ContentKind.SERIES) {
+        buildEpisodeLabel(
+            season = progress.seasonNumber ?: item.seasonNumber,
+            episode = progress.episodeNumber ?: item.episodeNumber,
+        )
+    } else {
+        ""
+    }
 
     var selectedIndex by remember { mutableIntStateOf(0) }
     val focusRequester = remember { FocusRequester() }
@@ -789,12 +804,20 @@ internal fun ContinueWatchingOptionsMenu(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        item.title,
+                        displayTitle,
                         color = IptvTextMuted,
                         fontSize = 14.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (episodeLabel.isNotBlank()) {
+                        Text(
+                            episodeLabel,
+                            color = IptvTextMuted,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     options.forEachIndexed { index, label ->
                         val isSelected = index == selectedIndex
