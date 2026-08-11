@@ -1014,6 +1014,8 @@ class IptvRepository @Inject constructor(context: Context) {
             airDate = this@toCatalogItem.airDate,
             titleEn = this@toCatalogItem.titleEn,
             episodeType = this@toCatalogItem.episodeType,
+            imdbId = this@toCatalogItem.imdbId,
+            skipSegments = this@toCatalogItem.skipSegments,
         )
     }
 

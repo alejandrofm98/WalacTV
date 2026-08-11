@@ -3,25 +3,14 @@ package com.example.walactv.data.remote.repository
 import android.util.Log
 import android.util.LruCache
 import com.google.gson.Gson
-import com.google.gson.annotations.SerializedName
+import com.example.walactv.data.model.SkipSegment
+import com.example.walactv.data.model.SkipSegments
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
-data class IntroDbSegment(
-    @SerializedName("start_ms") val startMs: Long?,
-    @SerializedName("end_ms") val endMs: Long?,
-    @SerializedName("start_sec") val startSec: Double?,
-    @SerializedName("end_sec") val endSec: Double?,
-    val confidence: Double?,
-    @SerializedName("submission_count") val submissionCount: Int?,
-)
-
-data class IntroDbSegments(
-    val intro: IntroDbSegment?,
-    val recap: IntroDbSegment?,
-    val outro: IntroDbSegment?,
-)
+typealias IntroDbSegment = SkipSegment
+typealias IntroDbSegments = SkipSegments
 
 class IntroDbRepository @javax.inject.Inject constructor() {
 
@@ -71,12 +60,14 @@ class IntroDbRepository @javax.inject.Inject constructor() {
         val bufferMs = 2000L
 
         segments.intro?.let {
+            val startMs = it.startMs ?: return@let
             val endMs = it.endMs ?: return@let
-            if (positionMs < endMs + bufferMs) return endMs
+            if (positionMs in startMs..(endMs + bufferMs)) return endMs
         }
         segments.recap?.let {
+            val startMs = it.startMs ?: return@let
             val endMs = it.endMs ?: return@let
-            if (positionMs < endMs + bufferMs) return endMs
+            if (positionMs in startMs..(endMs + bufferMs)) return endMs
         }
         segments.outro?.let {
             val startMs = it.startMs ?: return@let

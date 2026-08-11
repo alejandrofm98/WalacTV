@@ -42,6 +42,7 @@ data class CatalogItem(
     val titleEn: String? = null,
     val episodeType: String? = null,
     val imdbId: String? = null,
+    val skipSegments: SkipSegments? = null,
 )
 
 private const val TMDB_IMG_TAG = "TMDB_IMG"

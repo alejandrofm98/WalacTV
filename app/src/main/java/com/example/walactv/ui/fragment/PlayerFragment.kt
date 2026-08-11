@@ -743,6 +743,10 @@ class PlayerFragment : Fragment() {
 
     private fun fetchIntroDbSegments() {
         val episode = currentEpisode ?: return
+        episode.skipSegments?.let {
+            currentSegments = it
+            return
+        }
         val imdbId = episode.imdbId ?: return
         val season = episode.seasonNumber ?: return
         val ep = episode.episodeNumber ?: return
@@ -805,8 +809,9 @@ class PlayerFragment : Fragment() {
         var anyVisible = false
 
         segments.intro?.let {
+            val startMs = it.startMs ?: return@let
             val endMs = it.endMs ?: return@let
-            if (position < endMs + bufferMs) {
+            if (position in startMs..(endMs + bufferMs)) {
                 skipIntroBtn?.visibility = View.VISIBLE
                 anyVisible = true
             } else {
@@ -815,8 +820,9 @@ class PlayerFragment : Fragment() {
         }
 
         segments.recap?.let {
+            val startMs = it.startMs ?: return@let
             val endMs = it.endMs ?: return@let
-            if (position < endMs + bufferMs) {
+            if (position in startMs..(endMs + bufferMs)) {
                 skipRecapBtn?.visibility = View.VISIBLE
                 anyVisible = true
             } else {
