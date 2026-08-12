@@ -457,7 +457,16 @@ fun SeriesDetailScreen(
     val markEpisodes = markEpisodes@ { targets: List<CatalogItem> ->
         if (targets.isEmpty()) return@markEpisodes
         coroutineScope.launch {
-            val results = targets.map { ep ->
+            val pending = targets.filterNot { ep ->
+                ep.seasonNumber?.let { s ->
+                    ep.episodeNumber?.let { e -> progressMap[s to e] }
+                }?.let { it.isWatched == true || it.isCompleted } == true
+            }
+            if (pending.isEmpty()) {
+                contextEpisode = null
+                return@launch
+            }
+            val results = pending.map { ep ->
                 async {
                     val contentId = seriesContentId ?: ep.providerId ?: ep.stableId.substringAfterLast(":")
                     watchProgressRepo.markAsWatched(contentId, ep.seasonNumber, ep.episodeNumber)
@@ -478,7 +487,7 @@ fun SeriesDetailScreen(
     LaunchedEffect(allEpisodes, progressMap, continueProgressLoaded, watchedProgressLoaded, initialSeason, initialEpisode) {
         val episodes = allEpisodes.uniqueSeriesEpisodes(preferredLanguage)
         if (episodes.isEmpty()) return@LaunchedEffect
-        if ((!continueProgressLoaded || !watchedProgressLoaded) && initialSeason == null && initialEpisode == null) return@LaunchedEffect
+        if (!continueProgressLoaded && initialSeason == null && initialEpisode == null) return@LaunchedEffect
         val targetEpisode = resumeEpisode
         if (targetEpisode == null) {
             delay(50.milliseconds)
@@ -492,10 +501,8 @@ fun SeriesDetailScreen(
             delay(50.milliseconds)
             if (seasonIndex >= 0) seasonsListState.scrollToItem(seasonIndex)
             episodesListState.scrollToItem(targetIndex)
-            repeat(3) { attempt ->
-                runCatching { episodeFocusRequester.requestFocus() }
-                if (attempt < 2) delay(80.milliseconds)
-            }
+            delay(50.milliseconds)
+            runCatching { episodeFocusRequester.requestFocus() }
             focusedEpisode = targetEpisode
         } else {
             backFocusRequester.requestFocus()
@@ -747,10 +754,21 @@ fun SeriesDetailScreen(
             onMarkEpisode = { markEpisodes(listOf(ep)) },
             onMarkSeason = { markEpisodes(uniqueEpisodes.filter { it.seasonNumber == ep.seasonNumber }) },
             onMarkPrevious = {
+                val targetIndex = uniqueEpisodes.indexOf(ep)
                 markEpisodes(
-                    uniqueEpisodes.filter {
-                        (it.seasonNumber ?: 0) < (ep.seasonNumber ?: 0) ||
-                            (it.seasonNumber == ep.seasonNumber && (it.episodeNumber ?: 0) <= (ep.episodeNumber ?: 0))
+                    uniqueEpisodes.filter { candidate ->
+                        when {
+                            candidate.stableId == ep.stableId -> true
+                            ep.seasonNumber != null -> {
+                                val candidateSeason = candidate.seasonNumber
+                                candidateSeason != null &&
+                                    (candidateSeason < ep.seasonNumber ||
+                                        (candidateSeason == ep.seasonNumber &&
+                                            (candidate.episodeNumber ?: 0) <= (ep.episodeNumber ?: 0)))
+                            }
+                            targetIndex >= 0 -> uniqueEpisodes.indexOf(candidate) < targetIndex
+                            else -> false
+                        }
                     },
                 )
             },
