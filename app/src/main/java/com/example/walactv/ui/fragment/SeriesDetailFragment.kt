@@ -22,7 +22,6 @@ import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.remote.api.dto.isCompleted
-import com.example.walactv.data.remote.api.dto.shouldRestoreProgress
 import com.example.walactv.data.remote.api.dto.progressPercent
 import com.example.walactv.data.remote.repository.IptvRepository
 import com.example.walactv.data.util.buildSeriesEpisodeProgressMap
@@ -415,7 +414,11 @@ fun SeriesDetailScreen(
                     ?.let { episode -> episode to progress }
             }
             progressWithEpisodes
-                .filter { (_, progress) -> progress.shouldRestoreProgress }
+                .filter { (_, progress) ->
+                    progress.isWatched != true &&
+                        (progress.positionMs ?: 0L) > 0L &&
+                        !progress.isCompleted
+                }
                 .maxByOrNull { (_, progress) -> progress.lastWatchedAt.orEmpty() }
                 ?.first
                 ?: progressWithEpisodes

@@ -181,6 +181,6 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
         private const val TAG = "WatchProgressRepo"
         private const val WATCHED_PAGE_SIZE = 500
         private const val MAX_WATCHED_ITEMS = 10_000
-        private const val CONTINUE_WATCHING_LIMIT = 200
+        private const val CONTINUE_WATCHING_LIMIT = 50
     }
 }

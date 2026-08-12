@@ -150,6 +150,11 @@ class HomeViewModel @Inject constructor(
     fun startLoad(forceRefresh: Boolean = false) {
         if (_homeCatalog.value != null && !forceRefresh) {
             refreshEvents()
+            viewModelScope.launch {
+                runCatching { repository.getAccessToken() }
+                    .onSuccess { loadContinueWatching() }
+                    .onFailure { Log.w(TAG, "Could not authenticate continue watching refresh", it) }
+            }
             return
         }
 
@@ -158,9 +163,10 @@ class HomeViewModel @Inject constructor(
             _contentSyncState.value = ContentSyncState.CHECKING
             Log.d(TAG, "startLoad: beginning content sync (forceRefresh=$forceRefresh)")
 
-            loadContinueWatching()
-
             val token = runCatching { repository.getAccessToken() }.getOrNull() ?: ""
+            if (token.isNotBlank()) {
+                loadContinueWatching()
+            }
 
             val needsChannels = contentCacheManager.needsSyncChannels(token)
 
