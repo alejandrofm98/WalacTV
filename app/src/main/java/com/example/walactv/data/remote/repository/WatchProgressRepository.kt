@@ -11,8 +11,8 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
 
     suspend fun getContinueWatching(): Result<List<WatchProgressDto>> {
         return try {
-            Log.d(TAG, "getContinueWatching: CALLING API GET /api/watch-progress?limit=20")
-            val response = apiService.getWatchProgress(limit = 20)
+            Log.d(TAG, "getContinueWatching: CALLING API GET /api/watch-progress?limit=$CONTINUE_WATCHING_LIMIT")
+            val response = apiService.getWatchProgress(limit = CONTINUE_WATCHING_LIMIT)
             Log.d(TAG, "getContinueWatching: API RESPONSE code=${response.code()} isSuccessful=${response.isSuccessful}")
             if (response.isSuccessful) {
                 val items = response.body()?.items ?: emptyList()
@@ -165,5 +165,6 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
         private const val TAG = "WatchProgressRepo"
         private const val WATCHED_PAGE_SIZE = 500
         private const val MAX_WATCHED_ITEMS = 10_000
+        private const val CONTINUE_WATCHING_LIMIT = 200
     }
 }

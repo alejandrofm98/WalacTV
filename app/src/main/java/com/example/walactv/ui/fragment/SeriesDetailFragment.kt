@@ -131,8 +131,10 @@ class SeriesDetailFragment : Fragment() {
         val seriesItemJson = arguments?.getString(ARG_SERIES_ITEM)
         val catalogItem = if (seriesItemJson != null) Gson().fromJson(seriesItemJson, CatalogItem::class.java) else null
         val seriesId = arguments?.getString(ARG_SERIES_ID)
-        val initialSeason = arguments?.getInt(ARG_INITIAL_SEASON)
-        val initialEpisode = arguments?.getInt(ARG_INITIAL_EPISODE)
+        val initialSeason = arguments?.takeIf { it.containsKey(ARG_INITIAL_SEASON) }
+            ?.getInt(ARG_INITIAL_SEASON)
+        val initialEpisode = arguments?.takeIf { it.containsKey(ARG_INITIAL_EPISODE) }
+            ?.getInt(ARG_INITIAL_EPISODE)
         val seriesName = catalogItem?.seriesName?.ifBlank { null }
             ?: catalogItem?.title
             ?: seriesId
@@ -487,7 +489,10 @@ fun SeriesDetailScreen(
             delay(50.milliseconds)
             if (seasonIndex >= 0) seasonsListState.scrollToItem(seasonIndex)
             episodesListState.scrollToItem(targetIndex)
-            runCatching { episodeFocusRequester.requestFocus() }
+            repeat(3) { attempt ->
+                runCatching { episodeFocusRequester.requestFocus() }
+                if (attempt < 2) delay(80.milliseconds)
+            }
             focusedEpisode = targetEpisode
         } else {
             backFocusRequester.requestFocus()

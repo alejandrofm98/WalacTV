@@ -342,14 +342,19 @@ class HomeViewModel @Inject constructor(
         if (requestVersion != continueWatchingRequestVersion) return
         _continueWatchingEntries.value = entryMap
 
-        val dedupedItems = inProgressItems
+        val dedupedItems = (inProgressItems + watchedItems)
             .groupBy { wp ->
                 if (wp.contentType == "series" && wp.seriesName != null)
                     "series:${wp.seriesName}"
                 else
                     "movie:${wp.contentId}"
             }
-            .map { (_, entries) -> entries.maxBy { it.lastWatchedAt.orEmpty() } }
+            .map { (_, entries) ->
+                entries.maxWithOrNull(
+                    compareBy<WatchProgressDto> { it.lastWatchedAt.orEmpty() }
+                        .thenBy { it.positionMs ?: 0L },
+                ) ?: entries.first()
+            }
             .sortedByDescending { it.lastWatchedAt.orEmpty() }
 
         Log.d(TAG, "loadContinueWatching[$requestVersion]: dedupedItems=${dedupedItems.size}")
