@@ -32,6 +32,22 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
         }
     }
 
+    suspend fun getHomeContinueWatching(): Result<List<WatchProgressDto>> {
+        return try {
+            val response = apiService.getHomeContinueWatching()
+            if (response.isSuccessful) {
+                Result.success(response.body()?.items ?: emptyList())
+            } else {
+                Result.failure(Exception("Error fetching home continue watching: ${response.code()}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "getHomeContinueWatching: EXCEPTION", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun getProgress(contentId: String): WatchProgressDto? {
         return try {
             val normalizedId = contentId.substringAfterLast(":")

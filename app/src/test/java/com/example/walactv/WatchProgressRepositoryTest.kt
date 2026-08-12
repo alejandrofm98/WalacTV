@@ -192,6 +192,7 @@ class WatchProgressRepositoryTest {
             continueWatchingCalls++
             return continueWatchingResult
         }
+        override suspend fun getHomeContinueWatching(limit: Int): Response<WatchProgressListResponse> = continueWatchingResult
         override suspend fun getWatchProgressItem(id: String): Response<WatchProgressDto> {
             lastProgressId = id
             return progressResult

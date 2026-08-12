@@ -272,7 +272,7 @@ class HomeViewModel @Inject constructor(
         Log.d(TAG, "loadContinueWatching[$requestVersion]: START")
         viewModelScope.launch {
             try {
-                val inProgressDeferred = async { watchProgressRepo.getContinueWatching() }
+                val inProgressDeferred = async { watchProgressRepo.getHomeContinueWatching() }
                 val watchedDeferred = async { watchProgressRepo.getWatchedItems() }
 
                 val inProgressResult = inProgressDeferred.await()
@@ -342,7 +342,7 @@ class HomeViewModel @Inject constructor(
         if (requestVersion != continueWatchingRequestVersion) return
         _continueWatchingEntries.value = entryMap
 
-        val dedupedItems = (inProgressItems + watchedItems)
+        val dedupedItems = inProgressItems
             .groupBy { wp ->
                 if (wp.contentType == "series" && wp.seriesName != null)
                     "series:${wp.seriesName}"

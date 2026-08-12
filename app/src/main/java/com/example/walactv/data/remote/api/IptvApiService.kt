@@ -142,6 +142,11 @@ interface IptvApiService {
         @Query("limit") limit: Int = 20,
     ): Response<WatchProgressListResponse>
 
+    @GET("api/watch-progress/continue")
+    suspend fun getHomeContinueWatching(
+        @Query("limit") limit: Int = 20,
+    ): Response<WatchProgressListResponse>
+
     @GET("api/watch-progress/{id}")
     suspend fun getWatchProgressItem(
         @Path("id") id: String,
