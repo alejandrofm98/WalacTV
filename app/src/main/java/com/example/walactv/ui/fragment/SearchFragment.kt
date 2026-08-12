@@ -13,6 +13,7 @@ import com.example.walactv.data.model.CatalogMemory
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.preferences.ChannelStateStore
 import com.example.walactv.data.model.preferredVodPosterUrl
+import com.example.walactv.data.model.playbackContentId
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.remote.repository.IptvRepository
 import androidx.compose.foundation.background
@@ -212,7 +213,7 @@ class SearchFragment : Fragment() {
                 currentOptionIndex = streamIndex,
                 overlayLogoUrl = resolvedItem.preferredVodPosterUrl(),
                 isFavorite = channelStateStore.isFavorite(resolvedItem),
-                contentId = resolvedItem.providerId ?: resolvedItem.stableId,
+                contentId = resolvedItem.playbackContentId(),
                 positionMs = resumePositionMs,
                 onProgressSaved = ComposeMainFragment.progressSavedCallback,
                 unifiedStreamOptions = unifiedOptions,

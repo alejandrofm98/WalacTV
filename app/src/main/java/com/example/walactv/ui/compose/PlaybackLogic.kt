@@ -27,6 +27,7 @@ import com.example.walactv.BuildConfig
 import com.example.walactv.data.model.idioma
 import com.example.walactv.data.util.normalizeLanguageCode
 import com.example.walactv.data.model.preferredVodPosterUrl
+import com.example.walactv.data.model.playbackContentId
 import com.example.walactv.ui.fragment.tmdbDebug
 import com.example.walactv.data.model.uniqueSeriesEpisodes
 import kotlinx.coroutines.Dispatchers
@@ -239,7 +240,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         {
             val nextEp = logicalEpisodes[currentIndex + 1]
             openContinueWatchingItem(cardItem, progress.copy(
-                contentId = nextEp.providerId ?: nextEp.stableId,
+                contentId = nextEp.playbackContentId(),
                 positionMs = 0,
                 seasonNumber = nextEp.seasonNumber,
                 episodeNumber = nextEp.episodeNumber,
@@ -254,7 +255,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         {
             val prevEp = logicalEpisodes[currentIndex - 1]
             openContinueWatchingItem(cardItem, progress.copy(
-                contentId = prevEp.providerId ?: prevEp.stableId,
+                contentId = prevEp.playbackContentId(),
                 positionMs = 0,
                 seasonNumber = prevEp.seasonNumber,
                 episodeNumber = prevEp.episodeNumber,
@@ -309,7 +310,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
             onNextEpisode = nextEpisodeCallback,
             onPreviousEpisode = previousEpisodeCallback,
             allSeriesEpisodes = allEpisodes, currentEpisode = targetEpisode,
-            overlayLogoUrl = targetEpisode.preferredVodPosterUrl(), contentId = targetEpisode.providerId ?: targetEpisode.stableId,
+            overlayLogoUrl = targetEpisode.preferredVodPosterUrl(), contentId = targetEpisode.playbackContentId(),
             positionMs = progress.positionMs ?: 0L,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
@@ -460,7 +461,7 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(
         showOptionsOnStart = showOptionsOnStart,
         overlayLogoUrl = item.preferredVodPosterUrl(),
         isFavorite = channelStateStore.isFavorite(favoriteTarget),
-        contentId = item.providerId ?: item.stableId,
+        contentId = item.playbackContentId(),
         positionMs = positionMs,
         currentEpisode = if (item.kind == ContentKind.SERIES) item else null,
         onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },

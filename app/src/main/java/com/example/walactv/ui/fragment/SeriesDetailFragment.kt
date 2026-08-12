@@ -21,6 +21,8 @@ import com.example.walactv.data.model.uniqueSeriesEpisodes
 import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
+import com.example.walactv.data.remote.api.dto.isCompleted
+import com.example.walactv.data.remote.api.dto.shouldRestoreProgress
 import com.example.walactv.data.remote.api.dto.progressPercent
 import com.example.walactv.data.remote.repository.IptvRepository
 import com.example.walactv.data.util.buildSeriesEpisodeProgressMap
@@ -89,6 +91,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.bumptech.glide.Glide
 import com.example.walactv.data.model.preferredVodPosterUrl
+import com.example.walactv.data.model.playbackContentId
 import com.example.walactv.ui.theme.*
 
 class SeriesDetailFragment : Fragment() {
@@ -148,8 +151,8 @@ class SeriesDetailFragment : Fragment() {
                         repository = repository,
                         progressReloadTrigger = detailProgressReloadTrigger,
                         onBack = { requireActivity().onBackPressedDispatcher.onBackPressed() }
-                    ) { item, allEpisodesForSeries, logicalEpisodes ->
-                        playEpisode(item, allEpisodesForSeries, logicalEpisodes)
+                    ) { item, allEpisodesForSeries, logicalEpisodes, resumePositionMs ->
+                        playEpisode(item, allEpisodesForSeries, logicalEpisodes, resumePositionMs)
                     }
                 }
             }
@@ -229,7 +232,7 @@ class SeriesDetailFragment : Fragment() {
             null
         }
 
-        val seriesContentId = episodeToPlay.providerId ?: episodeToPlay.stableId
+        val seriesContentId = episodeToPlay.playbackContentId()
         Log.d(TAG, "SERIES_CONTENT_ID providerId=${episodeToPlay.providerId} stableId=${episodeToPlay.stableId} -> $seriesContentId")
 
         val playerFragment = PlayerFragment()
@@ -302,13 +305,15 @@ fun SeriesDetailScreen(
     repository: IptvRepository,
     progressReloadTrigger: Int = 0,
     onBack: () -> Unit,
-    onEpisodeClick: (CatalogItem, List<CatalogItem>, List<CatalogItem>) -> Unit,
+    onEpisodeClick: (CatalogItem, List<CatalogItem>, List<CatalogItem>, Long) -> Unit,
 ) {
     var isLoading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var focusedEpisode by remember { mutableStateOf<CatalogItem?>(null) }
     var contextEpisode by remember { mutableStateOf<CatalogItem?>(null) }
     var localProgressReloadTrigger by remember { mutableIntStateOf(0) }
+    var continueProgressLoaded by remember { mutableStateOf(false) }
+    var watchedProgressLoaded by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val preferredLanguage = remember { PreferencesManager.getPreferredLanguageOrDefault() }
@@ -369,6 +374,7 @@ fun SeriesDetailScreen(
     ) {
         if (allEpisodes.isEmpty()) return@produceState
         value = watchProgressRepo.getContinueWatching().getOrDefault(emptyList())
+        continueProgressLoaded = true
     }
 
     val watchedItems by produceState<List<WatchProgressDto>>(
@@ -377,6 +383,7 @@ fun SeriesDetailScreen(
     ) {
         if (allEpisodes.isEmpty()) return@produceState
         value = watchProgressRepo.getWatchedItems().getOrDefault(emptyList())
+        watchedProgressLoaded = true
     }
 
     val progressMap = remember(
@@ -393,6 +400,31 @@ fun SeriesDetailScreen(
 
     val uniqueEpisodes = remember(allEpisodes, preferredLanguage) {
         allEpisodes.uniqueSeriesEpisodes(preferredLanguage)
+    }
+
+    val resumeEpisode = remember(uniqueEpisodes, progressMap, initialSeason, initialEpisode) {
+        if (initialSeason != null && initialEpisode != null) {
+            uniqueEpisodes.firstOrNull {
+                it.seasonNumber == initialSeason && it.episodeNumber == initialEpisode
+            }
+        } else {
+            val progressWithEpisodes = progressMap.mapNotNull { (key, progress) ->
+                uniqueEpisodes.firstOrNull { it.seasonNumber == key.first && it.episodeNumber == key.second }
+                    ?.let { episode -> episode to progress }
+            }
+            progressWithEpisodes
+                .filter { (_, progress) -> progress.shouldRestoreProgress }
+                .maxByOrNull { (_, progress) -> progress.lastWatchedAt.orEmpty() }
+                ?.first
+                ?: progressWithEpisodes
+                    .filter { (_, progress) -> progress.isWatched == true || progress.isCompleted }
+                    .maxWithOrNull(
+                        compareBy<Pair<CatalogItem, WatchProgressDto>> { (_, progress) -> progress.lastWatchedAt.orEmpty() }
+                            .thenBy { (episode, _) -> episode.seasonNumber ?: Int.MIN_VALUE }
+                            .thenBy { (episode, _) -> episode.episodeNumber ?: Int.MIN_VALUE },
+                    )
+                    ?.first
+        }
     }
 
     val seasons = remember(uniqueEpisodes) {
@@ -438,25 +470,25 @@ fun SeriesDetailScreen(
         }
     }
 
-    LaunchedEffect(allEpisodes, initialSeason, initialEpisode) {
+    LaunchedEffect(allEpisodes, progressMap, continueProgressLoaded, watchedProgressLoaded, initialSeason, initialEpisode) {
         val episodes = allEpisodes.uniqueSeriesEpisodes(preferredLanguage)
         if (episodes.isEmpty()) return@LaunchedEffect
-        if (initialSeason == null || initialEpisode == null) {
+        if ((!continueProgressLoaded || !watchedProgressLoaded) && initialSeason == null && initialEpisode == null) return@LaunchedEffect
+        val targetEpisode = resumeEpisode
+        if (targetEpisode == null) {
             delay(50.milliseconds)
             backFocusRequester.requestFocus()
             return@LaunchedEffect
         }
-        val targetIndex = episodes.indexOfFirst {
-            it.seasonNumber == initialSeason && it.episodeNumber == initialEpisode
-        }
+        val targetIndex = episodes.indexOf(targetEpisode)
         if (targetIndex >= 0) {
-            selectedSeason = initialSeason
-            val seasonIndex = seasons.indexOf(initialSeason)
+            selectedSeason = targetEpisode.seasonNumber ?: seasons.firstOrNull() ?: 1
+            val seasonIndex = seasons.indexOf(selectedSeason)
             delay(50.milliseconds)
             if (seasonIndex >= 0) seasonsListState.scrollToItem(seasonIndex)
             episodesListState.scrollToItem(targetIndex)
             runCatching { episodeFocusRequester.requestFocus() }
-            focusedEpisode = episodes[targetIndex]
+            focusedEpisode = targetEpisode
         } else {
             backFocusRequester.requestFocus()
         }
@@ -607,7 +639,13 @@ fun SeriesDetailScreen(
                         Row(
                             modifier = Modifier
                                 .onFocusChanged { playFocused = it.isFocused }
-                                .tvClickable { onEpisodeClick(uniqueEpisodes.firstOrNull { it.seasonNumber == selectedSeason } ?: allEpisodes.first(), allEpisodes, uniqueEpisodes) }
+                         .tvClickable {
+                             val episode = uniqueEpisodes.firstOrNull { it.seasonNumber == selectedSeason } ?: allEpisodes.first()
+                             val positionMs = episode.seasonNumber?.let { season ->
+                                 episode.episodeNumber?.let { number -> progressMap[season to number]?.positionMs }
+                             } ?: 0L
+                             onEpisodeClick(episode, allEpisodes, uniqueEpisodes, positionMs)
+                         }
                                 .background(if (playFocused) Color.LightGray else Color.White, androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
                                 .padding(horizontal = 24.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -674,11 +712,11 @@ fun SeriesDetailScreen(
                         val wp = ep.seasonNumber?.let { s ->
                             ep.episodeNumber?.let { e -> progressMap[s to e] }
                         }
-                        val isInitial = ep.seasonNumber == initialSeason && ep.episodeNumber == initialEpisode
+                        val isInitial = ep.stableId == resumeEpisode?.stableId
                         EpisodeCard(
                             item = ep,
                             watchProgress = wp,
-                            onClick = { onEpisodeClick(ep, allEpisodes, uniqueEpisodes) },
+                            onClick = { onEpisodeClick(ep, allEpisodes, uniqueEpisodes, wp?.positionMs ?: 0L) },
                             onFocus = {
                                 focusedEpisode = ep
                                 val epSeason = ep.seasonNumber ?: 1

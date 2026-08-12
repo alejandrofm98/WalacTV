@@ -34,16 +34,28 @@ class WatchProgressRepository @Inject constructor(private val apiService: IptvAp
 
     suspend fun getProgress(contentId: String): WatchProgressDto? {
         return try {
-            val response = apiService.getWatchProgressItem(contentId)
+            val normalizedId = contentId.substringAfterLast(":")
+            val response = apiService.getWatchProgressItem(normalizedId)
             if (response.isSuccessful) {
-                response.body()
+                response.body() ?: findProgressInList(contentId, normalizedId)
             } else {
-                Log.d(TAG, "No progress found for $contentId: ${response.code()}")
-                null
+                findProgressInList(contentId, normalizedId)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.d(TAG, "No progress found for $contentId: ${e.message}")
-            null
+            Log.d(TAG, "Direct progress lookup failed for $contentId: ${e.message}")
+            findProgressInList(contentId, contentId.substringAfterLast(":"))
+        }
+    }
+
+    private suspend fun findProgressInList(contentId: String, normalizedId: String): WatchProgressDto? {
+        val items = getContinueWatching().getOrDefault(emptyList())
+        return items.firstOrNull { progress ->
+            val progressId = progress.contentId.orEmpty()
+            progressId == contentId || progressId == normalizedId ||
+                progressId.substringAfterLast(":") == normalizedId ||
+                progress.providerId == normalizedId
         }
     }
 

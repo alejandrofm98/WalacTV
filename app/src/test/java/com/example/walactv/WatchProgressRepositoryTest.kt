@@ -94,12 +94,61 @@ class WatchProgressRepositoryTest {
         assertEquals("cancelled", rethrown?.message)
     }
 
+    @Test
+    fun getProgress_fallsBackToContinueWatching_andNormalizesPrefixedId() = runBlocking {
+        val progress = WatchProgressDto(
+            contentId = "123",
+            contentType = "series",
+            positionMs = 300_000L,
+            durationMs = 600_000L,
+        )
+        val api = FakeApi(
+            progressResult = errorResponse(404),
+            continueWatchingResult = Response.success(WatchProgressListResponse(items = listOf(progress))),
+        )
+        val repo = WatchProgressRepository(api)
+
+        val result = repo.getProgress("series:123")
+
+        assertEquals(progress, result)
+        assertEquals("123", api.lastProgressId)
+        assertEquals(1, api.continueWatchingCalls)
+    }
+
+    @Test
+    fun getProgress_fallsBackByProviderId_forEpisodeFromSeriesDetail() = runBlocking {
+        val progress = WatchProgressDto(
+            contentId = "episode-uuid",
+            providerId = "123",
+            contentType = "series",
+            positionMs = 300_000L,
+            durationMs = 600_000L,
+        )
+        val api = FakeApi(
+            progressResult = errorResponse(404),
+            continueWatchingResult = Response.success(WatchProgressListResponse(items = listOf(progress))),
+        )
+        val repo = WatchProgressRepository(api)
+
+        val result = repo.getProgress("123")
+
+        assertEquals(progress, result)
+        assertEquals("123", api.lastProgressId)
+        assertEquals(1, api.continueWatchingCalls)
+    }
+
     private class FakeApi(
         private val saveResult: Response<WatchProgressDto>? = null,
         private val saveException: Exception? = null,
+        private val progressResult: Response<WatchProgressDto> = Response.success(null),
+        private val continueWatchingResult: Response<WatchProgressListResponse> = Response.success(WatchProgressListResponse()),
     ) : IptvApiService {
 
         var saveCalls = 0
+            private set
+        var lastProgressId: String? = null
+            private set
+        var continueWatchingCalls = 0
             private set
 
         private fun todo(): Nothing = throw NotImplementedError()
@@ -139,8 +188,14 @@ class WatchProgressRepositoryTest {
         override suspend fun getFavorites(): Response<List<CatalogItemDto>> = todo()
         override suspend fun addFavorite(channelId: String): Response<Unit> = todo()
         override suspend fun removeFavorite(channelId: String): Response<Unit> = todo()
-        override suspend fun getWatchProgress(limit: Int): Response<WatchProgressListResponse> = todo()
-        override suspend fun getWatchProgressItem(id: String): Response<WatchProgressDto> = todo()
+        override suspend fun getWatchProgress(limit: Int): Response<WatchProgressListResponse> {
+            continueWatchingCalls++
+            return continueWatchingResult
+        }
+        override suspend fun getWatchProgressItem(id: String): Response<WatchProgressDto> {
+            lastProgressId = id
+            return progressResult
+        }
         override suspend fun deleteWatchProgress(id: String): Response<Unit> = todo()
         override suspend fun markWatched(id: String, season: Int?, episode: Int?, completed: Boolean): Response<WatchProgressDto> = todo()
         override suspend fun getPlaybackPreference(contentType: String, catalogId: String): Response<PlaybackPreferenceDto> = todo()

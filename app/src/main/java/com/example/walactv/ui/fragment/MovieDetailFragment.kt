@@ -13,6 +13,7 @@ import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.preferredVodPosterUrl
+import com.example.walactv.data.model.playbackContentId
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
 import com.example.walactv.data.remote.repository.IptvRepository
@@ -174,7 +175,7 @@ class MovieDetailFragment : Fragment() {
             showOptionsOnStart = false,
             overlayLogoUrl = item.preferredVodPosterUrl(),
             isFavorite = false,
-            contentId = item.providerId ?: item.stableId,
+            contentId = item.playbackContentId(),
             positionMs = resumePositionMs,
             onPlayerClosed = {
                 view?.requestFocus()

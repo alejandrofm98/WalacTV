@@ -13,6 +13,7 @@ import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.StreamOption
+import com.example.walactv.data.model.playbackContentId
 import com.example.walactv.data.remote.repository.IptvRepository
 import com.example.walactv.ui.compose.tvClickable
 import androidx.compose.animation.core.animateFloatAsState
@@ -140,7 +141,7 @@ class UfcDetailFragment : Fragment() {
             showOptionsOnStart = false,
             overlayLogoUrl = item.imageUrl,
             isFavorite = false,
-            contentId = item.stableId,
+            contentId = item.playbackContentId(),
             onProgressSaved = { progressItem ->
                 (requireActivity().application as com.example.walactv.WalacApp)
                     .appComponent.homeViewModel.upsertContinueWatchingEntry(progressItem)
