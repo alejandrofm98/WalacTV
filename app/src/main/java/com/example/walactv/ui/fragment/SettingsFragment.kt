@@ -17,7 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import java.util.concurrent.TimeUnit
 
 class SettingsFragment : Fragment() {
 
@@ -55,15 +54,15 @@ class SettingsFragment : Fragment() {
             }
         }
 
-        buttonView.setOnClickListener { refreshPlaylist() }
+        buttonView.setOnClickListener { refreshCatalog() }
         renderLastUpdate()
     }
 
-    private fun refreshPlaylist() {
+    private fun refreshCatalog() {
         buttonView.isEnabled = false
         infoView.text = getString(R.string.settings_refreshing)
         scope.launch {
-            runCatching { repository.refreshPlaylistNow() }
+            runCatching { repository.refreshCatalogNow() }
                 .onSuccess {
                     parentFragmentManager.setFragmentResult(REQUEST_KEY, bundleOf(KEY_REFRESHED to true))
                     renderLastUpdate()
@@ -77,24 +76,6 @@ class SettingsFragment : Fragment() {
     }
 
     private fun renderLastUpdate() {
-        val lastUpdated = repository.getLastPlaylistUpdateMillis()
-        infoView.text = if (lastUpdated == 0L) {
-            getString(R.string.settings_never_updated)
-        } else {
-            getString(R.string.settings_last_update_value, formatElapsed(lastUpdated))
-        }
-    }
-
-    private fun formatElapsed(lastUpdated: Long): String {
-        val elapsed = System.currentTimeMillis() - lastUpdated
-        val minutes = TimeUnit.MILLISECONDS.toMinutes(elapsed)
-        val hours = TimeUnit.MILLISECONDS.toHours(elapsed)
-        val days = TimeUnit.MILLISECONDS.toDays(elapsed)
-        return when {
-            days > 0 -> getString(R.string.settings_elapsed_days, days)
-            hours > 0 -> getString(R.string.settings_elapsed_hours, hours)
-            else -> getString(R.string.settings_elapsed_minutes, minutes.coerceAtLeast(1))
-        }
     }
 
     override fun onDestroy() {

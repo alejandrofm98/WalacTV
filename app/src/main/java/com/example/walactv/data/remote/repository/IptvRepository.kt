@@ -30,7 +30,6 @@ import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.HomeCatalog
 import com.example.walactv.data.model.RemoteCatalogPage
 import com.example.walactv.data.model.StreamOption
-import com.example.walactv.data.playlist.M3uCatalogStore
 import com.example.walactv.data.preferences.CredentialStore
 import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.data.util.isTmdbImagePath
@@ -72,8 +71,6 @@ internal fun mergeChannelVariants(items: List<CatalogItem>): List<CatalogItem> {
 class IptvRepository @Inject constructor(context: Context) {
 
     private val appContext = context.applicationContext
-    private val m3uCatalogStore = M3uCatalogStore(appContext)
-
     private val appComponent = (appContext as WalacApp).appComponent
     private val apiService: IptvApiService = appComponent.apiService
     private val authInterceptor: AuthInterceptor = appComponent.authInterceptor
@@ -109,7 +106,6 @@ class IptvRepository @Inject constructor(context: Context) {
             authInterceptor.token = token
             CredentialStore.save(user, pass)
             clearAllCaches()
-            m3uCatalogStore.clearAllCache()
             Log.d(TAG, "Login correcto para ${maskUsername(user)}")
         } catch (e: Exception) {
             Log.e(TAG, "Fallo en login para ${maskUsername(user)}", e)
@@ -121,7 +117,6 @@ class IptvRepository @Inject constructor(context: Context) {
         authInterceptor.token = null
         CredentialStore.clear()
         clearAllCaches()
-        m3uCatalogStore.clearAllCache()
     }
 
     fun clearHomeMemoryCache() = clearAllCaches()
@@ -139,13 +134,11 @@ class IptvRepository @Inject constructor(context: Context) {
         )
     }
 
-    suspend fun refreshPlaylistNow(): Long {
-        m3uCatalogStore.refreshNow()
+    suspend fun refreshCatalogNow(): Long {
+        loadHomeCatalog(forceRefresh = true)
         memoryHomeCatalog = null
-        return m3uCatalogStore.getLastUpdatedMillis()
+        return System.currentTimeMillis()
     }
-
-    fun getLastPlaylistUpdateMillis(): Long = m3uCatalogStore.getLastUpdatedMillis()
 
     private fun clearAllCaches() {
         memoryHomeCatalog = null

@@ -61,7 +61,7 @@ Este cliente consume los siguientes endpoints (ver `iptv-api/AGENTS.md` seccion 
 - `GET /api/content/countries?content_type=...` — paises disponibles
 - `GET /api/content/groups?content_type=...` — grupos disponibles
 - `GET /api/content/genres?content_type=...` — generos disponibles
-- `GET /api/full/channels` — todos los canales (M3U playlist)
+- `GET /api/full/channels` — todos los canales en formato JSON
 - `GET /api/series/{name}/episodes` — episodios de serie
 - `GET /api/series/by-id/{series_id}/episodes` — episodios por ID de serie
 - `GET /api/search?q=...` — busqueda

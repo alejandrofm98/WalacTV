@@ -15,7 +15,7 @@
     <string name="settings_description">El catalogo se obtiene desde la API y puedes forzar una recarga desde aqui si notas datos desactualizados.</string>
     <string name="settings_refresh_button">Recargar catalogo</string>
     <string name="settings_refreshing">Recargando catalogo…</string>
-    <string name="settings_refresh_done">Playlist actualizada</string>
+    <string name="settings_refresh_done">Catalogo actualizado</string>
     <string name="settings_refresh_failed">No se pudo refrescar: %1$s</string>
     <string name="settings_last_update_value">Ultima actualizacion: hace %1$s</string>
     <string name="settings_never_updated">Ultima actualizacion: nunca</string>
