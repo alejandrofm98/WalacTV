@@ -108,6 +108,7 @@ class ComposeMainFragment : Fragment() {
     internal var searchBackTrigger by mutableIntStateOf(0)
     internal var contentFocusCanOpenRail by mutableStateOf(false)
     internal var suppressEventAutoScroll by mutableStateOf(false)
+    internal var suppressCwRowReset by mutableStateOf(false)
     internal var currentMode by mutableStateOf(MainMode.Home)
     internal var isRailExpanded by mutableStateOf(false)
     internal var isSignedIn by mutableStateOf(false)

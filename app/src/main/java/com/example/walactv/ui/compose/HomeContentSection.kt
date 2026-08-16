@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -72,6 +73,11 @@ internal fun ContentSection(
     var isLoadingMore by remember { mutableStateOf(false) }
     var rowWidth by remember { mutableIntStateOf(0) }
     val itemFrMap = remember { mutableMapOf<String, FocusRequester>() }
+    val rowScope = rememberCoroutineScope()
+    // Rastrea la última card enfocada DENTRO de esta fila. Al salir de la fila
+    // (navegación vertical) se resetea a null; si al volver a entrar la fila
+    // aterriza en un índice != 0, se redirige el foco a la primera posición.
+    var lastFocusedInRow by remember(section.title) { mutableStateOf<String?>(null) }
     LaunchedEffect(section.items.map { it.stableId }) {
         val keys = section.items.map { it.stableId }.toSet()
         itemFrMap.keys.removeAll { it !in keys }
@@ -125,10 +131,13 @@ internal fun ContentSection(
                     delay((80 * attempt).milliseconds)
                     val fr = itemFrMap[targetId]
                     if (fr != null) {
+                        fragment.suppressCwRowReset = true
                         fr.requestFocus()
                         Log.d("HomeContent", "Focus RESTORED: ${section.title}[$idx] on attempt $attempt")
                         fragment.pendingFocusItem = null
                         fragment.suppressEventAutoScroll = false
+                        delay(250.milliseconds)
+                        fragment.suppressCwRowReset = false
                         break
                     } else {
                         Log.w("HomeContent", "FocusRequester for $targetId is null, retry...")
@@ -183,8 +192,11 @@ internal fun ContentSection(
             val idx = section.items.indexOfFirst { it.stableId == target.itemStableId }
             if (idx >= 0) lazyListState.scrollToItem(idx)
             delay(80.milliseconds)
+            fragment.suppressCwRowReset = true
             itemFrMap[target.itemStableId]?.requestFocus()
             fragment.pendingHomeFocusTarget = null
+            delay(250.milliseconds)
+            fragment.suppressCwRowReset = false
         }.onFailure {
             Log.w("HomeContent", "Home focus restore failed: ${it.message}")
         }
@@ -278,6 +290,7 @@ internal fun ContentSection(
                 modifier = Modifier
                     .onSizeChanged { rowWidth = it.width }
                     .onFocusChanged { state ->
+                        if (!state.hasFocus) lastFocusedInRow = null
                         if (BuildConfig.DEBUG) Log.d("FOCUS", "LazyRow '${section.title}': onFocusChanged isFocused=${state.isFocused} hasFocus=${state.hasFocus}")
                     },
             ) {
@@ -299,8 +312,23 @@ internal fun ContentSection(
                             timeRemainingText = remainingText,
                             episodeBadge = epBadge,
                             onFocused = { focusedItem ->
+                                // Entrada vertical desde otra fila: la fila "Continuar viendo"
+                                // debe enfocar SIEMPRE su primera posición, no la card alineada
+                                // con la fila de origen. Se omite cuando el foco llega por una
+                                // restauración programática (volver de detail/player).
+                                val enteringFromAnotherRow = section.title == "Continuar viendo" &&
+                                    lastFocusedInRow == null && !fragment.suppressCwRowReset
+                                lastFocusedInRow = focusedItem.stableId
                                 fragment.rememberHomeFocus(sectionIndex, section.title, focusedItem, index)
                                 onFocused(focusedItem)
+                                if (enteringFromAnotherRow && index != 0) {
+                                    Log.d("HomeContent", "CW row entry landed on index=$index, snapping to first position")
+                                    rowScope.launch {
+                                        lazyListState.scrollToItem(0)
+                                        delay(60.milliseconds)
+                                        section.items.getOrNull(0)?.stableId?.let { itemFrMap[it] }?.requestFocus()
+                                    }
+                                }
                             },
                             onMenuRequest = { fragment.continueWatchingMenuItem = it },
                         )

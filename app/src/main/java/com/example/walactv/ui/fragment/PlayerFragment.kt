@@ -1017,7 +1017,7 @@ class PlayerFragment : Fragment() {
                         selectEmbeddedAudioTrack(group, choice.trackIndex)
                     }
                 } ?: unifiedStreamOptions.getOrNull(choice.streamOptionIndex)?.let { selectedOption ->
-                    val resumePositionMs = player?.currentPosition ?: _positionMs
+                    val resumePositionMs = currentResumePositionMs()
                     saveAudioPreference(selectedOption.languageCode, selectedOption.language) {
                         onSelectUnifiedOption?.invoke(choice.streamOptionIndex, resumePositionMs)
                     }
@@ -1169,7 +1169,7 @@ class PlayerFragment : Fragment() {
 
         sourcePreferenceFallbackAttempted = true
         Log.d(TAG, "Switching source for preferred audio language=$targetLanguage")
-        onSelectUnifiedOption?.invoke(optionIndex, player?.currentPosition ?: _positionMs)
+        onSelectUnifiedOption?.invoke(optionIndex, currentResumePositionMs())
         return true
     }
 
@@ -1425,8 +1425,25 @@ class PlayerFragment : Fragment() {
     //  Playback error handling
     // ──────────────────────────────────────────────────────────────────────
 
+    /**
+     * Posición segura para reanudar tras un error o cambio de source.
+     * Tras un error ExoPlayer puede devolver C.TIME_UNSET o 0 aunque se
+     * estuviera reproduciendo; se cae entonces al último progreso guardado
+     * y, si tampoco existe, a la posición inicial con la que se abrió.
+     */
+    private fun currentResumePositionMs(): Long {
+        return player?.currentPosition
+            ?.takeIf { it > 0L && it != C.TIME_UNSET }
+            ?: lastSavedProgressMs.takeIf { it > 0L }
+            ?: _positionMs
+    }
+
     private fun handlePlaybackError(error: PlaybackException? = null) {
         if (isReleasing) return
+
+        // Capturar la posición ANTES de tocar el player: tras un error,
+        // currentPosition puede pasar a 0 o C.TIME_UNSET y perderíamos el progreso.
+        val errorPositionMs = currentResumePositionMs()
 
         val categorizedError = categorizePlaybackError(
             error = error,
@@ -1443,8 +1460,8 @@ class PlayerFragment : Fragment() {
             if (isVodMode && unifiedStreamOptions.size > 1 && onSelectUnifiedOption != null) {
                 val nextIndex = currentOptionIndex + 1
                 if (nextIndex < unifiedStreamOptions.size) {
-                    Log.d(TAG, "Auto-fallback de calidad: ${streamOptionLabels.getOrNull(currentOptionIndex)} → ${streamOptionLabels.getOrNull(nextIndex)}")
-                    onSelectUnifiedOption?.invoke(nextIndex, player?.currentPosition ?: _positionMs)
+                    Log.d(TAG, "Auto-fallback de calidad: ${streamOptionLabels.getOrNull(currentOptionIndex)} → ${streamOptionLabels.getOrNull(nextIndex)} resumeMs=$errorPositionMs")
+                    onSelectUnifiedOption?.invoke(nextIndex, errorPositionMs)
                     return
                 }
                 Log.w(TAG, "Auto-fallback: todas las opciones de calidad agotadas")
@@ -1487,6 +1504,11 @@ class PlayerFragment : Fragment() {
                             exoPlayer.clearMediaItems()
                             exoPlayer.setMediaItem(createMediaItem(streamUrl))
                             exoPlayer.prepare()
+                            // Reintentar desde donde se quedó, no desde 0.
+                            if (isVodMode && errorPositionMs > 0L) {
+                                Log.d(TAG, "Reintento reanudando en ${errorPositionMs}ms")
+                                exoPlayer.seekTo(errorPositionMs)
+                            }
                             exoPlayer.play()
                         }
                     } catch (exception: Exception) {
@@ -1499,6 +1521,8 @@ class PlayerFragment : Fragment() {
             forceRestartAttempted = true
             retryCount = 0
             showErrorOverlay(categorizedError, autoClose = false)
+            // Recrear el player desde la posición donde estaba reproduciendo.
+            _positionMs = errorPositionMs
             handler.postDelayed({
                 if (!isReleasing) {
                     releasePlayer()
