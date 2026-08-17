@@ -124,6 +124,7 @@ class MovieDetailFragment : Fragment() {
             val preference = runCatching {
                 IptvRepository(requireContext()).getPlaybackPreference("movie", catalogId)
             }.getOrNull()
+            stableId?.let { cachedItems[it] = IptvRepository(requireContext()).orderStreamsForPlayback(item) }
             playMovieWithPreference(preference, resumePositionMs, selectedStreamUrl)
         }
     }

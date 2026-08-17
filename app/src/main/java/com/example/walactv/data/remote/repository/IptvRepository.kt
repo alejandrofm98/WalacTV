@@ -19,6 +19,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -37,6 +39,7 @@ import com.example.walactv.data.util.normalizeRemoteImageUrl
 import com.example.walactv.WalacApp
 import com.example.walactv.data.model.cleanQualityLabels
 import com.example.walactv.data.model.parseNormalizedMetadata
+import com.example.walactv.data.model.sortedForPlayback
 import com.example.walactv.ui.compose.buildTmdbImageUrl
 
 internal val EVENT_QUALITY_ORDER = mapOf(
@@ -829,6 +832,52 @@ class IptvRepository @Inject constructor(context: Context) {
         }
     }
 
+    // ── Seleccion de stream para reproducir ───────────────────────────────────
+
+    /**
+     * Reordena los streams de VOD (peliculas/series) para que los enlaces que
+     * responden queden primero. El servidor manda varios mirrors del mismo
+     * contenido y el primero suele estar muerto (el proxy devuelve 401),
+     * mientras que otro mirror responde bien. Aplicando calidad/idioma primero
+     * y probando salud dentro de cada grupo, la primera opcion que se intenta
+     * reproducir es la mejor valida.
+     */
+    suspend fun orderStreamsForPlayback(item: CatalogItem): CatalogItem {
+        if (item.kind != ContentKind.MOVIE && item.kind != ContentKind.SERIES) return item
+        if (item.streamOptions.size <= 1) return item
+        val user = CredentialStore.username()
+        val pass = CredentialStore.password()
+        val sorted = item.streamOptions.sortedForPlayback()
+        val healthy = mutableListOf<StreamOption>()
+        val broken = mutableListOf<StreamOption>()
+        for (opt in sorted) {
+            if (isStreamHealthy(opt, user, pass)) healthy += opt else broken += opt
+        }
+        if (broken.isEmpty() || healthy.isEmpty()) return item
+        return item.copy(streamOptions = healthy + broken)
+    }
+
+    private suspend fun isStreamHealthy(option: StreamOption, user: String, pass: String): Boolean {
+        if (option.headers.isNotEmpty()) return true
+        val url = resolveStreamTemplate(option.url, user, pass)
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return false
+        return withContext(Dispatchers.IO) {
+            try {
+                val conn = URL(url).openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.instanceFollowRedirects = false
+                conn.connectTimeout = STREAM_PROBE_TIMEOUT_MS
+                conn.readTimeout = STREAM_PROBE_TIMEOUT_MS
+                val code = conn.responseCode
+                conn.disconnect()
+                code in STREAM_HEALTHY_CODES
+            } catch (e: Exception) {
+                Log.w(TAG, "isStreamHealthy: probe failed for $url: ${e.message}")
+                false
+            }
+        }
+    }
+
     private fun buildChannelUrl(channelId: String): String {
         if (channelId.isBlank()) return ""
         val c = requireCredentials()
@@ -933,6 +982,39 @@ class IptvRepository @Inject constructor(context: Context) {
             ?.let { buildTmdbImageUrl(it, "w780") }
             ?: stillPath
 
+        val directoOption = streamUrl.orEmpty().takeIf { it.isNotBlank() }?.let {
+            StreamOption(
+                label = "Directo",
+                url = it,
+                providerId = streams?.firstOrNull()?.providerId,
+                language = streams?.firstOrNull()?.country,
+                quality = streams?.firstOrNull()?.quality,
+            )
+        }
+        val streamOptionsVal = streams.orEmpty().mapNotNull { s ->
+            s.url.takeIf { !it.isNullOrBlank() }?.let {
+                val base = s.label ?: "Ver"
+                val q = s.quality?.trim().orEmpty()
+                val label = if (q.isBlank() || base.contains(q, ignoreCase = true)) base else "$base $q"
+                StreamOption(
+                    label = label,
+                    url = it,
+                    providerId = s.providerId,
+                    language = s.country,
+                    quality = s.quality,
+                )
+            }
+        }
+        // En VOD, el enlace que se intenta reproducir primero es la mejor
+        // calidad (igual que la primera opcion del selector de calidad/audio);
+        // el "Directo" de stream_url va al final porque suele ser un enlace
+        // roto que fallaba al abrir peliculas/series.
+        val streamOptionsFinal = if (kind == ContentKind.MOVIE || kind == ContentKind.SERIES) {
+            streamOptionsVal.sortedForPlayback() + listOfNotNull(directoOption)
+        } else {
+            listOfNotNull(directoOption) + streamOptionsVal
+        }
+
         return CatalogItem(
             stableId = stableId,
             catalogId = catalogIdVal,
@@ -962,33 +1044,7 @@ class IptvRepository @Inject constructor(context: Context) {
             seriesKey = seriesKey ?: seriesName,
             seasonNumber = this@toCatalogItem.seasonNumber,
             episodeNumber = this@toCatalogItem.episodeNumber,
-            streamOptions = (
-                listOfNotNull(
-                    streamUrl.orEmpty().takeIf { it.isNotBlank() }?.let {
-                        StreamOption(
-                            label = "Directo",
-                            url = it,
-                            providerId = streams?.firstOrNull()?.providerId,
-                            language = streams?.firstOrNull()?.country,
-                            quality = streams?.firstOrNull()?.quality,
-                        )
-                    },
-                ) +
-                    streams.orEmpty().mapNotNull { s ->
-                        s.url.takeIf { !it.isNullOrBlank() }?.let {
-                            val base = s.label ?: "Ver"
-                            val q = s.quality?.trim().orEmpty()
-                            val label = if (q.isBlank() || base.contains(q, ignoreCase = true)) base else "$base $q"
-                            StreamOption(
-                                label = label,
-                                url = it,
-                                providerId = s.providerId,
-                                language = s.country,
-                                quality = s.quality,
-                            )
-                        }
-                    }
-            ),
+            streamOptions = streamOptionsFinal,
             isWatched = this@toCatalogItem.isWatched == true,
             overviewEn = overviewEn?.takeIf { it.isNotBlank() },
             voteAverage = rating,
@@ -1101,6 +1157,8 @@ class IptvRepository @Inject constructor(context: Context) {
     companion object {
         private const val TAG = "IptvRepository"
         private const val PAGE_SIZE = 50
+        private const val STREAM_PROBE_TIMEOUT_MS = 3000
+        private val STREAM_HEALTHY_CODES = setOf(200, 206, 301, 302, 303, 307, 308)
         const val FAVORITES_FILTER_VALUE = "Favorites"
         const val FAVORITES_FILTER_LABEL = "Favoritos"
         private val DATE_FORMATTER: java.time.format.DateTimeFormatter =

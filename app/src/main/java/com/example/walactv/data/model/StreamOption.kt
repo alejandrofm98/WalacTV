@@ -47,11 +47,27 @@ fun List<StreamOption>.toUnifiedOptions(): List<UnifiedStreamOption> {
     }
         .distinctBy { it.url }
         .sortedWith(
-            compareByDescending<UnifiedStreamOption> { QUALITY_ORDER[it.quality] ?: 0 }
+            compareByDescending<UnifiedStreamOption> { STREAM_QUALITY_ORDER[it.quality] ?: 0 }
                 .thenBy { it.language },
         )
 }
 
-private val QUALITY_ORDER = mapOf(
+internal val STREAM_QUALITY_ORDER = mapOf(
     "UHD" to 7, "4K" to 6, "FHD" to 5, "HD" to 4, "SD" to 3, "HQ" to 2, "LQ" to 1,
 )
+
+/**
+ * Ordena las opciones de stream de VOD (peliculas/series) para elegir cual se
+ * intenta reproducir al abrir el contenido: mejor calidad primero y opciones
+ * con idioma antes que las que no tienen. Asi la primera coincide con la
+ * primera opcion del selector unificado (que ordena por calidad), en lugar de
+ * caer en la primera en orden del servidor (normalmente el "Directo" de
+ * stream_url, que suele fallar). El selector sigue ordenando por su cuenta.
+ */
+internal fun List<StreamOption>.sortedForPlayback(): List<StreamOption> =
+    sortedWith(
+        compareByDescending<StreamOption> { STREAM_QUALITY_ORDER[it.quality?.trim()?.uppercase()] ?: 0 }
+            .thenBy { it.language.isNullOrBlank() }
+            .thenBy { it.language ?: "" }
+            .thenBy { it.label },
+    )

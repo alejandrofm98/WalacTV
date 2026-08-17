@@ -40,6 +40,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.CaptionStyleCompat
+import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
 import androidx.compose.ui.platform.ComposeView
 import com.bumptech.glide.Glide
@@ -773,6 +774,7 @@ class PlayerFragment : Fragment() {
                 val endMs = currentSegments?.intro?.endMs ?: return@setOnClickListener
                 segmentButtonsHidden = true
                 p.seekTo(endMs)
+                refreshVodUiImmediately()
             }
         }
 
@@ -781,6 +783,7 @@ class PlayerFragment : Fragment() {
                 val endMs = currentSegments?.recap?.endMs ?: return@setOnClickListener
                 segmentButtonsHidden = true
                 p.seekTo(endMs)
+                refreshVodUiImmediately()
             }
         }
 
@@ -789,6 +792,7 @@ class PlayerFragment : Fragment() {
                 val endMs = currentSegments?.outro?.endMs ?: return@setOnClickListener
                 segmentButtonsHidden = true
                 p.seekTo(endMs)
+                refreshVodUiImmediately()
             }
         }
     }
@@ -901,6 +905,7 @@ class PlayerFragment : Fragment() {
                 if (progress != null && progress.shouldRestoreProgress){
                     withContext(Dispatchers.Main) {
                         player?.seekTo(progress.positionMs ?: 0L)
+                        refreshVodUiImmediately()
                         Log.d(TAG, "Restored progress to ${progress.positionMs}ms for $contentId")
                     }
                 }
@@ -932,6 +937,23 @@ class PlayerFragment : Fragment() {
         subtitleButton?.alpha = if (hasSubtitleTracks) 1.0f else 0.4f
     }
 
+    /**
+     * Fuerza la actualizacion inmediata del seekbar y de los tiempos VOD tras
+     * un seek. Media3 refresca el progress bar con su propio loop de ~1s, por
+     * lo que sin esto el indicador tarda en reflejar la nueva posicion.
+     */
+    private fun refreshVodUiImmediately() {
+        if (!isVodMode || isReleasing) return
+        val exoPlayer = player ?: return
+        updateVodTimeDisplay()
+        val timeBar = playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress) ?: return
+        val duration = exoPlayer.duration
+        if (duration == C.TIME_UNSET || duration <= 0) return
+        timeBar.setDuration(duration)
+        timeBar.setBufferedPosition(exoPlayer.bufferedPosition)
+        timeBar.setPosition(exoPlayer.currentPosition)
+    }
+
     private fun seekRelative(deltaMs: Long) {
         val exoPlayer = player ?: run {
             Log.w(TAG, "seekRelative: player is null, aborting")
@@ -957,6 +979,7 @@ class PlayerFragment : Fragment() {
         val target = (position + deltaMs).coerceIn(0, duration)
         Log.v(TAG, "seekRelative: seeking to $target")
         exoPlayer.seekTo(target)
+        refreshVodUiImmediately()
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -1458,9 +1481,9 @@ class PlayerFragment : Fragment() {
         if (isCodecIncompatible) {
             Log.w(TAG, "Error de codec incompatible detectado: $errorMessage")
             if (isVodMode && unifiedStreamOptions.size > 1 && onSelectUnifiedOption != null) {
-                val nextIndex = currentOptionIndex + 1
+                val nextIndex = currentUnifiedOptionIndex.takeIf { it >= 0 }?.plus(1) ?: 0
                 if (nextIndex < unifiedStreamOptions.size) {
-                    Log.d(TAG, "Auto-fallback de calidad: ${streamOptionLabels.getOrNull(currentOptionIndex)} → ${streamOptionLabels.getOrNull(nextIndex)} resumeMs=$errorPositionMs")
+                    Log.d(TAG, "Auto-fallback de calidad: ${unifiedStreamOptions.getOrNull(currentUnifiedOptionIndex)?.displayLabel ?: "?"} → ${unifiedStreamOptions.getOrNull(nextIndex)?.displayLabel} resumeMs=$errorPositionMs")
                     onSelectUnifiedOption?.invoke(nextIndex, errorPositionMs)
                     return
                 }

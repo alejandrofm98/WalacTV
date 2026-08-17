@@ -186,7 +186,7 @@ class SeriesDetailFragment : Fragment() {
     }
 
     @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-    private fun playEpisodeWithPreference(
+    private suspend fun playEpisodeWithPreference(
         item: CatalogItem,
         allEpisodesForSeries: List<CatalogItem>,
         logicalEpisodes: List<CatalogItem>,
@@ -211,10 +211,11 @@ class SeriesDetailFragment : Fragment() {
                 it.episodeNumber == item.episodeNumber &&
                 normalizeLanguageCode(it.idioma) == normalizeLanguageCode(preferredLanguage)
         } ?: allEpisodesForSeries.find { it.stableId == item.stableId } ?: item
+        val playableEpisode = repository.orderStreamsForPlayback(episodeToPlay)
 
         val stream = selectedStreamUrl?.let { url ->
-            episodeToPlay.streamOptions.firstOrNull { it.url == url }
-        } ?: episodeToPlay.streamOptions.firstOrNull() ?: return
+            playableEpisode.streamOptions.firstOrNull { it.url == url }
+        } ?: playableEpisode.streamOptions.firstOrNull() ?: return
         Log.d(TAG, "TMDB_SERIES_PLAY item=${item.tmdbDebug()} episode=${episodeToPlay.tmdbDebug()}")
 
         val currentIndex = logicalEpisodes.indexOfFirst {
@@ -237,14 +238,14 @@ class SeriesDetailFragment : Fragment() {
         Log.d(TAG, "SERIES_CONTENT_ID providerId=${episodeToPlay.providerId} stableId=${episodeToPlay.stableId} -> $seriesContentId")
 
         val playerFragment = PlayerFragment()
-        val unifiedOptions = episodeToPlay.streamOptions.toUnifiedOptions()
+        val unifiedOptions = playableEpisode.streamOptions.toUnifiedOptions()
         playerFragment.initialize(
             streamUrl = stream.url,
             overlayNumber = item.kind.name,
-            overlayTitle = episodeToPlay.title,
-            overlayMeta = buildEpisodeLabel(episodeToPlay.seasonNumber, episodeToPlay.episodeNumber).ifBlank { episodeToPlay.subtitle },
-            overlayDescription = episodeToPlay.description.ifBlank { item.description },
-            overlayRating = episodeToPlay.voteAverage ?: item.voteAverage,
+            overlayTitle = playableEpisode.title,
+            overlayMeta = buildEpisodeLabel(playableEpisode.seasonNumber, playableEpisode.episodeNumber).ifBlank { playableEpisode.subtitle },
+            overlayDescription = playableEpisode.description.ifBlank { item.description },
+            overlayRating = playableEpisode.voteAverage ?: item.voteAverage,
             contentKind = item.kind,
             onNavigateChannel = { _ -> },
             onNavigateOption = { _ -> },
@@ -255,7 +256,7 @@ class SeriesDetailFragment : Fragment() {
             onNextEpisode = nextEpisodeCallback,
             onPreviousEpisode = previousEpisodeCallback,
             allSeriesEpisodes = allEpisodesForSeries,
-            currentEpisode = episodeToPlay,
+            currentEpisode = playableEpisode,
             contentId = seriesContentId,
             positionMs = resumePositionMs,
             onPlayerClosed = {
@@ -267,7 +268,7 @@ class SeriesDetailFragment : Fragment() {
             onSelectUnifiedOption = { selectedIndex, resumeMs ->
                 val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
                 playEpisode(
-                    episodeToPlay,
+                    playableEpisode,
                     allEpisodesForSeries,
                     logicalEpisodes,
                     resumeMs,

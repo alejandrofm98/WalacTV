@@ -156,9 +156,10 @@ private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: Cata
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la pelicula", Toast.LENGTH_SHORT).show() }
         return
     }
+    val playable = repository.orderStreamsForPlayback(item)
     withContext(Dispatchers.Main) {
         activePlaybackLineup = emptyList()
-        playResolvedCatalogItem(item, 0, positionMs = progress.positionMs ?: 0L)
+        playResolvedCatalogItem(playable, 0, positionMs = progress.positionMs ?: 0L)
         // Sobrescribir con cardItem CW para que vuelva a la card correcta
         rememberPlaybackReturnState(cardItem)
     }
@@ -231,6 +232,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se encontró el episodio", Toast.LENGTH_SHORT).show() }
         return
     }
+    val playableEpisode = repository.orderStreamsForPlayback(targetEpisode)
 
     val currentIndex = logicalEpisodes.indexOfFirst {
         it.seriesName == targetEpisode.seriesName && it.seasonNumber == targetEpisode.seasonNumber && it.episodeNumber == targetEpisode.episodeNumber
@@ -273,7 +275,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     val playbackPreference = runCatching {
         repository.getPlaybackPreference("series", playbackCatalogId)
     }.getOrNull()
-    val stream = targetEpisode.streamOptions.firstOrNull() ?: run {
+    val stream = playableEpisode.streamOptions.firstOrNull() ?: run {
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No hay streams disponibles", Toast.LENGTH_SHORT).show() }
         return
     }
@@ -281,12 +283,12 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     val streamUrl = if (stream.url.isNotBlank() && !stream.url.startsWith("http")) {
         val user = CredentialStore.username()
         val pass = CredentialStore.password()
-        val pid = stream.providerId ?: targetEpisode.providerId
+        val pid = stream.providerId ?: playableEpisode.providerId
         if (user.isNotBlank() && pass.isNotBlank() && !pid.isNullOrBlank()) {
             Log.w(TAG, "openContinueWatchingSeries: relative stream URL, building proxy: pid=$pid")
             "${BuildConfig.IPTV_BASE_URL}/series/$user/$pass/$pid.ts"
         } else {
-            Log.e(TAG, "openContinueWatchingSeries: cannot build stream URL — stream.providerId=${stream.providerId}, episode.providerId=${targetEpisode.providerId}")
+            Log.e(TAG, "openContinueWatchingSeries: cannot build stream URL — stream.providerId=${stream.providerId}, episode.providerId=${playableEpisode.providerId}")
             withContext(Dispatchers.Main) {
                 Toast.makeText(requireContext(), "No se pudo obtener la URL de reproducción", Toast.LENGTH_SHORT).show()
             }
@@ -299,26 +301,26 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
 
     withContext(Dispatchers.Main) {
     val playerFragment = PlayerFragment()
-    val unifiedOptions = targetEpisode.streamOptions.toUnifiedOptions()
+    val unifiedOptions = playableEpisode.streamOptions.toUnifiedOptions()
     playerFragment.initialize(
-        streamUrl = streamUrl, overlayNumber = targetEpisode.kind.name, overlayTitle = targetEpisode.title,
-        overlayMeta = if (targetEpisode.kind == ContentKind.SERIES) buildEpisodeLabel(targetEpisode.seasonNumber, targetEpisode.episodeNumber) else targetEpisode.subtitle, contentKind = targetEpisode.kind,
-        overlayDescription = targetEpisode.description,
-        overlayRating = targetEpisode.voteAverage,
+        streamUrl = streamUrl, overlayNumber = playableEpisode.kind.name, overlayTitle = playableEpisode.title,
+        overlayMeta = if (playableEpisode.kind == ContentKind.SERIES) buildEpisodeLabel(playableEpisode.seasonNumber, playableEpisode.episodeNumber) else playableEpisode.subtitle, contentKind = playableEpisode.kind,
+        overlayDescription = playableEpisode.description,
+        overlayRating = playableEpisode.voteAverage,
             onNavigateChannel = { _ -> }, onNavigateOption = { _ -> }, onDirectChannelNumber = { _ -> false },
             onToggleFavorite = { false }, onOpenFavorites = { false }, onOpenRecents = { false },
             onNextEpisode = nextEpisodeCallback,
             onPreviousEpisode = previousEpisodeCallback,
-            allSeriesEpisodes = allEpisodes, currentEpisode = targetEpisode,
-            overlayLogoUrl = targetEpisode.preferredVodPosterUrl(), contentId = targetEpisode.playbackContentId(),
+            allSeriesEpisodes = allEpisodes, currentEpisode = playableEpisode,
+            overlayLogoUrl = playableEpisode.preferredVodPosterUrl(), contentId = playableEpisode.playbackContentId(),
             positionMs = progress.positionMs ?: 0L,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
             unifiedStreamOptions = unifiedOptions,
-            onSelectUnifiedOption = if (targetEpisode.kind == ContentKind.MOVIE || targetEpisode.kind == ContentKind.SERIES) {
+            onSelectUnifiedOption = if (playableEpisode.kind == ContentKind.MOVIE || playableEpisode.kind == ContentKind.SERIES) {
                 { selectedIndex, resumeMs ->
                     val selectedOption = unifiedOptions.getOrNull(selectedIndex) ?: return@initialize
-                    playCatalogItemWithUnifiedOption(targetEpisode, selectedOption, resumeMs)
+                    playCatalogItemWithUnifiedOption(playableEpisode, selectedOption, resumeMs)
                 }
             } else null,
             playbackCatalogId = playbackCatalogId,
@@ -387,6 +389,7 @@ internal fun ComposeMainFragment.playCatalogItem(
     }
     if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
         scope.launch {
+            val playable = repository.orderStreamsForPlayback(item)
             val catalogId = if (item.kind == ContentKind.SERIES) {
                 item.seriesKey ?: item.seriesProviderId ?: item.providerId ?: item.stableId.substringAfter(':')
             } else {
@@ -396,7 +399,7 @@ internal fun ComposeMainFragment.playCatalogItem(
                 repository.getPlaybackPreference(item.kind.name.lowercase(), catalogId)
             }.getOrNull()
             playResolvedCatalogItem(
-                item,
+                playable,
                 optionIndex,
                 showOptionsOnStart,
                 positionMs = positionMs,
@@ -410,6 +413,18 @@ internal fun ComposeMainFragment.playCatalogItem(
 }
 
 internal fun ComposeMainFragment.playCatalogItemWithUnifiedOption(item: CatalogItem, option: UnifiedStreamOption, positionMs: Long = 0) {
+    if (item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES) {
+        scope.launch {
+            val playable = repository.orderStreamsForPlayback(item)
+            val optionIndex = playable.streamOptions.indexOfFirst { it.url == option.url }
+            if (optionIndex >= 0) {
+                playResolvedCatalogItem(playable, optionIndex, positionMs = positionMs)
+            } else {
+                playResolvedCatalogItem(playable, 0, positionMs = positionMs)
+            }
+        }
+        return
+    }
     val optionIndex = item.streamOptions.indexOfFirst { it.url == option.url }
     if (optionIndex >= 0) {
         playCatalogItem(item, optionIndex, positionMs = positionMs)
