@@ -71,4 +71,13 @@ data class StreamDto(
     val quality: String? = null,
     @SerializedName("provider_id") val providerId: String? = null,
     val headers: Map<String, String>? = null,
+    // ── Torrentio ────────────────────────────────────────────────────
+    @SerializedName("info_hash") val infoHash: String? = null,
+    @SerializedName("file_idx") val fileIdx: Int? = null,
+    val seeders: Int? = null,
+    @SerializedName("size_bytes") val sizeBytes: Long? = null,
+    @SerializedName("title") val torrentTitle: String? = null,
+    val source: String? = null,
+    val playable: Boolean? = null,
+    @SerializedName("requires_resolution") val requiresResolution: Boolean? = null,
 )

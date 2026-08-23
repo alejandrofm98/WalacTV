@@ -62,6 +62,7 @@ import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.data.util.languageDisplayLabel
 import com.example.walactv.data.util.normalizeLanguageCode
 import com.example.walactv.datasource.StreamWishDataSourceFactory
+import com.example.walactv.datasource.torrent.TorrentDataSourceFactory
 import com.example.walactv.ui.overlay.PlayerErrorOverlay
 import com.example.walactv.ui.overlay.isFatalPlaybackErrorForDevice
 
@@ -491,10 +492,18 @@ class PlayerFragment : Fragment() {
 
         try {
             val isStreamWish = StreamWishDataSourceFactory.isStreamWishUrl(streamUrl)
+            val isTorrent = TorrentDataSourceFactory.isTorrentUrl(streamUrl)
             val hasCustomHeaders = customHeaders.isNotEmpty()
-            Log.d(TAG, "initializePlayer: streamUrl=${streamUrl.take(60)}..., isStreamWish=$isStreamWish, hasCustomHeaders=$hasCustomHeaders, customHeaders=$customHeaders")
+            Log.d(TAG, "initializePlayer: streamUrl=${streamUrl.take(60)}..., isStreamWish=$isStreamWish, isTorrent=$isTorrent, hasCustomHeaders=$hasCustomHeaders")
 
-            val dataSourceFactory = if (isStreamWish) {
+            val dataSourceFactory = if (isTorrent) {
+                // Stream Torrentio: el TorrentEngine descarga el magnet y sirve
+                // las piezas via TorrentDataSource (sin HTTP).
+                val engine = (requireActivity().application as WalacApp).appComponent.torrentEngine
+                val infoHash = streamUrl.removePrefix("magnet:?xt=urn:btih:").substringBefore('&')
+                engine.startStream(infoHash)
+                TorrentDataSourceFactory(engine)
+            } else if (isStreamWish) {
                 val referer = extractReferer(streamUrl)
                 val origin = "https://${streamUrl.toUri().host}"
                 Log.d(TAG, "StreamWish detected: referer=$referer, origin=$origin")
@@ -2047,6 +2056,12 @@ class PlayerFragment : Fragment() {
 
         player = null
         retryCount = 0
+
+        // Si era un stream torrent, parar el motor y limpiar archivos temporales
+        if (TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
+            val engine = (requireActivity().application as WalacApp).appComponent.torrentEngine
+            engine.stopStream()
+        }
 
         if (closeUi) {
             activity?.findViewById<FrameLayout>(R.id.player_container)?.visibility = View.GONE

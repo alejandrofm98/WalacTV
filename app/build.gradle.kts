@@ -159,4 +159,13 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.androidx.security.crypto)
+
+    // libtorrent4j (MIT) para reproducir torrents Torrentio via streaming
+    implementation(libs.libtorrent4j)
+    implementation(libs.libtorrent4j.android.arm)
+    implementation(libs.libtorrent4j.android.arm64)
+    implementation(libs.libtorrent4j.android.x86)
+    implementation(libs.libtorrent4jAndroidX8664)
+    // NanoHTTPD como fallback para servir streams locales (reservado)
+    implementation(libs.nanohttpd)
 }

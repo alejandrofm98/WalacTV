@@ -8,6 +8,7 @@ import com.example.walactv.data.remote.api.NetworkModule
 import com.example.walactv.data.remote.repository.IntroDbRepository
 import com.example.walactv.data.remote.repository.IptvRepository
 import com.example.walactv.data.remote.repository.WatchProgressRepository
+import com.example.walactv.datasource.torrent.TorrentEngine
 import com.example.walactv.local.ContentCacheManager
 import com.example.walactv.ui.viewmodel.HomeViewModel
 import dagger.BindsInstance
@@ -25,6 +26,7 @@ interface AppComponent {
     val channelStateStore: ChannelStateStore
     val homeViewModel: HomeViewModel
     val introDbRepository: IntroDbRepository
+    val torrentEngine: TorrentEngine
 
     @Component.Factory
     interface Factory {

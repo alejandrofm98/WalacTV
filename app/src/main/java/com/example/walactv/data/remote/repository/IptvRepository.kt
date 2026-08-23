@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.walactv.data.remote.api.AuthInterceptor
 import com.example.walactv.data.remote.api.IptvApiService
 import com.example.walactv.data.remote.api.dto.CatalogItemDto
+import com.example.walactv.data.remote.torrent.TorrentioClient
 import com.example.walactv.data.remote.api.dto.CalendarEventDto
 import com.example.walactv.data.remote.api.dto.CanalResueltoDto
 import com.example.walactv.data.remote.api.dto.FilterOptionDto
@@ -610,6 +611,22 @@ class IptvRepository @Inject constructor(context: Context) {
             val resolved = resolveStreamTemplates(items).distinctBy(CatalogItem::stableId)
             Log.d(TAG, "loadSeriesEpisodesById: total ${resolved.size} episodes after deduplication")
             resolved
+        }
+
+    // ── Torrentio (consulta directa al addon, sin backend) ─────────────────────
+
+    suspend fun getTorrentioMovieStreams(movieId: String): List<StreamOption> =
+        withContext(Dispatchers.IO) {
+            if (!TorrentioClient.isImdbId(movieId)) return@withContext emptyList()
+            Log.d(TAG, "getTorrentioMovieStreams: imdbId='$movieId'")
+            TorrentioClient.movieStreams(movieId)
+        }
+
+    suspend fun getTorrentioEpisodeStreams(seriesId: String, season: Int, episode: Int): List<StreamOption> =
+        withContext(Dispatchers.IO) {
+            if (!TorrentioClient.isImdbId(seriesId)) return@withContext emptyList()
+            Log.d(TAG, "getTorrentioEpisodeStreams: imdbId='$seriesId' S${season}E$episode")
+            TorrentioClient.episodeStreams(seriesId, season, episode)
         }
 
     // ── Content pagination for home sections ───────────────────────────────────

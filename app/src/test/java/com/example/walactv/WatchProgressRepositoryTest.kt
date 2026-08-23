@@ -15,6 +15,7 @@ import com.example.walactv.data.remote.api.dto.ReplayListResponse
 import com.example.walactv.data.remote.api.dto.SaveWatchProgressBody
 import com.example.walactv.data.remote.api.dto.SearchResponse
 import com.example.walactv.data.remote.api.dto.SeriesEpisodesResponse
+
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.remote.api.dto.WatchProgressListResponse
 import com.example.walactv.data.remote.repository.WatchProgressRepository

@@ -12,21 +12,27 @@ import android.widget.ImageView
 import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.preferredVodPosterUrl
 import com.example.walactv.data.model.playbackContentId
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
 import com.example.walactv.data.remote.repository.IptvRepository
+import com.example.walactv.data.remote.torrent.TorrentioClient
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import com.example.walactv.ui.compose.tvClickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.*
+import androidx.compose.ui.draw.clip
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import androidx.compose.ui.Alignment
@@ -37,21 +43,33 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 import com.bumptech.glide.Glide
 import com.example.walactv.ui.theme.*
 
 class MovieDetailFragment : Fragment() {
 
     private val cachedItems = mutableMapOf<String, CatalogItem>()
+    private var torrentStreams by mutableStateOf<List<StreamOption>>(emptyList())
+    private var torrentLoading by mutableStateOf(false)
+    private var torrentError by mutableStateOf(false)
 
     companion object {
         private const val ARG_CATALOG_ITEM = "catalog_item"
@@ -69,6 +87,9 @@ class MovieDetailFragment : Fragment() {
             Log.d(TAG, "TMDB_DETAIL bundle item=${item.tmdbDebug()}")
             return Bundle().apply {
                 putString("stableId", item.stableId)
+                putString("imdbId", item.imdbId)
+                putString("catalogId", item.catalogId)
+                putString("providerId", item.providerId)
                 putString("title", item.title)
                 putString("description", item.description)
                 putString("imageUrl", item.imageUrl)
@@ -96,13 +117,36 @@ class MovieDetailFragment : Fragment() {
     ): View {
         val item = parseArguments(requireArguments())
 
+        // Cargar fuentes Torrentio (consulta directa al addon) para la pelicula.
+        // Solo si hay imdb_id valido; sin el no se consulta y no se marca error.
+        val movieId = item.imdbId
+        if (TorrentioClient.isImdbId(movieId)) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                torrentLoading = true
+                val fetched = runCatching {
+                    IptvRepository(requireContext()).getTorrentioMovieStreams(movieId!!)
+                }.getOrElse {
+                    torrentError = true
+                    emptyList()
+                }
+                torrentStreams = fetched
+                torrentLoading = false
+            }
+        }
+
         return ComposeView(requireContext()).apply {
             setContent {
                 WalacTVTheme {
                     MovieDetailScreen(
                         item = item,
+                        torrentStreams = torrentStreams,
+                        torrentLoading = torrentLoading,
+                        torrentError = torrentError,
                         onBackClick = { requireActivity().supportFragmentManager.popBackStack() },
-                        onPlayClick = { playMovie() }
+                        onPlayClick = { playMovie() },
+                        onPlaySource = { source ->
+                            playMovie(source = source)
+                        },
                     )
                 }
             }
@@ -113,6 +157,7 @@ class MovieDetailFragment : Fragment() {
     private fun playMovie(
         selectedStreamUrl: String? = null,
         resumePositionMs: Long = 0L,
+        source: StreamOption? = null,
     ) {
         val stableId = requireArguments().getString("stableId")
         val item = cachedItems[stableId] ?: run {
@@ -125,7 +170,7 @@ class MovieDetailFragment : Fragment() {
                 IptvRepository(requireContext()).getPlaybackPreference("movie", catalogId)
             }.getOrNull()
             stableId?.let { cachedItems[it] = IptvRepository(requireContext()).orderStreamsForPlayback(item) }
-            playMovieWithPreference(preference, resumePositionMs, selectedStreamUrl)
+            playMovieWithPreference(preference, resumePositionMs, selectedStreamUrl, source)
         }
     }
 
@@ -134,6 +179,7 @@ class MovieDetailFragment : Fragment() {
         preference: PlaybackPreferenceDto?,
         resumePositionMs: Long = 0L,
         selectedStreamUrl: String? = null,
+        source: StreamOption? = null,
     ) {
         val stableId = requireArguments().getString("stableId")
         val item = cachedItems[stableId] ?: run {
@@ -142,18 +188,44 @@ class MovieDetailFragment : Fragment() {
         }
         Log.d(TAG, "playMovie item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
 
-        val stream = selectedStreamUrl?.let { url ->
-            item.streamOptions.firstOrNull { it.url == url }
-        } ?: item.streamOptions.firstOrNull()
+        // Fuente elegida por el selector, o la seleccionada por URL, o la primera reproducible.
+        // Los streams IPTV con url vacia (contenido solo-torrent) se descartan.
+        val stream = source
+            ?: selectedStreamUrl?.let { url -> item.streamOptions.firstOrNull { it.url == url } }
+            ?: item.streamOptions.firstOrNull { it.url.isNotBlank() || it.isTorrent }
         if (stream == null) {
             android.widget.Toast.makeText(requireContext(), R.string.no_streams_available, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
 
-        val unifiedOptions = item.streamOptions.toUnifiedOptions()
+        // Si la fuente elegida es un torrent, construir el item con el magnet
+        // en primer lugar para que el player lo resuelva.
+        val playableItem = if (stream.isTorrent) {
+            val allStreams = listOf(stream) + item.streamOptions.filter { !it.isTorrent }
+            item.copy(streamOptions = allStreams)
+        } else {
+            item
+        }
+        val playableStream = if (stream.isTorrent) {
+            StreamOption(
+                label = stream.label,
+                url = "magnet:?xt=urn:btih:${stream.infoHash}",
+                infoHash = stream.infoHash,
+                fileIdx = stream.fileIdx,
+                seeders = stream.seeders,
+                sizeBytes = stream.sizeBytes,
+                torrentTitle = stream.torrentTitle,
+                language = stream.language,
+                quality = stream.quality,
+            )
+        } else {
+            stream
+        }
+
+        val unifiedOptions = playableItem.streamOptions.toUnifiedOptions()
         val playerFragment = PlayerFragment()
         playerFragment.initialize(
-            streamUrl = stream.url,
+            streamUrl = playableStream.url,
             overlayNumber = item.kind.name,
             overlayTitle = item.title,
             overlayMeta = item.subtitle,
@@ -171,7 +243,7 @@ class MovieDetailFragment : Fragment() {
             onPreviousEpisode = null,
             allSeriesEpisodes = emptyList(),
             currentEpisode = null,
-            streamOptionLabels = item.streamOptions.map { it.label },
+            streamOptionLabels = playableItem.streamOptions.map { it.label },
             currentOptionIndex = 0,
             showOptionsOnStart = false,
             overlayLogoUrl = item.preferredVodPosterUrl(),
@@ -204,6 +276,9 @@ class MovieDetailFragment : Fragment() {
     private fun parseArguments(args: Bundle): CatalogItem {
         return CatalogItem(
             stableId = args.getString("stableId") ?: "",
+            catalogId = args.getString("catalogId"),
+            providerId = args.getString("providerId"),
+            imdbId = args.getString("imdbId"),
             title = args.getString("title") ?: "",
             subtitle = "",
             description = args.getString("description") ?: "",
@@ -235,10 +310,20 @@ class MovieDetailFragment : Fragment() {
 @Composable
 fun MovieDetailScreen(
     item: CatalogItem,
+    torrentStreams: List<StreamOption> = emptyList(),
+    torrentLoading: Boolean = false,
+    torrentError: Boolean = false,
     onBackClick: () -> Unit,
-    onPlayClick: () -> Unit
+    onPlayClick: () -> Unit,
+    onPlaySource: (StreamOption) -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
+    var showSourcePicker by remember { mutableStateOf(false) }
+    var sourceSelectedIndex by remember { mutableIntStateOf(0) }
+
+    val allSources = remember(item.streamOptions, torrentStreams) {
+        item.streamOptions.filter { !it.isTorrent && it.url.isNotBlank() } + torrentStreams
+    }
 
     val backgroundImageUrl = item.backdropUrl?.takeIf { it.isNotBlank() }
         ?: item.tmdbPosterUrl?.takeIf { it.isNotBlank() }
@@ -358,6 +443,12 @@ fun MovieDetailScreen(
                         isPrimary = true,
                         onClick = onPlayClick
                     )
+                    ActionButton(
+                        text = "Fuentes",
+                        icon = Icons.Default.List,
+                        isPrimary = false,
+                        onClick = { showSourcePicker = true }
+                    )
                 }
 
                 // Descripción
@@ -464,6 +555,230 @@ fun MovieDetailScreen(
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
+    }
+
+    if (showSourcePicker) {
+        MovieSourcePickerDialog(
+            item = item,
+            streams = allSources,
+            loading = torrentLoading,
+            error = torrentError,
+            selectedIndex = sourceSelectedIndex,
+            onSelect = { sourceSelectedIndex = it },
+            onPlay = {
+                val source = allSources.getOrNull(sourceSelectedIndex)
+                if (source != null) {
+                    showSourcePicker = false
+                    onPlaySource(source)
+                }
+            },
+            onDismiss = { showSourcePicker = false },
+        )
+    }
+}
+
+@Composable
+private fun MovieSourcePickerDialog(
+    item: CatalogItem,
+    streams: List<StreamOption>,
+    loading: Boolean,
+    error: Boolean,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    onPlay: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+    var focusedIndex by remember { mutableIntStateOf(selectedIndex) }
+
+    LaunchedEffect(Unit) {
+        delay(50.milliseconds)
+        try { focusRequester.requestFocus() } catch (_: Exception) {}
+    }
+    LaunchedEffect(streams, selectedIndex) {
+        focusedIndex = selectedIndex
+    }
+
+    val torrents = streams.filter { it.isTorrent }
+    val iptv = streams.filter { !it.isTorrent }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> { focusedIndex = (focusedIndex - 1).coerceAtLeast(0); true }
+                        Key.DirectionDown -> {
+                            focusedIndex = (focusedIndex + 1).coerceAtMost((streams.size - 1).coerceAtLeast(0))
+                            true
+                        }
+                        Key.DirectionCenter, Key.Enter -> {
+                            if (streams.isNotEmpty()) { onSelect(focusedIndex); onPlay() }
+                            true
+                        }
+                        Key.Back, Key.Escape -> { onDismiss(); true }
+                        else -> false
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(600.dp)
+                    .background(Color(0xFF1A1A2E), RoundedCornerShape(16.dp))
+                    .border(1.dp, Color(0xFF2E2E4E), RoundedCornerShape(16.dp))
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    "Fuentes de reproducción",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    item.title,
+                    color = Color.LightGray,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+
+                when {
+                    loading -> Text("Buscando fuentes en Torrentio...", color = Color.LightGray, fontSize = 14.sp)
+                    streams.isEmpty() -> Text(
+                        if (error) "No se pudieron cargar las fuentes" else "Sin fuentes disponibles",
+                        color = Color.LightGray,
+                        fontSize = 14.sp,
+                    )
+                    else -> {
+                        if (iptv.isNotEmpty()) {
+                            Text("DIRECTO IPTV", color = Color(0xFF6FA8DC), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            iptv.forEachIndexed { idx, stream ->
+                                val globalIdx = idx
+                                MovieSourceRow(
+                                    label = stream.label,
+                                    quality = stream.quality,
+                                    seeders = null,
+                                    size = null,
+                                    isTorrent = false,
+                                    isSelected = globalIdx == focusedIndex,
+                                    onClick = { focusedIndex = globalIdx; onSelect(globalIdx) },
+                                )
+                            }
+                        }
+                        if (torrents.isNotEmpty()) {
+                            Text("TORRENT · TORRENTIO", color = Color(0xFFD68FE2), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            torrents.forEachIndexed { idx, stream ->
+                                val globalIdx = iptv.size + idx
+                                MovieSourceRow(
+                                    label = stream.torrentTitle ?: stream.label,
+                                    quality = stream.quality,
+                                    seeders = stream.seeders,
+                                    size = stream.sizeBytes,
+                                    isTorrent = true,
+                                    isSelected = globalIdx == focusedIndex,
+                                    onClick = { focusedIndex = globalIdx; onSelect(globalIdx) },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (streams.isNotEmpty()) Color.White else Color.Gray)
+                        .then(if (streams.isNotEmpty()) Modifier.tvClickable {
+                            onSelect(focusedIndex); onPlay()
+                        } else Modifier)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Reproducir",
+                        color = Color.Black,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MovieSourceRow(
+    label: String,
+    quality: String?,
+    seeders: Int?,
+    size: Long?,
+    isTorrent: Boolean,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isSelected) Color.White.copy(alpha = 0.15f) else Color.Transparent)
+            .border(
+                width = if (isSelected) 2.dp else 0.dp,
+                color = if (isSelected) Color.White else Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .tvClickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = if (isTorrent) "⬤" else "▶",
+                color = if (isTorrent) Color(0xFFD68FE2) else Color(0xFF6FA8DC),
+                fontSize = 12.sp,
+            )
+            Text(
+                text = label,
+                color = if (isSelected) Color.White else Color.LightGray,
+                fontSize = 14.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            quality?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    it.uppercase(),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+            seeders?.let {
+                Text("$it seeds", color = Color(0xFF46D369), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+            size?.let {
+                val gb = it / (1024.0 * 1024.0 * 1024.0)
+                Text(
+                    if (gb >= 1) String.format(java.util.Locale.US, "%.1f GB", gb) else "${it / (1024 * 1024)} MB",
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                )
+            }
+        }
     }
 }
 

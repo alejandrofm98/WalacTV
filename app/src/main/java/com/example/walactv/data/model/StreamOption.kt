@@ -16,7 +16,15 @@ data class StreamOption(
     val provider: String? = null,
     val providerVideoId: String? = null,
     val streamFormat: String? = null,
-) : Serializable
+    // ── Torrent (Torrentio) ─────────────────────────────────────────
+    val infoHash: String? = null,
+    val fileIdx: Int? = null,
+    val seeders: Int? = null,
+    val sizeBytes: Long? = null,
+    val torrentTitle: String? = null,
+) : Serializable {
+    val isTorrent: Boolean get() = !infoHash.isNullOrBlank()
+}
 
 data class UnifiedStreamOption(
     val language: String,
