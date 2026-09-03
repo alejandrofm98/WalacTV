@@ -25,6 +25,10 @@ class TorrentDataSource(
     companion object {
         private const val TAG = "TorrentDataSource"
         private const val CHUNK_SIZE = 64 * 1024
+
+        /** Cuanto espera open() a que los metadatos esten listos antes de fallar. */
+        private const val READY_TIMEOUT_MS = 60_000L
+        private const val READY_POLL_MS = 250L
     }
 
     private var currentSpec: DataSpec? = null
@@ -34,13 +38,28 @@ class TorrentDataSource(
     override fun addTransferListener(transferListener: TransferListener) = Unit
 
     override fun open(dataSpec: DataSpec): Long {
-        if (!engine.isReady) {
-            throw IOException("El torrent no esta listo para reproducir")
+        // Los metadatos del magnet pueden tardar varios segundos. Esperar aqui
+        // mantiene a ExoPlayer en BUFFERING; lanzar IOException seria un error
+        // fatal de source y cortaria la reproduccion (bug visto en TV).
+        val deadline = System.currentTimeMillis() + READY_TIMEOUT_MS
+        while (!engine.isReady) {
+            if (!engine.isStreaming()) {
+                throw IOException("El torrent se detuvo antes de estar listo")
+            }
+            if (System.currentTimeMillis() > deadline) {
+                throw IOException("El torrent no esta listo para reproducir (timeout ${READY_TIMEOUT_MS / 1000}s)")
+            }
+            try {
+                Thread.sleep(READY_POLL_MS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw IOException("Espera del torrent interrumpida")
+            }
         }
+        Log.d(TAG, "open: position=${dataSpec.position} length=${dataSpec.length} total=${engine.selectedFileSize()} ${engine.debugStatus()}")
         currentSpec = dataSpec
         position = dataSpec.position
         bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) dataSpec.length else C.LENGTH_UNSET.toLong()
-        Log.d(TAG, "open: position=${dataSpec.position} length=${dataSpec.length} total=${engine.selectedFileSize()}")
         return if (dataSpec.length == C.LENGTH_UNSET.toLong()) engine.selectedFileSize() - dataSpec.position else dataSpec.length
     }
 
@@ -48,22 +67,33 @@ class TorrentDataSource(
         val spec = currentSpec ?: return C.RESULT_END_OF_INPUT
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
 
-        val toRead = minOf(length, CHUNK_SIZE, if (bytesRemaining == C.LENGTH_UNSET.toLong()) Int.MAX_VALUE else bytesRemaining.toInt())
-        if (toRead <= 0) return C.RESULT_END_OF_INPUT
+        // Mientras el torrent este activo, esperar piezas NO es un error: un
+        // IOException aqui reiniciaria el player en bucle hasta tener el archivo
+        // completo (comportamiento observado en TV). Bloquear mantiene a
+        // ExoPlayer en BUFFERING y reproduce en cuanto la pieza llegue.
+        while (true) {
+            val toRead = minOf(length, CHUNK_SIZE, if (bytesRemaining == C.LENGTH_UNSET.toLong()) Int.MAX_VALUE else bytesRemaining.toInt())
+            if (toRead <= 0) return C.RESULT_END_OF_INPUT
 
-        val chunk = try {
-            engine.readRange(position, toRead)
-        } catch (e: Exception) {
-            Log.e(TAG, "read: error leyendo range en $position", e)
-            throw IOException("Error leyendo del torrent: ${e.message}", e)
-        } ?: throw IOException("Timeout esperando piezas del torrent en $position")
-
-        System.arraycopy(chunk, 0, buffer, offset, chunk.size)
-        position += chunk.size
-        if (bytesRemaining != C.LENGTH_UNSET.toLong()) {
-            bytesRemaining -= chunk.size
+            val chunk = try {
+                engine.readRange(position, toRead)
+            } catch (e: Exception) {
+                Log.e(TAG, "read: error leyendo range en $position", e)
+                throw IOException("Error leyendo del torrent: ${e.message}", e)
+            }
+            if (chunk != null) {
+                System.arraycopy(chunk, 0, buffer, offset, chunk.size)
+                position += chunk.size
+                if (bytesRemaining != C.LENGTH_UNSET.toLong()) {
+                    bytesRemaining -= chunk.size
+                }
+                return chunk.size
+            }
+            if (!engine.isStreaming()) {
+                throw IOException("Torrent detenido durante la lectura en $position")
+            }
+            Log.d(TAG, "read: piezas aun no disponibles en $position, esperando…")
         }
-        return chunk.size
     }
 
     override fun getUri(): Uri? = currentSpec?.uri

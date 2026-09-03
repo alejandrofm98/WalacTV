@@ -48,6 +48,7 @@ import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.WalacApp
 import com.example.walactv.data.model.PlaybackError
+import com.example.walactv.data.model.PlaybackErrorType
 import com.example.walactv.data.model.UnifiedStreamOption
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
@@ -93,6 +94,7 @@ class PlayerFragment : Fragment() {
     private var currentUnifiedOptionIndex: Int = -1
     private var onSelectUnifiedOption: ((Int, Long) -> Unit)? = null
     private var overlayLogoUrl: String = ""
+private var overlayBackdropUrl: String = ""
     private var isFavorite: Boolean = false
     private var contentId: String = ""
     private var _positionMs: Long = 0
@@ -137,6 +139,7 @@ class PlayerFragment : Fragment() {
         currentOptionIndex: Int = 0,
         showOptionsOnStart: Boolean = false,
         overlayLogoUrl: String = "",
+        overlayBackdropUrl: String = "",
         isFavorite: Boolean = false,
         contentId: String = "",
         positionMs: Long = 0,
@@ -184,6 +187,7 @@ class PlayerFragment : Fragment() {
         this.onPlayerClosed = onPlayerClosed
         this.onProgressSaved = onProgressSaved
         this.customHeaders = customHeaders
+        this.overlayBackdropUrl = overlayBackdropUrl
         this.unifiedStreamOptions = unifiedStreamOptions
         this.currentUnifiedOptionIndex = unifiedStreamOptions.indexOfFirst { it.url == streamUrl }
         this.onSelectUnifiedOption = onSelectUnifiedOption
@@ -244,6 +248,58 @@ class PlayerFragment : Fragment() {
     private var errorState: PlaybackError? = null
     private var isRetrying: Boolean = false
     private var errorComposeView: ComposeView? = null
+    private var torrentOverlayView: ComposeView? = null
+    private var torrentOverlayActive = false
+    private var torrentStatsJob: kotlinx.coroutines.Job? = null
+    private var torrentEngineRef: com.example.walactv.datasource.torrent.TorrentEngine? = null
+    private var torrentEngineListener: com.example.walactv.datasource.torrent.TorrentEngine.Listener? = null
+    private var torrentStreamGeneration: Long = Long.MIN_VALUE
+    private var lastTorrentPrioritizeMs: Long = 0L
+    private var torrentBufferingSinceMs: Long = 0L
+    private var torrentRecoverAttempts: Int = 0
+    private val torrentRecoverRunnable = Runnable { recoverStuckTorrent() }
+    private var codecSourceFallbackAttempted: Boolean = false
+    private var currentHttpUrl: String = ""
+    private var playerGeneration: Int = 0
+
+    /** Reintenta destrabar la lectura del torrent re-lanzando el seek. */
+    private fun recoverStuckTorrent() {
+        if (isReleasing || player == null) return
+        if (player?.playbackState == Player.STATE_READY && player?.isPlaying == true) return
+        if (!TorrentDataSourceFactory.isTorrentUrl(streamUrl)) return
+        val stuckMs = System.currentTimeMillis() - torrentBufferingSinceMs
+        if (stuckMs < 80_000L) return
+        // Maximo 2 intentos NO destructivos: tras ellos la descarga sigue por
+        // su cuenta y el READY llegara solo cuando haya piezas (antes el
+        // intento 2 buscaba desde 0 y se veia como un reinicio a mitad).
+        if (torrentRecoverAttempts >= 2) {
+            Log.w(TAG, "recoverStuckTorrent: sin mas intentos, esperando piezas — ${torrentEngineRef?.debugStatus()}")
+            return
+        }
+        torrentRecoverAttempts += 1
+        torrentBufferingSinceMs = System.currentTimeMillis()
+        if (torrentRecoverAttempts == 1) {
+            // Intento 1: re-lanzar el seek en la MISMA posicion (por si el
+            // extractor perdio el seek pendiente al leer los Cues).
+            Log.w(TAG, "recoverStuckTorrent: re-seek a reanudacion (${currentResumePositionMs()}ms)")
+            runCatching {
+                player?.seekTo(currentResumePositionMs())
+                player?.play()
+            }
+        } else {
+            // Intento 2: re-priorizar la ventana en la posicion actual y
+            // re-seek. NUNCA desde 0 (conserva todo lo descargado).
+            Log.w(TAG, "recoverStuckTorrent: re-seek + re-priorizar en ${currentResumePositionMs()}ms")
+            runCatching {
+                torrentEngineRef?.prioritizePosition(
+                    (player?.currentPosition?.toFloat() ?: 0f) / (player?.duration?.toFloat() ?: 1f),
+                )
+                player?.seekTo(currentResumePositionMs())
+                player?.play()
+            }
+        }
+        handler.postDelayed(torrentRecoverRunnable, 90_000)
+    }
     private val bufferingWatchdog = Runnable { handleBufferingTimeout() }
     private var bufferingSinceMs: Long = 0
     private var lastKnownPositionMs: Long = Long.MIN_VALUE
@@ -451,6 +507,7 @@ class PlayerFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         setupErrorOverlay(view)
+        torrentOverlayView = view.findViewById(R.id.torrent_overlay)
     }
 
     private fun setupErrorOverlay(view: View) {
@@ -477,8 +534,16 @@ class PlayerFragment : Fragment() {
     }
 
     private fun initializePlayer() {
+        playerGeneration += 1
         if (isPlayerInitialized || player != null) {
-            Log.w(TAG, "Player ya inicializado, liberando antes de recrearlo")
+            // Si ya hay player pero es el MISMO torrent, no borrar la descarga
+            // a mitad (evita el salto a "Obteniendo metadatos…" que reporta el usuario).
+            if (TorrentDataSourceFactory.isTorrentUrl(streamUrl) && currentHttpUrl.isNotBlank()) {
+                Log.w(TAG, "initializePlayer: player ya existe para torrent activo, ignorando reinicio gen=$playerGeneration")
+                playerGeneration -= 1
+                return
+            }
+            Log.w(TAG, "Player ya inicializado, liberando antes de recrearlo gen=$playerGeneration")
             releasePlayer()
         }
 
@@ -489,6 +554,9 @@ class PlayerFragment : Fragment() {
         playerClosed = false
         trackPreferencesRestored = false
         sourcePreferenceFallbackAttempted = false
+        codecSourceFallbackAttempted = false
+        torrentBufferingSinceMs = 0L
+        torrentRecoverAttempts = 0
 
         try {
             val isStreamWish = StreamWishDataSourceFactory.isStreamWishUrl(streamUrl)
@@ -497,12 +565,53 @@ class PlayerFragment : Fragment() {
             Log.d(TAG, "initializePlayer: streamUrl=${streamUrl.take(60)}..., isStreamWish=$isStreamWish, isTorrent=$isTorrent, hasCustomHeaders=$hasCustomHeaders")
 
             val dataSourceFactory = if (isTorrent) {
-                // Stream Torrentio: el TorrentEngine descarga el magnet y sirve
-                // las piezas via TorrentDataSource (sin HTTP).
+                // Torrent: se sirve via servidor HTTP local (buffer'ado por
+                // rangos, robusto para seeks/extractor) en vez del DataSource
+                // custom que causaba EOFException/bucles.
                 val engine = (requireActivity().application as WalacApp).appComponent.torrentEngine
                 val infoHash = streamUrl.removePrefix("magnet:?xt=urn:btih:").substringBefore('&')
                 engine.startStream(infoHash)
-                TorrentDataSourceFactory(engine)
+                torrentEngineRef = engine
+                // Generacion de este stream: si un fragment viejo se destruye
+                // DESPUES de que otro arranco, no podra parar el torrent nuevo.
+                torrentStreamGeneration = engine.currentStreamGeneration()
+                // Errores del engine (metadatos timeout, torrent sin fuentes):
+                // sin esto el overlay se queda clavado en "Obteniendo
+                // metadatos…" cuando el torrent esta muerto. Saltar a la
+                // siguiente fuente conservando la posicion.
+                val registeredGen = playerGeneration
+                val engineListener = object : com.example.walactv.datasource.torrent.TorrentEngine.Listener {
+                    override fun onMetadataReady(fileCount: Int) {}
+                    override fun onReady(engineRef: com.example.walactv.datasource.torrent.TorrentEngine) {}
+                    override fun onError(message: String) {
+                        Log.w(TAG, "TorrentEngine onError (gen $registeredGen): $message")
+                        handler.post {
+                            if (isReleasing || registeredGen != playerGeneration) return@post
+                            if (player?.playbackState == Player.STATE_READY && player?.isPlaying == true) return@post
+                            fallbackToNextSourceForCodec()
+                        }
+                    }
+                    override fun onProgress(percent: Float) {}
+                }
+                engine.addListener(engineListener)
+                torrentEngineListener = engineListener
+                showTorrentOverlay(engine)
+                val localUrl = engine.localStreamUrl()
+                if (localUrl.isBlank()) {
+                    Log.e(TAG, "initializePlayer: no se pudo generar URL local del torrent")
+                    return
+                }
+                Log.d(TAG, "initializePlayer: torrent -> local http url ${localUrl.takeLast(60)}")
+                currentHttpUrl = localUrl
+                // Read timeout ALTO (120s): el servidor HTTP local bloquea a
+                // proposito hasta que la pieza llega (hasta 45s por pieza con
+                // pocos seeds). Con el default de 8s, cualquier tramo lento
+                // del torrent cortaba la lectura y ExoPlayer re-preparaba
+                // (el usuario lo veia como un reinicio a mitad).
+                DefaultHttpDataSource.Factory()
+                    .setConnectTimeoutMs(15_000)
+                    .setReadTimeoutMs(120_000)
+                    .setUserAgent("WalacTV-Torrent-Local")
             } else if (isStreamWish) {
                 val referer = extractReferer(streamUrl)
                 val origin = "https://${streamUrl.toUri().host}"
@@ -533,6 +642,14 @@ class PlayerFragment : Fragment() {
                     .setReadTimeoutMs(30_000)
                     .setUserAgent("WalacTV/AndroidTV")
                     .setDefaultRequestProperties(headers)
+            }
+
+            // Pantalla de carga para peliculas/series (torrent o directo):
+            // poster de fondo; las stats de descarga solo existen en torrents.
+            if (isTorrent) {
+                // showTorrentOverlay ya invocado en la rama del engine
+            } else if (isVodMode) {
+                showDirectLoadingOverlay()
             }
 
             val mediaSourceFactory = DefaultMediaSourceFactory(requireContext())
@@ -584,7 +701,8 @@ class PlayerFragment : Fragment() {
                     }
 
                     exoPlayer.addListener(PlayerListener())
-                    exoPlayer.setMediaItem(createMediaItem(streamUrl))
+                    val playbackUrl = currentHttpUrl.takeIf { it.isNotBlank() } ?: streamUrl
+                    exoPlayer.setMediaItem(createMediaItem(playbackUrl))
                     exoPlayer.prepare()
                     if (_positionMs > 0L) {
                         Log.d(TAG, "Seeking to saved position: ${_positionMs}ms for $contentId")
@@ -1473,6 +1591,38 @@ class PlayerFragment : Fragment() {
     private fun handlePlaybackError(error: PlaybackException? = null) {
         if (isReleasing) return
 
+        // Stream torrent: los errores de red/piezas (timeout de lectura, pieza
+        // aun no descargada) NO deben reiniciar el player ni mostrar overlay:
+        // el TorrentDataSource reintenta por si solo y la pantalla de carga
+        // informa. Solo los errores fatales de codec caen al fallback normal.
+        if (TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
+            val torrentError = (error?.message.orEmpty()) + " " + (error?.errorCodeName.orEmpty())
+            if (!isFatalPlaybackErrorForDevice(torrentError)) {
+                // Re-preparar en silencio (sin overlay, sin contador de
+                // reintentos): el engine conserva las piezas ya descargadas y
+                // cada intento parte de lo que hay, como Stremio.
+                Log.w(TAG, "Error recuperable en stream torrent, re-preparando: ${error?.message ?: "sin excepcion"}")
+                isRetrying = true
+                val resumeMs = currentResumePositionMs()
+                handler.postDelayed({
+                    isRetrying = false
+                    if (player != null && !isReleasing) {
+                        runCatching {
+                            player?.stop()
+                            player?.clearMediaItems()
+                            val retryUrl = currentHttpUrl.takeIf { it.isNotBlank() } ?: streamUrl
+                            player?.setMediaItem(createMediaItem(retryUrl))
+                            player?.prepare()
+                            if (resumeMs > 0L) player?.seekTo(resumeMs)
+                            player?.play()
+                        }
+                    }
+                }, 2_000)
+                return
+            }
+            Log.w(TAG, "Error fatal de codec en stream torrent, aplicando fallback: $torrentError")
+        }
+
         // Capturar la posición ANTES de tocar el player: tras un error,
         // currentPosition puede pasar a 0 o C.TIME_UNSET y perderíamos el progreso.
         val errorPositionMs = currentResumePositionMs()
@@ -1484,10 +1634,14 @@ class PlayerFragment : Fragment() {
             hasNextChannel = !isVodMode,
         )
 
-        val errorMessage = error?.toString() ?: ""
+        // toString() no incluye el codigo de error (ERROR_CODE_DECODER_INIT_FAILED
+        // etc.): anadir errorCodeName para que el clasificador vea el fallo real.
+        val errorMessage = (error?.toString().orEmpty()) + " " + (error?.errorCodeName.orEmpty()) +
+            " " + (error?.message.orEmpty())
         val isCodecIncompatible = isFatalPlaybackErrorForDevice(errorMessage)
 
         if (isCodecIncompatible) {
+            codecSourceFallbackAttempted = true
             Log.w(TAG, "Error de codec incompatible detectado: $errorMessage")
             if (isVodMode && unifiedStreamOptions.size > 1 && onSelectUnifiedOption != null) {
                 val nextIndex = currentUnifiedOptionIndex.takeIf { it >= 0 }?.plus(1) ?: 0
@@ -1534,7 +1688,8 @@ class PlayerFragment : Fragment() {
                         player?.let { exoPlayer ->
                             exoPlayer.stop()
                             exoPlayer.clearMediaItems()
-                            exoPlayer.setMediaItem(createMediaItem(streamUrl))
+                            val retryUrl2 = currentHttpUrl.takeIf { it.isNotBlank() } ?: streamUrl
+                            exoPlayer.setMediaItem(createMediaItem(retryUrl2))
                             exoPlayer.prepare()
                             // Reintentar desde donde se quedó, no desde 0.
                             if (isVodMode && errorPositionMs > 0L) {
@@ -1578,6 +1733,7 @@ class PlayerFragment : Fragment() {
 
     private fun showErrorOverlay(error: PlaybackError, autoClose: Boolean = true) {
         errorState = error
+        hideTorrentOverlay()
         val composeView = errorComposeView ?: return
 
         val autoActionCallback: (() -> Unit)? = when {
@@ -1611,6 +1767,86 @@ class PlayerFragment : Fragment() {
         isRetrying = false
         val composeView = errorComposeView ?: return
         composeView.setContent { }
+    }
+
+    /** true si el dispositivo no tiene decoder para este mime (EAC3/DTS/...). */
+    private fun isMimeTypeUnsupportedOnDevice(sampleMimeType: String): Boolean {
+        if (!sampleMimeType.startsWith("audio/") && !sampleMimeType.startsWith("video/")) return false
+        // EAC3-JOC se decodifica con el mismo decoder que EAC3
+        val mimeToCheck = if (sampleMimeType == "audio/eac3-joc") "audio/eac3" else sampleMimeType
+        return try {
+            androidx.media3.exoplayer.mediacodec.MediaCodecUtil
+                .getDecoderInfos(mimeToCheck, false, false)
+                .isEmpty()
+        } catch (e: Exception) {
+            // Sin certeza de soporte, mejor no cambiar de fuente por esta pista
+            false
+        }
+    }
+
+    /** Salta a la siguiente fuente (torrent/directo) por codec incompatible. */
+    private fun fallbackToNextSourceForCodec() {
+        hideTorrentOverlay()
+        if (unifiedStreamOptions.size > 1 && onSelectUnifiedOption != null) {
+            val next = currentUnifiedOptionIndex + 1
+            if (next < unifiedStreamOptions.size) {
+                Log.w(TAG, "Auto-fallback de codec: opcion $currentUnifiedOptionIndex -> $next resumeMs=${currentResumePositionMs()}")
+                onSelectUnifiedOption?.invoke(next, currentResumePositionMs())
+                return
+            }
+        }
+        showErrorOverlay(
+            PlaybackError(
+                type = PlaybackErrorType.CODEC_INCOMPATIBLE,
+                title = getString(R.string.codec_unsupported_device),
+                message = "",
+            ),
+            autoClose = false,
+        )
+    }
+
+    /** Muestra la pantalla de carga del torrent y la alimenta con las stats del engine. */
+    private fun showTorrentOverlay(engine: com.example.walactv.datasource.torrent.TorrentEngine) {
+        val composeView = torrentOverlayView ?: return
+        torrentOverlayActive = true
+        torrentStatsJob?.cancel()
+        torrentStatsJob = viewLifecycleOwner.lifecycleScope.launch {
+            engine.stats.collect { st ->
+                if (!torrentOverlayActive) return@collect
+                if (st == null) {
+                    hideTorrentOverlay()
+                    return@collect
+                }
+                composeView.setContent {
+                    com.example.walactv.ui.overlay.TorrentLoadingOverlay(
+                        stats = st,
+                        title = overlayTitle,
+                        posterUrl = (overlayBackdropUrl.ifBlank { overlayLogoUrl }).ifBlank { null },
+                    )
+                }
+            }
+        }
+    }
+
+    /** Pantalla de carga para enlaces directos de proveedor (sin stats de torrent). */
+    private fun showDirectLoadingOverlay() {
+        val composeView = torrentOverlayView ?: return
+        torrentOverlayActive = true
+        composeView.setContent {
+            com.example.walactv.ui.overlay.TorrentLoadingOverlay(
+                stats = null,
+                title = overlayTitle,
+                posterUrl = (overlayBackdropUrl.ifBlank { overlayLogoUrl }).ifBlank { null },
+            )
+        }
+    }
+
+    private fun hideTorrentOverlay() {
+        if (!torrentOverlayActive) return
+        torrentOverlayActive = false
+        torrentStatsJob?.cancel()
+        torrentStatsJob = null
+        torrentOverlayView?.setContent { }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -2057,11 +2293,20 @@ class PlayerFragment : Fragment() {
         player = null
         retryCount = 0
 
-        // Si era un stream torrent, parar el motor y limpiar archivos temporales
+        // Si era un stream torrent, parar el motor SOLO si este fragment sigue
+        // siendo el dueno del torrent activo (el onDestroyView de un fragment
+        // viejo puede ejecutarse despues de que el nuevo arranco su torrent).
         if (TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
             val engine = (requireActivity().application as WalacApp).appComponent.torrentEngine
-            engine.stopStream()
+            torrentEngineListener?.let { listener ->
+                runCatching { engine.removeListener(listener) }
+            }
+            torrentEngineListener = null
+            engine.stopStreamIfOwner(torrentStreamGeneration)
+            torrentStreamGeneration = Long.MIN_VALUE
         }
+        currentHttpUrl = ""
+        hideTorrentOverlay()
 
         if (closeUi) {
             activity?.findViewById<FrameLayout>(R.id.player_container)?.visibility = View.GONE
@@ -2097,6 +2342,40 @@ class PlayerFragment : Fragment() {
 
     private inner class PlayerListener : Player.Listener {
         private var progressRestored = false
+        private val boundGeneration = playerGeneration
+
+        override fun onRenderedFirstFrame() {
+            if (boundGeneration != playerGeneration) {
+                Log.w(TAG, "onRenderedFirstFrame ignorado: gen $boundGeneration != $playerGeneration")
+                return
+            }
+            // Primer fotograma pintado: la pantalla de carga del torrent ya no
+            // hace falta aunque READY llegue unos instantes mas tarde.
+            hideTorrentOverlay()
+            if (TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
+                Log.i(TAG, "Primer fotograma — ${torrentEngineRef?.debugStatus()}")
+            }
+        }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int,
+        ) {
+            // Seek del usuario: descargar linealmente desde la nueva posicion
+            if (reason == Player.DISCONTINUITY_REASON_SEEK ||
+                reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
+            ) {
+                if (TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
+                    player?.let { exo ->
+                        val d = exo.duration
+                        if (d > 0) {
+                            torrentEngineRef?.prioritizePosition(exo.currentPosition.toFloat() / d)
+                        }
+                    }
+                }
+            }
+        }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             val stateName = playbackStateName(playbackState)
@@ -2108,11 +2387,35 @@ class PlayerFragment : Fragment() {
             }
             when (playbackState) {
                 Player.STATE_READY -> {
+                    if (boundGeneration != playerGeneration) {
+                        Log.w(TAG, "onPlaybackStateChanged READY ignorado: gen $boundGeneration != $playerGeneration (player viejo)")
+                        return
+                    }
                     handler.removeCallbacks(bufferingWatchdog)
                     retryCount = 0
                     isPlayerInitialized = true
                     isRetrying = false
                     hideErrorOverlay()
+                    // Torrent: no ocultar hasta primer fotograma, si no se ve negro
+                    if (!TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
+                        hideTorrentOverlay()
+                    }
+                    torrentBufferingSinceMs = 0L
+                    torrentRecoverAttempts = 0
+                    handler.removeCallbacks(torrentRecoverRunnable)
+                    // Con el extractor parseado ya hay duracion: reordenar las
+                    // prioridades para descargar desde la posicion actual
+                    // (reanudacion/seek) hacia el final, como Stremio.
+                    if (TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
+                        player?.let { exo ->
+                            val d = exo.duration
+                            val now = System.currentTimeMillis()
+                            if (d > 0 && now - lastTorrentPrioritizeMs > 15_000) {
+                                lastTorrentPrioritizeMs = now
+                                torrentEngineRef?.prioritizePosition(exo.currentPosition.toFloat() / d)
+                            }
+                        }
+                    }
                     updateTrackButtonStates()
                     if (isVodMode) {
                         playerView.requestFocus()
@@ -2138,6 +2441,16 @@ class PlayerFragment : Fragment() {
                         stuckPositionCount = 0
                         bufferingSinceMs = System.currentTimeMillis()
                         handler.postDelayed(bufferingWatchdog, BUFFERING_TIMEOUT_LIVE_MS)
+                    }
+                    // Torrent: si tras 90s de buffering sigue sin READY, el
+                    // extractor pudo quedarse atascado sondeando la cola del
+                    // MKV (Cues). recoverStuckTorrent relanza el seek de
+                    // reanudacion y, si aun asi, a los 180s arranca desde 0.
+                    if (TorrentDataSourceFactory.isTorrentUrl(streamUrl) && !isReleasing) {
+                        if (torrentBufferingSinceMs == 0L) {
+                            torrentBufferingSinceMs = System.currentTimeMillis()
+                            handler.postDelayed(torrentRecoverRunnable, 90_000)
+                        }
                     }
                 }
                 else -> {
@@ -2176,9 +2489,48 @@ class PlayerFragment : Fragment() {
                 trackPreferencesRestored = true
                 restoreTrackPreferences(tracks)
             }
+            // Cambio temprano de fuente: las pistas se conocen nada mas
+            // parsear la cabeza del torrent; si el audio/video no tiene
+            // decoder en este dispositivo, saltar a la siguiente fuente ANTES
+            // de descargar cola y buffer (antes se descubria al fallar el
+            // renderer, con media pelicula ya descargada).
+            if (tracks.containsType(C.TRACK_TYPE_AUDIO) || tracks.containsType(C.TRACK_TYPE_VIDEO)) {
+                val bad = tracks.groups.asSequence()
+                    .filter { it.isSelected }
+                    .flatMap { g ->
+                        (0 until g.length).filter { g.isTrackSelected(it) }.map { g.getTrackFormat(it) }
+                    }
+                    .mapNotNull { it.sampleMimeType }
+                    .firstOrNull { isMimeTypeUnsupportedOnDevice(it) }
+                if (bad != null) {
+                    // Intentar cambiar solo la pista de audio dentro del mismo
+                    // torrent antes de destruir la descarga y pedir otro hash
+                    // (evita el salto a "Obteniendo metadatos…" por un EAC3).
+                    if (bad.startsWith("audio/")) {
+                        val alt = tracks.groups
+                            .filter { it.type == C.TRACK_TYPE_AUDIO }
+                            .flatMap { g -> (0 until g.length).map { idx -> g to idx } }
+                            .firstOrNull { (g, idx) ->
+                                !g.isTrackSelected(idx) && !isMimeTypeUnsupportedOnDevice(g.getTrackFormat(idx).sampleMimeType ?: "")
+                            }
+                        if (alt != null) {
+                            Log.w(TAG, "Pista $bad sin decoder pero hay alternativa ${alt.first.getTrackFormat(alt.second).sampleMimeType} — cambiando pista")
+                            selectEmbeddedAudioTrack(alt.first, alt.second)
+                            return
+                        }
+                    }
+                    codecSourceFallbackAttempted = true
+                    Log.w(TAG, "Pista $bad sin decoder en este dispositivo — cambiando de fuente")
+                    fallbackToNextSourceForCodec()
+                }
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            if (boundGeneration != playerGeneration) {
+                Log.w(TAG, "onPlayerError ignorado: gen $boundGeneration != $playerGeneration (player viejo)")
+                return
+            }
             Log.e(TAG, "onPlayerError: ${error.message} errorCode=${error.errorCodeName}", error)
             if (!isVodMode) {
                 handler.removeCallbacks(positionWatchdog)
@@ -2191,6 +2543,8 @@ class PlayerFragment : Fragment() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             val stateName = playbackStateName(player?.playbackState ?: -1)
             Log.d(TAG, "onIsPlayingChanged: isPlaying=$isPlaying playbackState=$stateName isVod=$isVodMode")
+            // Torrent: mantener overlay hasta primer fotograma (si no se ve negro)
+            if (isPlaying && !TorrentDataSourceFactory.isTorrentUrl(streamUrl)) hideTorrentOverlay()
             if (isVodMode) {
                 if (!isPlaying && !isReleasing) {
                     playerView.showController()

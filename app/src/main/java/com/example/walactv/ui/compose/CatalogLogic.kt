@@ -133,6 +133,8 @@ private fun WatchProgressDto.toCatalogItemFallback(
         seriesProviderId = seriesProviderId,
         seasonNumber = seasonNumber,
         episodeNumber = episodeNumber,
+        // Necesario para que el detalle consulte Torrentio (Fuentes/playback)
+        imdbId = imdbId,
         streamOptions = emptyList(),
         overviewEn = overviewEn,
         voteAverage = voteAverage,

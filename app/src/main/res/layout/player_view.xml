@@ -285,6 +285,12 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Torrent loading overlay (debajo del overlay de errores) -->
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/torrent_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
     <!-- Error overlay container -->
     <androidx.compose.ui.platform.ComposeView
         android:id="@+id/error_overlay"

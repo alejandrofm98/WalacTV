@@ -57,7 +57,7 @@
                     android:textColor="#FFFFFFFF"
                     android:textSize="22sp"
                     android:textStyle="bold"
-                    android:fontFamily="sans-serif-medium"
+                    android:fontFamily="@font/manrope"
                     tools:text="Breaking Bad" />
 
                 <LinearLayout
@@ -75,7 +75,7 @@
                         android:maxLines="1"
                         android:textColor="#99FFFFFF"
                         android:textSize="14sp"
-                        android:fontFamily="sans-serif"
+                        android:fontFamily="@font/manrope"
                         tools:text="S3 · E7 · One Minute" />
 
                     <TextView
@@ -83,7 +83,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="12dp"
-                        android:fontFamily="sans-serif-medium"
+                        android:fontFamily="@font/manrope"
                         android:textColor="#F0C75E"
                         android:textSize="13sp"
                         android:textStyle="bold"
@@ -98,7 +98,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:ellipsize="end"
-                    android:fontFamily="sans-serif"
+                    android:fontFamily="@font/manrope"
                     android:maxLines="3"
                     android:shadowColor="#80000000"
                     android:shadowDx="0"
@@ -131,7 +131,7 @@
                          android:layout_width="wrap_content"
                          android:layout_height="wrap_content"
                          android:layout_marginStart="60dp"
-                        android:fontFamily="sans-serif-medium"
+                        android:fontFamily="@font/manrope"
                         android:textColor="#FFFFFFFF"
                         android:textSize="18sp"
                         android:textStyle="bold"
@@ -148,7 +148,7 @@
                      <TextView
                          android:layout_width="60dp"
                          android:layout_height="wrap_content"
-                        android:fontFamily="sans-serif-medium"
+                        android:fontFamily="@font/manrope"
                          android:text="@string/vod_clock_end"
                          android:textColor="#FFFFFFFF"
                          android:textSize="10sp"
@@ -159,7 +159,7 @@
                          android:layout_width="wrap_content"
                          android:layout_height="wrap_content"
                           android:layout_marginStart="0dp"
-                        android:fontFamily="sans-serif-medium"
+                        android:fontFamily="@font/manrope"
                         android:textColor="#D9FFFFFF"
                         android:textSize="18sp"
                         android:textStyle="bold"
@@ -284,7 +284,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="24dp"
-                    android:fontFamily="sans-serif-medium"
+                    android:fontFamily="@font/manrope"
                     android:textColor="#B3FFFFFF"
                     android:textSize="13sp"
                     tools:text="0:03" />
@@ -294,7 +294,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="4dp"
                     android:layout_marginEnd="4dp"
-                    android:fontFamily="sans-serif-medium"
+                    android:fontFamily="@font/manrope"
                     android:textColor="#55FFFFFF"
                     android:textSize="13sp"
                     android:text="@string/option_separator" />
@@ -303,7 +303,7 @@
                     android:id="@+id/vod_duration"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:fontFamily="sans-serif-medium"
+                    android:fontFamily="@font/manrope"
                     android:textColor="#55FFFFFF"
                     android:textSize="13sp"
                     tools:text="41:28" />

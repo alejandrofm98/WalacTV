@@ -20,6 +20,9 @@ import com.example.walactv.ui.fragment.SeriesDetailFragment
 import com.example.walactv.ui.fragment.UfcDetailFragment
 import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.UnifiedStreamOption
+import com.example.walactv.data.model.bestTorrentFirst
+import com.example.walactv.data.model.sortedForPlayback
+import com.example.walactv.data.remote.torrent.TorrentioClient
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
@@ -157,9 +160,37 @@ private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: Cata
         return
     }
     val playable = repository.orderStreamsForPlayback(item)
+    // Contenido solo-torrent (dev): sin urls IPTV, enriquecer con Torrentio igual
+    // que hace desktop antes de reproducir.
+    var resolved = playable
+    if (resolved.streamOptions.none { it.url.isNotBlank() || it.isTorrent }) {
+        val imdb = sequenceOf(playable.imdbId, cardItem.imdbId).firstOrNull { TorrentioClient.isImdbId(it) }
+        val torrents = if (imdb != null) {
+            runCatching { repository.getTorrentioMovieStreams(imdb) }.getOrElse { emptyList() }
+        } else {
+            emptyList()
+        }
+        Log.d(TAG, "openContinueWatchingMovie: torrentio imdb=$imdb -> ${torrents.size} streams")
+        if (torrents.isNotEmpty()) {
+            resolved = resolved.copy(streamOptions = torrents.bestTorrentFirst())
+        }
+    }
+    if (resolved.streamOptions.none { it.url.isNotBlank() || it.isTorrent }) {
+        // Nada reproducible (equivalente a desktop): abrir el detalle.
+        Log.w(TAG, "openContinueWatchingMovie: sin streams, abriendo detalle")
+        withContext(Dispatchers.Main) { openContinueWatchingDetails(cardItem, progress) }
+        return
+    }
+    // El detalle puede venir sin imagenes: usar las de la card CW para el
+    // overlay de carga y la UI del player.
+    val withArt = resolved.copy(
+        imageUrl = resolved.imageUrl.ifBlank { cardItem.imageUrl },
+        tmdbPosterUrl = resolved.tmdbPosterUrl?.takeIf { it.isNotBlank() } ?: cardItem.tmdbPosterUrl,
+        backdropUrl = resolved.backdropUrl?.takeIf { it.isNotBlank() } ?: cardItem.backdropUrl,
+    )
     withContext(Dispatchers.Main) {
         activePlaybackLineup = emptyList()
-        playResolvedCatalogItem(playable, 0, positionMs = progress.positionMs ?: 0L)
+        playResolvedCatalogItem(withArt, 0, positionMs = progress.positionMs ?: 0L)
         // Sobrescribir con cardItem CW para que vuelva a la card correcta
         rememberPlaybackReturnState(cardItem)
     }
@@ -232,7 +263,22 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se encontró el episodio", Toast.LENGTH_SHORT).show() }
         return
     }
-    val playableEpisode = repository.orderStreamsForPlayback(targetEpisode)
+    var playableEpisode = repository.orderStreamsForPlayback(targetEpisode)
+    // Serie solo-torrentio (dev): sin urls IPTV, enriquecer con Torrentio como desktop.
+    if (playableEpisode.streamOptions.none { it.url.isNotBlank() || it.isTorrent }) {
+        val imdb = sequenceOf(targetEpisode.imdbId, cardItem.imdbId, logicalEpisodes.firstOrNull()?.imdbId)
+            .firstOrNull { TorrentioClient.isImdbId(it) }
+        val sn = targetEpisode.seasonNumber
+        val en = targetEpisode.episodeNumber
+        if (imdb != null && sn != null && en != null) {
+            val torrents = runCatching { repository.getTorrentioEpisodeStreams(imdb, sn, en) }
+                .getOrElse { emptyList() }
+            Log.d(TAG, "openContinueWatchingSeries: torrentio imdb=$imdb S$sn E$en -> ${torrents.size} streams")
+            if (torrents.isNotEmpty()) {
+                playableEpisode = playableEpisode.copy(streamOptions = torrents.bestTorrentFirst())
+            }
+        }
+    }
 
     val currentIndex = logicalEpisodes.indexOfFirst {
         it.seriesName == targetEpisode.seriesName && it.seasonNumber == targetEpisode.seasonNumber && it.episodeNumber == targetEpisode.episodeNumber
@@ -275,12 +321,23 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
     val playbackPreference = runCatching {
         repository.getPlaybackPreference("series", playbackCatalogId)
     }.getOrNull()
-    val stream = playableEpisode.streamOptions.firstOrNull() ?: run {
-        withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No hay streams disponibles", Toast.LENGTH_SHORT).show() }
+    // Imagenes de la card CW (poster de la serie) para el overlay de carga
+    // y la UI del player, si el episodio no trae.
+    playableEpisode = playableEpisode.copy(
+        imageUrl = playableEpisode.imageUrl.ifBlank { cardItem.imageUrl },
+        tmdbPosterUrl = playableEpisode.tmdbPosterUrl?.takeIf { it.isNotBlank() } ?: cardItem.tmdbPosterUrl,
+        backdropUrl = playableEpisode.backdropUrl?.takeIf { it.isNotBlank() } ?: cardItem.backdropUrl,
+    )
+    val stream = playableEpisode.streamOptions.firstOrNull { it.url.isNotBlank() || it.isTorrent } ?: run {
+        // Nada reproducible (equivalente a desktop): abrir el detalle en vez de fallar.
+        Log.w(TAG, "openContinueWatchingSeries: sin streams, abriendo detalle")
+        withContext(Dispatchers.Main) { openContinueWatchingDetails(cardItem, progress) }
         return
     }
 
-    val streamUrl = if (stream.url.isNotBlank() && !stream.url.startsWith("http")) {
+    val streamUrl = if (stream.isTorrent || stream.url.startsWith("magnet:")) {
+        stream.url
+    } else if (stream.url.isNotBlank() && !stream.url.startsWith("http")) {
         val user = CredentialStore.username()
         val pass = CredentialStore.password()
         val pid = stream.providerId ?: playableEpisode.providerId
@@ -312,7 +369,7 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
             onNextEpisode = nextEpisodeCallback,
             onPreviousEpisode = previousEpisodeCallback,
             allSeriesEpisodes = allEpisodes, currentEpisode = playableEpisode,
-            overlayLogoUrl = playableEpisode.preferredVodPosterUrl(), contentId = playableEpisode.playbackContentId(),
+            overlayLogoUrl = playableEpisode.preferredVodPosterUrl(), overlayBackdropUrl = playableEpisode.backdropUrl.orEmpty(), contentId = playableEpisode.playbackContentId(),
             positionMs = progress.positionMs ?: 0L,
             onPlayerClosed = { restorePlaybackReturnState(); restoreFocusAfterPlayer() },
             onProgressSaved = { item -> upsertContinueWatchingEntry(item) },
@@ -475,6 +532,7 @@ internal fun ComposeMainFragment.playResolvedCatalogItem(
         currentOptionIndex = optionIndex,
         showOptionsOnStart = showOptionsOnStart,
         overlayLogoUrl = item.preferredVodPosterUrl(),
+        overlayBackdropUrl = item.backdropUrl.orEmpty(),
         isFavorite = channelStateStore.isFavorite(favoriteTarget),
         contentId = item.playbackContentId(),
         positionMs = positionMs,

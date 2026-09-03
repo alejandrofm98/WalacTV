@@ -13,6 +13,7 @@ import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.StreamOption
+import com.example.walactv.data.model.bestTorrentFirst
 import com.example.walactv.data.model.preferredVodPosterUrl
 import com.example.walactv.data.model.playbackContentId
 import com.example.walactv.data.model.toUnifiedOptions
@@ -116,15 +117,28 @@ class MovieDetailFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         val item = parseArguments(requireArguments())
+        val repository = IptvRepository(requireContext())
 
         // Cargar fuentes Torrentio (consulta directa al addon) para la pelicula.
         // Solo si hay imdb_id valido; sin el no se consulta y no se marca error.
-        val movieId = item.imdbId
-        if (TorrentioClient.isImdbId(movieId)) {
-            viewLifecycleOwner.lifecycleScope.launch {
+        // El listado del catalogo puede venir sin imdb_id (bug backend en dev):
+        // si falta, se resuelve con el detalle /api/content/movies/{id}.
+        viewLifecycleOwner.lifecycleScope.launch {
+            var imdb = item.imdbId
+            if (!TorrentioClient.isImdbId(imdb)) {
+                val lookupId = item.catalogId ?: item.providerId ?: item.stableId
+                val full = runCatching {
+                    repository.fetchContentItem(ContentKind.MOVIE, lookupId)
+                }.getOrNull()
+                if (full != null && TorrentioClient.isImdbId(full.imdbId)) {
+                    imdb = full.imdbId
+                    cachedItems[item.stableId] = full
+                }
+            }
+            if (TorrentioClient.isImdbId(imdb)) {
                 torrentLoading = true
                 val fetched = runCatching {
-                    IptvRepository(requireContext()).getTorrentioMovieStreams(movieId!!)
+                    repository.getTorrentioMovieStreams(imdb!!)
                 }.getOrElse {
                     torrentError = true
                     emptyList()
@@ -188,20 +202,27 @@ class MovieDetailFragment : Fragment() {
         }
         Log.d(TAG, "playMovie item=${item.tmdbDebug()} streamOptions=${item.streamOptions.size}")
 
-        // Fuente elegida por el selector, o la seleccionada por URL, o la primera reproducible.
-        // Los streams IPTV con url vacia (contenido solo-torrent) se descartan.
+        // Fuente elegida por el selector, la seleccionada por URL, luego
+        // directo del proveedor y por ultimo el torrent con mas seeds.
+        val fallbackTorrent = torrentStreams.bestTorrentFirst().firstOrNull()
         val stream = source
             ?: selectedStreamUrl?.let { url -> item.streamOptions.firstOrNull { it.url == url } }
-            ?: item.streamOptions.firstOrNull { it.url.isNotBlank() || it.isTorrent }
+            ?: item.streamOptions.firstOrNull { !it.isTorrent && it.url.isNotBlank() }
+            ?: fallbackTorrent
+            ?: item.streamOptions.firstOrNull { it.isTorrent }
         if (stream == null) {
             android.widget.Toast.makeText(requireContext(), R.string.no_streams_available, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
 
-        // Si la fuente elegida es un torrent, construir el item con el magnet
-        // en primer lugar para que el player lo resuelva.
+        // Si la fuente elegida es un torrent, construir el item con el magnet en
+        // primer lugar y el resto de torrents como opciones de respaldo.
         val playableItem = if (stream.isTorrent) {
-            val allStreams = listOf(stream) + item.streamOptions.filter { !it.isTorrent }
+            val otherTorrents = torrentStreams.bestTorrentFirst()
+                .filter { it.infoHash != stream.infoHash }
+            val allStreams = listOf(stream) +
+                item.streamOptions.filter { !it.isTorrent } +
+                otherTorrents
             item.copy(streamOptions = allStreams)
         } else {
             item
@@ -247,6 +268,7 @@ class MovieDetailFragment : Fragment() {
             currentOptionIndex = 0,
             showOptionsOnStart = false,
             overlayLogoUrl = item.preferredVodPosterUrl(),
+            overlayBackdropUrl = item.backdropUrl.orEmpty(),
             isFavorite = false,
             contentId = item.playbackContentId(),
             positionMs = resumePositionMs,

@@ -212,6 +212,7 @@ class SearchFragment : Fragment() {
                 streamOptionLabels = resolvedItem.streamOptions.map { it.label },
                 currentOptionIndex = streamIndex,
                 overlayLogoUrl = resolvedItem.preferredVodPosterUrl(),
+                overlayBackdropUrl = resolvedItem.backdropUrl.orEmpty(),
                 isFavorite = channelStateStore.isFavorite(resolvedItem),
                 contentId = resolvedItem.playbackContentId(),
                 positionMs = resumePositionMs,

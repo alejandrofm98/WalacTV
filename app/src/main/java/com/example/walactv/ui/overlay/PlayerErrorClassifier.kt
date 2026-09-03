@@ -9,5 +9,8 @@ package com.example.walactv.ui.overlay
 internal fun isFatalPlaybackErrorForDevice(errorMessage: String): Boolean {
     return errorMessage.contains("NO_EXCEEDS_CAPABILITIES") ||
             errorMessage.contains("Decoder failed") ||
+            errorMessage.contains("ERROR_CODE_DECODER_INIT_FAILED") ||
+            errorMessage.contains("MediaCodecAudioRenderer error") ||
+            errorMessage.contains("MediaCodecVideoRenderer error") ||
             errorMessage.contains("dolby-vision")
 }

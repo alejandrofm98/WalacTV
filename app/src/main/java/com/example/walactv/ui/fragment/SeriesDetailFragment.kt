@@ -15,6 +15,7 @@ import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.StreamOption
 import com.example.walactv.WalacApp
+import com.example.walactv.data.model.bestTorrentFirst
 import com.example.walactv.data.model.idioma
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.model.uniqueSeriesEpisodes
@@ -97,6 +98,8 @@ import com.example.walactv.ui.theme.*
 class SeriesDetailFragment : Fragment() {
     private lateinit var repository: IptvRepository
     private var detailProgressReloadTrigger by mutableIntStateOf(0)
+    private var seriesBackdropUrl: String = ""
+    private var seriesPosterUrl: String = ""
 
     companion object {
         private const val TAG = "SeriesDetailFragment"
@@ -139,6 +142,10 @@ class SeriesDetailFragment : Fragment() {
             ?: catalogItem?.title
             ?: seriesId
             ?: ""
+
+        // Arte de la serie para la pantalla de carga del player
+        seriesBackdropUrl = catalogItem?.backdropUrl.orEmpty()
+        seriesPosterUrl = catalogItem?.preferredVodPosterUrl().orEmpty()
 
         Log.d(TAG, "SeriesDetailFragment: seriesName='$seriesName' seriesId=$seriesId initialSeason=$initialSeason initialEpisode=$initialEpisode")
         return ComposeView(requireContext()).apply {
@@ -213,10 +220,13 @@ class SeriesDetailFragment : Fragment() {
                 normalizeLanguageCode(it.idioma) == normalizeLanguageCode(preferredLanguage)
         } ?: allEpisodesForSeries.find { it.stableId == item.stableId } ?: item
         val playableEpisode = repository.orderStreamsForPlayback(episodeToPlay)
-
+        // Sin eleccion manual: primero directo del proveedor, luego el torrent
+        // con mas seeds (applyGradient mantiene la descarga pegada al playhead).
         val stream = selectedStreamUrl?.let { url ->
             playableEpisode.streamOptions.firstOrNull { it.url == url }
-        } ?: playableEpisode.streamOptions.firstOrNull { it.url.isNotBlank() || it.isTorrent } ?: return
+        } ?: playableEpisode.streamOptions.firstOrNull { !it.isTorrent && it.url.isNotBlank() }
+            ?: playableEpisode.streamOptions.filter { it.isTorrent }.bestTorrentFirst().firstOrNull()
+            ?: playableEpisode.streamOptions.firstOrNull { it.url.isNotBlank() || it.isTorrent } ?: return
         Log.d(TAG, "TMDB_SERIES_PLAY item=${item.tmdbDebug()} episode=${episodeToPlay.tmdbDebug()}")
 
         val currentIndex = logicalEpisodes.indexOfFirst {
@@ -246,6 +256,8 @@ class SeriesDetailFragment : Fragment() {
             overlayTitle = playableEpisode.title,
             overlayMeta = buildEpisodeLabel(playableEpisode.seasonNumber, playableEpisode.episodeNumber).ifBlank { playableEpisode.subtitle },
             overlayDescription = playableEpisode.description.ifBlank { item.description },
+            overlayLogoUrl = seriesPosterUrl,
+            overlayBackdropUrl = seriesBackdropUrl,
             overlayRating = playableEpisode.voteAverage ?: item.voteAverage,
             contentKind = item.kind,
             onNavigateChannel = { _ -> },
@@ -332,16 +344,98 @@ fun SeriesDetailScreen(
     val allEpisodesState = produceState<List<CatalogItem>>(initialValue = emptyList(), loadKey) {
         try {
             loadError = null
-            val episodes = if (!seriesId.isNullOrBlank()) {
-                repository.loadSeriesEpisodesById(seriesId)
+            Log.d("SeriesDetail", "load start seriesName='$seriesName' seriesId='$seriesId'")
+            var episodes = if (!seriesId.isNullOrBlank()) {
+                val byId = runCatching { repository.loadSeriesEpisodesById(seriesId) }.getOrElse { emptyList() }
+                Log.d("SeriesDetail", "byId '$seriesId' -> ${byId.size} eps")
+                if (byId.isNotEmpty()) byId else runCatching { repository.loadSeriesEpisodes(seriesName) }.getOrElse { emptyList() }.also {
+                    Log.d("SeriesDetail", "fallback byName '$seriesName' -> ${it.size} eps")
+                }
             } else {
-                repository.loadSeriesEpisodes(seriesName)
+                val byName = runCatching { repository.loadSeriesEpisodes(seriesName) }.getOrElse { emptyList() }
+                Log.d("SeriesDetail", "byName '$seriesName' -> ${byName.size} eps")
+                byName
             }
             if (episodes.isEmpty()) {
+                // 1) titulo alternativo (tmdbTitle / title)
+                val altName = initialSeriesItem?.tmdbTitle?.takeIf { it.isNotBlank() && it != seriesName }
+                    ?: initialSeriesItem?.title?.takeIf { it.isNotBlank() && it != seriesName }
+                if (altName != null) {
+                    val retry = runCatching { repository.loadSeriesEpisodes(altName) }.getOrDefault(emptyList())
+                    Log.d("SeriesDetail", "altName '$altName' -> ${retry.size} eps")
+                    if (retry.isNotEmpty()) {
+                        value = retry.sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+                        return@produceState
+                    }
+                }
+                // 2) busqueda por nombre normalizado (sin año, lower)
+                val searchCandidates = listOfNotNull(
+                    seriesName.substringBefore("(").trim().takeIf { it.isNotBlank() && it != seriesName },
+                    initialSeriesItem?.seriesKey?.substringBefore(" ").toString().takeIf { it.length > 3 },
+                    seriesName.replace(Regex("\\s*\\(\\d{4}\\)\\s*"), "").trim().takeIf { it != seriesName },
+                ).distinct()
+                for (cand in searchCandidates) {
+                    val retry = runCatching { repository.loadSeriesEpisodes(cand) }.getOrDefault(emptyList())
+                    Log.d("SeriesDetail", "searchCand '$cand' -> ${retry.size} eps")
+                    if (retry.isNotEmpty()) {
+                        value = retry.sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+                        return@produceState
+                    }
+                }
+                // 2b) correccion de typos conocidos (sutart -> stuart)
+                val corrected = seriesName.replace(Regex("(?i)sutart"), "stuart")
+                if (corrected != seriesName) {
+                    val retry = runCatching { repository.loadSeriesEpisodes(corrected) }.getOrDefault(emptyList())
+                    Log.d("SeriesDetail", "typoCorrected '$corrected' -> ${retry.size} eps")
+                    if (retry.isNotEmpty()) {
+                        value = retry.sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+                        return@produceState
+                    }
+                    // tambien probar corrected sin año y via search
+                    val corr2 = corrected.substringBefore("(").trim()
+                    if (corr2 != corrected) {
+                        val r2 = runCatching { repository.loadSeriesEpisodes(corr2) }.getOrDefault(emptyList())
+                        Log.d("SeriesDetail", "typoCorrected2 '$corr2' -> ${r2.size} eps")
+                        if (r2.isNotEmpty()) {
+                            value = r2.sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+                            return@produceState
+                        }
+                    }
+                }
+                // 3) fallback via API de busqueda (encuentra serie por titulo parcial)
+                try {
+                    // probar primero con nombre corregido para busqueda
+                    val searchQuery = if (corrected != seriesName) corrected else seriesName
+                    val (searchItems, _) = repository.search(searchQuery, page = 1, pageSize = 10, types = "series")
+                    val match = searchItems.firstOrNull { it.kind == ContentKind.SERIES }
+                    if (match != null) {
+                        val sid = match.catalogId ?: match.providerId
+                        if (!sid.isNullOrBlank()) {
+                            val bySearchId = runCatching { repository.loadSeriesEpisodesById(sid) }.getOrDefault(emptyList())
+                            Log.d("SeriesDetail", "search fallback sid '$sid' -> ${bySearchId.size} eps")
+                            if (bySearchId.isNotEmpty()) {
+                                value = bySearchId.sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+                                return@produceState
+                            }
+                        }
+                        val bySearchName = match.seriesName ?: match.title
+                        if (!bySearchName.isNullOrBlank() && bySearchName != seriesName) {
+                            val bySN = runCatching { repository.loadSeriesEpisodes(bySearchName) }.getOrDefault(emptyList())
+                            Log.d("SeriesDetail", "search fallback name '$bySearchName' -> ${bySN.size} eps")
+                            if (bySN.isNotEmpty()) {
+                                value = bySN.sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+                                return@produceState
+                            }
+                        }
+                    }
+                } catch (se: Exception) {
+                    Log.w("SeriesDetail", "search fallback failed", se)
+                }
                 loadError = "No se encontraron episodios para '$seriesName'"
             }
             value = episodes.sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
         } catch (e: Exception) {
+            Log.e("SeriesDetail", "load error", e)
             loadError = "Error: ${e.message}"
             value = emptyList()
         } finally {
@@ -514,13 +608,12 @@ fun SeriesDetailScreen(
             emptyList()
         }
         sourceStreams = iptv + torrents
-        // Preseleccionar la mejor fuente torrent (calidad + seeds)
-        val best = torrents.maxWithOrNull(
-            compareBy<StreamOption> { qualityRank(it.quality) }
-                .thenByDescending { it.seeders ?: 0 },
-        )
-        if (best != null) {
-            sourceSelectedIndex = sourceStreams.indexOf(best)
+        // Preseleccion: primero directo (indice 0); solo si no hay directo,
+        // el torrent con mas seeds.
+        if (iptv.isEmpty()) {
+            torrents.bestTorrentFirst().firstOrNull()?.let { best ->
+                sourceSelectedIndex = sourceStreams.indexOf(best)
+            }
         }
         sourceLoading = false
     }
@@ -544,6 +637,16 @@ fun SeriesDetailScreen(
             0L,
         )
         sourceEpisode = null
+    }
+
+    // Reproduccion directa o, en series solo-torrentio sin urls IPTV, apertura
+    // del selector de fuentes (que consulta Torrentio) igual que desktop.
+    fun playOrPickSource(ep: CatalogItem, positionMs: Long) {
+        if (ep.streamOptions.any { it.url.isNotBlank() || it.isTorrent }) {
+            onEpisodeClick(ep, allEpisodes, uniqueEpisodes, positionMs)
+        } else {
+            sourceEpisode = ep
+        }
     }
 
     LaunchedEffect(allEpisodes, progressMap, continueProgressLoaded, watchedProgressLoaded, initialSeason, initialEpisode) {
@@ -721,7 +824,7 @@ fun SeriesDetailScreen(
                              val positionMs = episode.seasonNumber?.let { season ->
                                  episode.episodeNumber?.let { number -> progressMap[season to number]?.positionMs }
                              } ?: 0L
-                             onEpisodeClick(episode, allEpisodes, uniqueEpisodes, positionMs)
+                             playOrPickSource(episode, positionMs)
                          }
                                 .background(if (playFocused) Color.LightGray else Color.White, androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
                                 .padding(horizontal = 24.dp, vertical = 12.dp),
@@ -793,7 +896,7 @@ fun SeriesDetailScreen(
                         EpisodeCard(
                             item = ep,
                             watchProgress = wp,
-                            onClick = { onEpisodeClick(ep, allEpisodes, uniqueEpisodes, wp?.positionMs ?: 0L) },
+                            onClick = { playOrPickSource(ep, wp?.positionMs ?: 0L) },
                             onFocus = {
                                 focusedEpisode = ep
                                 val epSeason = ep.seasonNumber ?: 1
@@ -1412,12 +1515,4 @@ fun formatSpanishDate(dateString: String?): String? {
     } catch (e: Exception) {
         dateString
     }
-}
-
-/** Rango de calidad para ordenar fuentes (mayor = mejor). */
-private fun qualityRank(quality: String?): Int = when (quality?.uppercase()) {
-    "UHD", "4K", "2160P" -> 4
-    "FHD", "1080P" -> 3
-    "HD", "720P" -> 2
-    else -> 1
 }

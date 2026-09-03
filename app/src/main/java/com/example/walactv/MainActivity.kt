@@ -8,10 +8,12 @@ import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.core.view.isVisible
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.ui.fragment.ComposeMainFragment
 import com.example.walactv.ui.fragment.PlayerFragment
 import com.example.walactv.ui.fragment.SearchFragment
+import kotlinx.coroutines.launch
 
 @SuppressLint("UnsafeOptInUsageError")
 class MainActivity : FragmentActivity() {
@@ -39,6 +41,26 @@ class MainActivity : FragmentActivity() {
             supportFragmentManager.beginTransaction()
                 .replace(R.id.main_browse_fragment, ComposeMainFragment())
                 .commitNow()
+        }
+
+        // DEBUG (file-gated): reproduccion automatica de Jackass/Carrera de
+        // bestias con fallback real de fuentes para verificar el flujo torrent.
+        if (java.io.File("/sdcard/jackass_auto").exists() || java.io.File("/sdcard/bestias_auto").exists() ||
+            java.io.File("/sdcard/mid_auto").exists()
+        ) {
+            lifecycleScope.launch {
+                val repo = (application as WalacApp).appComponent.iptvRepository
+                if (!repo.hasStoredCredentials()) {
+                    try {
+                        Log.d(TAG, "auto-login prueba/prueba")
+                        repo.signIn("prueba", "prueba")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "auto-login fallo", e)
+                    }
+                }
+                kotlinx.coroutines.delay(2500)
+                debugPlayJackass()
+            }
         }
     }
 
@@ -190,6 +212,92 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+
+    /**
+     * DEBUG: abre el player con la misma logica de fuentes que produccion
+     * (torrent mejor sembrado + fallback via onSelectUnifiedOption que
+     * reemplaza el fragment) para verificar en logcat el flujo completo.
+     */
+    private fun debugPlayJackass() {
+        // Dos triggers: jackass_auto (desde 0) y bestias_auto (a mitad).
+        val bestias = java.io.File("/sdcard/bestias_auto").exists()
+        val mid = java.io.File("/sdcard/mid_auto").exists()
+        val imdb = if (bestias) "tt32358025" else "tt39316472"
+        val contentId = if (bestias) "movie:1d515951-ed07-4b67-bc89-fa043e4e2350" else "movie:035f6aac-a9a7-42d4-a834-4562686fefad"
+        val title = if (bestias) "Carrera de bestias" else "Jackass: Lo mejor para el final"
+        val startPos = when {
+            mid -> 600_000L           // 10min: mitad, torrent AVI decodificable
+            bestias -> 620_000L
+            else -> 0L
+        }
+        val forceHash = if (mid) "eb4db2806df413c3ca1013b83f713a0c341a5277" else null
+        Log.d(TAG, "debugPlayJackass: iniciando imdb=$imdb pos=$startPos forceHash=$forceHash")
+        val repo = (application as WalacApp).appComponent.iptvRepository
+        lifecycleScope.launch {
+            try {
+                val all = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    repo.getTorrentioMovieStreams(imdb)
+                }
+                val streams = (if (forceHash != null) {
+                    val forced = all.filter { it.infoHash == forceHash }
+                    (forced + all.filterNot { it.infoHash == forceHash })
+                } else all).bestTorrentFirstForDebug()
+                Log.d(TAG, "debugPlayJackass: ${streams.size} fuentes: ${streams.map { it.infoHash?.take(8) to it.seeders }}")
+                if (streams.isEmpty()) return@launch
+                openDebugPlayer(streams, 0, startPos, contentId, title)
+            } catch (e: Exception) {
+                Log.e(TAG, "debugPlayJackass error", e)
+            }
+        }
+    }
+
+    private fun openDebugPlayer(
+        streams: List<com.example.walactv.data.model.StreamOption>,
+        index: Int,
+        positionMs: Long,
+        contentId: String,
+        title: String,
+    ) {
+        val stream = streams[index]
+        Log.d(TAG, "openDebugPlayer: idx=$index hash=${stream.infoHash} pos=$positionMs")
+        val fragment = PlayerFragment().apply {
+            initialize(
+                streamUrl = stream.url,
+                overlayNumber = "",
+                overlayTitle = title,
+                overlayMeta = "debug s${stream.seeders ?: 0} ${stream.quality ?: ""}",
+                contentKind = com.example.walactv.data.model.ContentKind.MOVIE,
+                onNavigateChannel = {}, onNavigateOption = {}, onDirectChannelNumber = { false },
+                onToggleFavorite = { false }, onOpenFavorites = { false }, onOpenRecents = { false },
+                contentId = contentId,
+                positionMs = positionMs,
+                overlayBackdropUrl = "https://image.tmdb.org/t/p/w1280/dUbP1HNdI0aCq1zgRJw28PWSqmk.jpg",
+                streamOptionLabels = streams.map { it.label },
+                currentOptionIndex = index,
+                unifiedStreamOptions = streams.map { s ->
+                    com.example.walactv.data.model.UnifiedStreamOption(
+                        s.language ?: "ES", s.language ?: "ES", s.quality ?: "HD",
+                        s.url, s.providerId, s.headers,
+                    )
+                },
+                onSelectUnifiedOption = { nextIdx, resumeMs ->
+                    Log.d(TAG, "onSelectUnifiedOption fallback: $index -> $nextIdx pos=$resumeMs")
+                    openDebugPlayer(streams, nextIdx, resumeMs, contentId, title)
+                },
+            )
+        }
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.player_container, fragment, "player_fragment")
+            .commitNow()
+        findViewById<FrameLayout>(R.id.player_container)?.visibility = android.view.View.VISIBLE
+    }
+
+    private fun List<com.example.walactv.data.model.StreamOption>.bestTorrentFirstForDebug():
+        List<com.example.walactv.data.model.StreamOption> =
+        sortedWith(
+            compareByDescending<com.example.walactv.data.model.StreamOption> { it.seeders ?: 0 }
+                .thenByDescending { it.sizeBytes ?: 0L },
+        )
 
     companion object {
         private const val TAG = "MainActivity"

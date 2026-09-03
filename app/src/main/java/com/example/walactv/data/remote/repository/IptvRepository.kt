@@ -528,25 +528,33 @@ class IptvRepository @Inject constructor(context: Context) {
 
     // ── Series / episodios ────────────────────────────────────────────────────
 
+    private fun correctSeriesTypo(name: String): String =
+        name.replace(Regex("(?i)sutart"), "stuart")
+
     suspend fun loadSeriesEpisodes(seriesName: String): List<CatalogItem> =
         withContext(Dispatchers.IO) {
-            if (seriesName.isBlank()) {
+            var queryName = correctSeriesTypo(seriesName)
+            if (queryName != seriesName) Log.d(TAG, "loadSeriesEpisodes: typo corrected '$seriesName' -> '$queryName'")
+            if (queryName.isBlank()) {
                 Log.w(TAG, "loadSeriesEpisodes: seriesName is blank, returning empty")
                 return@withContext emptyList()
             }
-            Log.d(TAG, "loadSeriesEpisodes: loading episodes for '$seriesName'")
+            Log.d(TAG, "loadSeriesEpisodes: loading episodes for '$queryName' (orig='$seriesName')")
             val items = mutableListOf<CatalogItem>()
             var page = 1
             do {
-                Log.d(TAG, "loadSeriesEpisodes: fetching page $page")
+                Log.d(TAG, "loadSeriesEpisodes: fetching page $page for '$queryName'")
                 val response = try {
-                    apiService.getSeriesEpisodes(seriesName, page, 100, CredentialStore.password().ifBlank { null })
+                    // Sin password: el backend hace 500 si construye stream_url sobre
+                    // stream_options con url null (series solo-torrentio). Las
+                    // plantillas {{USERNAME}}/{{PASSWORD}} se resuelven en cliente.
+                    apiService.getSeriesEpisodes(queryName, page, 100, null)
                 } catch (e: Exception) {
-                    Log.e(TAG, "loadSeriesEpisodes: HTTP error for '$seriesName' page $page: ${e.message}")
+                    Log.e(TAG, "loadSeriesEpisodes: HTTP error for '$queryName' page $page: ${e.message}")
                     break
                 }
                 if (!response.isSuccessful) {
-                    Log.e(TAG, "loadSeriesEpisodes: HTTP ${response.code()} for '$seriesName' page $page")
+                    Log.e(TAG, "loadSeriesEpisodes: HTTP ${response.code()} for '$queryName' page $page")
                     break
                 }
                 val body = response.body()
@@ -556,9 +564,9 @@ class IptvRepository @Inject constructor(context: Context) {
                     emptyList()
                 }
                 if (body == null) {
-                    Log.e(TAG, "loadSeriesEpisodes: null body for '$seriesName' page $page")
+                    Log.e(TAG, "loadSeriesEpisodes: null body for '$queryName' page $page")
                 } else if (dtos.isEmpty()) {
-                    Log.d(TAG, "loadSeriesEpisodes: empty episodes for '$seriesName' page $page (total=${body.totalEpisodes})")
+                    Log.d(TAG, "loadSeriesEpisodes: empty episodes for '$queryName' page $page (total=${body.totalEpisodes})")
                 }
                 val parsed = dtos.map { it.toCatalogItem(ContentKind.SERIES) }
                 Log.d(TAG, "loadSeriesEpisodes: page $page returned ${parsed.size} items")
@@ -573,27 +581,29 @@ class IptvRepository @Inject constructor(context: Context) {
 
     suspend fun loadSeriesEpisodesById(seriesId: String): List<CatalogItem> =
         withContext(Dispatchers.IO) {
-            if (seriesId.isBlank()) {
+            val cleanId = seriesId.substringAfterLast(":").trim().takeIf { it.isNotBlank() } ?: seriesId
+            if (cleanId.isBlank()) {
                 Log.w(TAG, "loadSeriesEpisodesById: seriesId is blank, returning empty")
                 return@withContext emptyList()
             }
-            Log.d(TAG, "loadSeriesEpisodesById: loading episodes for seriesId='$seriesId'")
+            Log.d(TAG, "loadSeriesEpisodesById: loading episodes for seriesId='$seriesId' cleanId='$cleanId'")
             val items = mutableListOf<CatalogItem>()
             var page = 1
             do {
                 val response = try {
+                    // Sin password: ver comentario en loadSeriesEpisodes.
                     apiService.getSeriesEpisodesById(
-                        seriesId = seriesId,
+                        seriesId = cleanId,
                         page = page,
                         pageSize = 100,
-                        password = CredentialStore.password().ifBlank { null },
+                        password = null,
                     )
                 } catch (e: Exception) {
-                    Log.e(TAG, "loadSeriesEpisodesById: HTTP error for '$seriesId' page $page: ${e.message}")
+                    Log.e(TAG, "loadSeriesEpisodesById: HTTP error for '$cleanId' page $page: ${e.message}")
                     break
                 }
                 if (!response.isSuccessful) {
-                    Log.e(TAG, "loadSeriesEpisodesById: HTTP ${response.code()} for '$seriesId' page $page")
+                    Log.e(TAG, "loadSeriesEpisodesById: HTTP ${response.code()} for '$cleanId' page $page")
                     break
                 }
                 val body = response.body()
@@ -870,7 +880,12 @@ class IptvRepository @Inject constructor(context: Context) {
         for (opt in sorted) {
             if (isStreamHealthy(opt, user, pass)) healthy += opt else broken += opt
         }
-        if (broken.isEmpty() || healthy.isEmpty()) return item
+        if (healthy.isEmpty()) {
+            // Solo torrents (o solo opciones no verificables): conservar el
+            // orden de sortedForPlayback (directo primero, torrents por seeds).
+            return item.copy(streamOptions = sorted)
+        }
+        if (broken.isEmpty()) return item
         return item.copy(streamOptions = healthy + broken)
     }
 
