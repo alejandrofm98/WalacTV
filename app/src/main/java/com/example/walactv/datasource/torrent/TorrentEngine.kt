@@ -66,6 +66,11 @@ class TorrentEngine @Inject constructor(
         private const val PIECE_WAIT_TIMEOUT_MS = 45_000L
         private const val PIECE_POLL_MS = 250L
         private const val METADATA_WAIT_TIMEOUT_MS = 15_000L
+        private const val MIN_BUFFER_BYTES = 600L * 1024 * 1024   // minimo para la ventana de arranque
+        private const val RECYCLE_MIN_FREE_BYTES = 1_200_000_000L // reciclar si queda menos libre
+        private const val RECYCLE_MIN_INTERVAL_MS = 4 * 60_000L   // entre reciclados
+        private const val RECYCLE_MIN_FRACTION_STEP = 0.08f       // y que la reproduccion haya avanzado
+        private const val AHEAD_PIECES = 256                      // ventana de descarga hacia delante (~500MB con piezas de 2MB)
 
         /** Trackers publicos para descubrimiento rapido de peers (ademas de DHT). */
         private val TORRENT_TRACKERS = listOf(
@@ -98,6 +103,10 @@ class TorrentEngine @Inject constructor(
 
     @Volatile private var metadataLatch = CountDownLatch(1)
     private val metadataReceived = AtomicBoolean(false)
+    @Volatile private var resumeFractionRequested: Float? = null
+    @Volatile private var circularStartPiece = 0
+    private var lastRecycleMs = 0L
+    private var lastRecycleFraction = 0f
 
     // Generacion por stream: el onDestroyView de un PlayerFragment viejo puede
     // ejecutarse DESPUES de que el nuevo arranco su torrent (fallback); con la
@@ -120,11 +129,17 @@ class TorrentEngine @Inject constructor(
         override fun types(): IntArray = intArrayOf(
             AlertType.METADATA_RECEIVED.swig(),
             AlertType.METADATA_FAILED.swig(),
+            AlertType.FILE_ERROR.swig(),
+            AlertType.TORRENT_ERROR.swig(),
         )
 
         override fun alert(a: Alert<*>?) {
             when (a) {
                 is MetadataReceivedAlert -> onMetadataReceived()
+                is org.libtorrent4j.alerts.FileErrorAlert ->
+                    onStorageError("Error de disco: ${a.message()}")
+                is org.libtorrent4j.alerts.TorrentErrorAlert ->
+                    onStorageError("Error del torrent: ${a.message()}")
                 else -> if (a?.type() == AlertType.METADATA_FAILED) {
                     Log.e(TAG, "metadata failed para ${activeInfoHash.orEmpty()}")
                     metadataLatch.countDown()
@@ -132,6 +147,15 @@ class TorrentEngine @Inject constructor(
                 }
             }
         }
+    }
+
+    /** Error de disco/almacenamiento (p.ej. ENOSPC con torrents grandes en
+     *  TVs con poca memoria): sin esto el download seguia "descargando" y
+     *  sirviendo ceros infinitamente. Notifica para saltar de fuente. */
+    private fun onStorageError(detail: String) {
+        if (activeInfoHash == null) return
+        Log.e(TAG, "storage error: $detail")
+        listeners.forEach { it.onError(detail) }
     }
 
     fun addListener(listener: Listener) = listeners.add(listener)
@@ -161,8 +185,12 @@ class TorrentEngine @Inject constructor(
     /**
      * Arranca la descarga de un magnet. Devuelve inmediatamente; el callback
      * [Listener.onReady] se invoca cuando el archivo de video esta listo.
+     *
+     * [resumeFraction] (0..1): modo buffer circular. Se IGNORA todo el
+     * contenido anterior a ese punto y solo se descarga la ventana alrededor
+     * de la posicion actual (usado por maybeRecycle para borrar lo ya visto).
      */
-    fun startStream(infoHash: String, fileIdx: Int? = null) {
+    fun startStream(infoHash: String, fileIdx: Int? = null, resumeFraction: Float? = null) {
         val hash = infoHash.trim().lowercase()
         require(hash.length == 40 && hash.all { it.isDigit() || it in 'a'..'f' }) {
             "infoHash torrent invalido"
@@ -195,6 +223,7 @@ class TorrentEngine @Inject constructor(
         selectedFileSize = 0L
         prebufferBytes = 0L
         metadataReceived.set(false)
+        resumeFractionRequested = resumeFraction?.coerceIn(0f, 1f)
         if (fileIdx != null) selectedFileIndex = fileIdx
         // Latch nuevo por stream: el anterior pudo quedar liberado por stopStream
         metadataLatch = CountDownLatch(1)
@@ -349,6 +378,23 @@ class TorrentEngine @Inject constructor(
         selectedFileSize = fs.fileSize(fileIdx)
         Log.d(TAG, "onMetadataReceived: archivo seleccionado #$fileIdx '${fs.fileName(fileIdx)}' size=$selectedFileSize")
 
+        // Espacio libre minimo para poderbufferar: si no llega ni para la
+        // ventana de arranque, fallar YA (con ENOSPC el archivo queda a ceros
+        // y el player se queda negro para siempre). Si hay para la ventana,
+        // el modo circular (maybeRecycle) mantiene el uso acotado aunque el
+        // archivo sea mas grande que el disco.
+        val freeBytes = saveDirectory(hash).usableSpace
+        val minBufferBytes = MIN_BUFFER_BYTES
+        if (freeBytes < minBufferBytes) {
+            val libresMb = freeBytes / (1024 * 1024)
+            Log.e(TAG, "onMetadataReceived: almacenamiento insuficiente (${libresMb}MB libres)")
+            metadataLatch.countDown()
+            listeners.forEach {
+                it.onError("Almacenamiento insuficiente: ${libresMb}MB libres")
+            }
+            return
+        }
+
         // Priorizar solo el archivo elegido. Los demas a LOW (no IGNORE):
         // la ultima pieza del video suele COMPARTIRSE con el archivo siguiente
         // (portada/sample); con IGNORE esa pieza nunca se completa y los Cues
@@ -356,10 +402,43 @@ class TorrentEngine @Inject constructor(
         for (i in 0 until fs.numFiles()) {
             found.filePriority(i, if (i == fileIdx) Priority.TOP_PRIORITY else Priority.LOW)
         }
-        // Prioridad alta a las primeras piezas para arrancar rapido
+
         val pieceLength = ti.pieceLength()
+        val numPieces = ti.numPieces()
+
+        // ── Modo buffer circular: reanudar desde resumeFraction ────────────
+        // Todo lo ANTERIOR al punto de reanudacion va a IGNORE: el disco solo
+        // crece con lo que se ve hacia adelante. maybeRecycle borra el archivo
+        // y re-descarga desde la posicion actual cuando toca.
+        val fileOffset0 = try { fs.fileOffset(fileIdx) } catch (_: Exception) { 0L }
+        var startPiece = 0
+        val resume = resumeFractionRequested
+        if (resume != null && resume > 0.005f) {
+            startPiece = ((fileOffset0 + selectedFileSize * resume) / pieceLength)
+                .toInt().coerceIn(0, numPieces - 1)
+        }
+        circularStartPiece = startPiece
+        if (startPiece > 0) {
+            for (i in 0 until startPiece) {
+                runCatching { found.piecePriority(i, Priority.IGNORE) }
+            }
+            // El extractor siempre sondea la CABEZA (EBML header en offset 0):
+            // las primeras piezas se necesitan aunque se reanude a mitad.
+            val headPieces = minOf(2, numPieces)
+            for (i in 0 until headPieces) {
+                runCatching {
+                    found.setPieceDeadline(i, 0)
+                    found.piecePriority(i, Priority.TOP_PRIORITY)
+                }
+            }
+            Log.d(TAG, "onMetadataReceived: buffer circular desde pieza $startPiece (resume=${"%.2f".format(resume)}); [0,$startPiece) a IGNORE")
+        }
+
+        // Prioridad alta a la ventana de arranque para arrancar rapido
         val preparePieces = (selectedFileSize / pieceLength).toInt().coerceIn(MIN_PREPARE_PIECES, MAX_PREPARE_PIECES)
-        for (i in 0 until preparePieces.coerceAtMost(ti.numPieces())) {
+        val windowStart = startPiece
+        val windowEnd = (startPiece + preparePieces).coerceAtMost(numPieces)
+        for (i in windowStart until windowEnd) {
             found.setPieceDeadline(i, 2_000)
             found.piecePriority(i, Priority.TOP_PRIORITY)
         }
@@ -368,14 +447,14 @@ class TorrentEngine @Inject constructor(
         // esas piezas tardarian horas -> timeout y error fatal de reproduccion.
         // Cobertura generosa: hasta el 2% del archivo o 20 piezas (los Cues de
         // un MKV grande pueden ocupar mas de 6 piezas).
-        val fileOffset = try { fs.fileOffset(fileIdx) } catch (_: Exception) { 0L }
+        val fileOffset = fileOffset0
         val lastPiece = ((fileOffset + selectedFileSize - 1) / pieceLength).toInt()
-            .coerceAtMost(ti.numPieces() - 1)
+            .coerceAtMost(numPieces - 1)
         val fileFirstPiece = (fileOffset / pieceLength).toInt()
         val filePieceCount = (lastPiece - fileFirstPiece + 1).coerceAtLeast(1)
         val tailByPercent = (filePieceCount * 0.02f).toInt()
         val tailCount = maxOf(tailByPercent, TAIL_PREPARE_PIECES, 1).coerceAtMost(20)
-        val tailStart = (lastPiece - tailCount + 1).coerceAtLeast(preparePieces)
+        val tailStart = (lastPiece - tailCount + 1).coerceAtLeast(windowEnd)
         for (i in tailStart..lastPiece) {
             val err = runCatching {
                 found.setPieceDeadline(i, 2_000)
@@ -385,11 +464,16 @@ class TorrentEngine @Inject constructor(
         }
         // Rangos del prebuffer (cabeza+cola) para el progreso/ETA de la pantalla de carga
         pieceLen = pieceLength
-        headRange = 0 until preparePieces.coerceAtMost(ti.numPieces())
+        headRange = windowStart until windowEnd
         tailRange = tailStart..lastPiece
         prebufferPieceCount = headRange.count() + tailRange.count()
         prebufferBytes = (prebufferPieceCount.toLong() * pieceLength).coerceAtMost(selectedFileSize)
         Log.d(TAG, "onMetadataReceived: priorizadas cabeza=$headRange cola=$tailRange")
+
+        // Gradiente inicial desde la pieza de arranque (no desde 0)
+        if (startPiece > 0) {
+            applyGradientAt(startPiece)
+        }
 
         listeners.forEach { it.onMetadataReady(fs.numFiles()) }
         isReady = true
@@ -530,7 +614,10 @@ class TorrentEngine @Inject constructor(
         if (pieceLength <= 0) return
         val numPieces = ti.numPieces()
         val fileOffset = try { ti.files().fileOffset(selectedFileIndex) } catch (_: Exception) { 0L }
-        val p = ((fileOffset + selectedFileSize * fraction) / pieceLength)
+        // Clamp: con duration == TIME_UNSET (extractor aun parseando) el
+        // fraction podia salir negativo y priorizar la pieza 0 equivocado.
+        val clamped = fraction.coerceIn(0f, 1f)
+        val p = ((fileOffset + selectedFileSize * clamped) / pieceLength)
             .toInt()
             .coerceIn(0, numPieces - 1)
         applyGradientAt(p)
@@ -567,8 +654,11 @@ class TorrentEngine @Inject constructor(
         if (windowErrors > 3) {
             Log.w(TAG, "applyGradientAt: $windowErrors/$window piezas con fallo de deadline (p=$p numPieces=$numPieces)")
         }
-        // Gradiente decreciente para pre-descarga del resto
-        for (i in windowEnd until numPieces) {
+        // Gradiente decreciente SOLO dentro de la ventana de descarga: mas
+        // alla de AHEAD_PIECES, IGNORE (se iran activando al avanzar). Sin
+        // este tope libtorrent descargaba el archivo entero por adelantado.
+        val aheadLimit = (p + AHEAD_PIECES).coerceAtMost(numPieces)
+        for (i in windowEnd until aheadLimit) {
             val distance = i - p
             val pr = when {
                 distance < window * 2 -> Priority.SIX
@@ -580,9 +670,19 @@ class TorrentEngine @Inject constructor(
             }
             runCatching { h.piecePriority(i, pr) }
         }
-        // Contenido anterior al punto de lectura: al final de la cola
+        for (i in aheadLimit until numPieces) {
+            if (tailRange.contains(i)) continue
+            if (i < circularStartPiece) continue
+            runCatching { h.piecePriority(i, Priority.IGNORE) }
+        }
+        // Contenido anterior al punto de lectura: al final de la cola. En modo
+        // circular, lo anterior a la pieza de arranque se mantiene IGNORE.
         for (i in 0 until p) {
             if (headRange.contains(i) || tailRange.contains(i)) continue
+            if (i < circularStartPiece) {
+                runCatching { h.piecePriority(i, Priority.IGNORE) }
+                continue
+            }
             runCatching { h.piecePriority(i, Priority.LOW) }
         }
         lastGradientPiece = p
@@ -683,6 +783,8 @@ class TorrentEngine @Inject constructor(
         statsRunning.set(false)
         _stats.value = null
         metadataReceived.set(false)
+        resumeFractionRequested = null
+        circularStartPiece = 0
         val h = handle
         val mgr = session
         if (h != null && h.isValid()) {
@@ -705,6 +807,31 @@ class TorrentEngine @Inject constructor(
 
     /** Generacion actual del stream ( cambia en cada startStream ). */
     fun currentStreamGeneration(): Long = streamGeneration.get()
+
+    /**
+     * Buffer circular: cuando el espacio libre baja del umbral (y la
+     * reproduccion ha avanzado desde el ultimo reciclado), borra el archivo
+     * del torrent —libera TODO su espacio— y re-descarga desde la fraccion
+     * actual. El player solo nota un rebuffer breve; su re-prepare reanuda en
+     * la misma posicion una vez que el engine esta listo.
+     */
+    fun maybeRecycle(fraction: Float) {
+        val hash = activeInfoHash ?: return
+        if (!isReady) return
+        val now = System.currentTimeMillis()
+        if (now - lastRecycleMs < RECYCLE_MIN_INTERVAL_MS) return
+        val frac = fraction.coerceIn(0f, 1f)
+        if (frac - lastRecycleFraction < RECYCLE_MIN_FRACTION_STEP) return
+        val free = saveDirectory(hash).usableSpace
+        if (free > RECYCLE_MIN_FREE_BYTES) return
+        val fileIdx = selectedFileIndex
+        val librasGb = "%.1f".format(free / 1e9)
+        Log.w(TAG, "maybeRecycle: ${librasGb}GB libres, frac=${"%.2f".format(frac)} — borrando buffer y re-descargando desde aqui")
+        lastRecycleMs = now
+        lastRecycleFraction = frac
+        stopStream(clearFiles = true)
+        startStream(hash, if (fileIdx >= 0) fileIdx else null, frac)
+    }
 
     /** Para el torrent SOLO si el llamador sigue siendo el dueno activo. */
     fun stopStreamIfOwner(ownerGeneration: Long, clearFiles: Boolean = true) {

@@ -729,6 +729,16 @@ private var overlayBackdropUrl: String = ""
             if (player != null && !isReleasing && isVodMode) {
                 updateVodTimeDisplay()
                  updateSkipButtons()
+                // Buffer circular: el engine decide si toca borrar el buffer
+                // y re-descargar desde la posicion actual (throttle interno).
+                if (TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
+                    player?.let { exo ->
+                        val d = exo.duration
+                        if (d > 0) {
+                            torrentEngineRef?.maybeRecycle(exo.currentPosition.toFloat() / d)
+                        }
+                    }
+                }
                 handler.postDelayed(this, 1000)
             }
         }
