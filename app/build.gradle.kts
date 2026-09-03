@@ -17,7 +17,7 @@ val localProperties = Properties().apply {
 
 val iptvBaseUrl = localProperties.getProperty("walactv.iptvBaseUrl", "https://example.invalid")
 val appUpdateUrl = localProperties.getProperty("walactv.updateUrl", "")
-val appVersionName = "1.48"
+val appVersionName = "1.49"
 val appVersionCode = appVersionName.split(".").let { parts ->
     val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
     val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
