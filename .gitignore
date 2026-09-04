@@ -36,3 +36,5 @@ desktopApp/build/
 
 # AI agent state
 .opencode/
+
+.commandcode/
