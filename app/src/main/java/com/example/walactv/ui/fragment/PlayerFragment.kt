@@ -236,7 +236,6 @@ private var overlayBackdropUrl: String = ""
     private var playerClosed: Boolean = false
     private lateinit var trackSelector: DefaultTrackSelector
     private var trackPreferencesRestored = false
-    private var sourcePreferenceFallbackAttempted = false
 
     private var watchedMarked = false
     private var completionCleanupStarted = false
@@ -553,7 +552,6 @@ private var overlayBackdropUrl: String = ""
         isReleasing = false
         playerClosed = false
         trackPreferencesRestored = false
-        sourcePreferenceFallbackAttempted = false
         codecSourceFallbackAttempted = false
         torrentBufferingSinceMs = 0L
         torrentRecoverAttempts = 0
@@ -1295,7 +1293,9 @@ private var overlayBackdropUrl: String = ""
                         format.label.equals(preference?.audioLabel, ignoreCase = true))
             }?.let { index -> group to index }
         }
-        if (audioMatch == null && switchToPreferredAudioSource(audioLanguage)) return
+        // Nunca cambiar de fuente por idioma: un torrent anunciado como ES
+        // puede llevar solo audio EN, y saltar de enlace aquí destruía el
+        // torrent a mitad del prebuffer en bucle infinito.
         audioMatch?.let { (group, index) ->
             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
@@ -1321,24 +1321,6 @@ private var overlayBackdropUrl: String = ""
         subtitleMatch?.let { (groupIndex, trackIndex) ->
             applySubtitleSelection(exoPlayer, textGroups, groupIndex, trackIndex)
         }
-    }
-
-    private fun switchToPreferredAudioSource(audioLanguage: String): Boolean {
-        if (sourcePreferenceFallbackAttempted || onSelectUnifiedOption == null) return false
-        val targetLanguage = normalizeAudioTrackLanguage(audioLanguage) ?: return false
-        val activeOption = unifiedStreamOptions.getOrNull(currentUnifiedOptionIndex)
-        if (normalizeAudioTrackLanguage(activeOption?.languageCode) == targetLanguage) return false
-
-        val optionIndex = unifiedStreamOptions.indexOfFirst { option ->
-            option.url != streamUrl &&
-                normalizeAudioTrackLanguage(option.languageCode) == targetLanguage
-        }
-        if (optionIndex < 0) return false
-
-        sourcePreferenceFallbackAttempted = true
-        Log.d(TAG, "Switching source for preferred audio language=$targetLanguage")
-        onSelectUnifiedOption?.invoke(optionIndex, currentResumePositionMs())
-        return true
     }
 
     private fun updateDisplayedMetadata(title: String, meta: String) {
