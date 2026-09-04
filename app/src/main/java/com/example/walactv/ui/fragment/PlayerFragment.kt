@@ -656,9 +656,17 @@ private var overlayBackdropUrl: String = ""
                 .setDataSourceFactory(dataSourceFactory)
 
             val loadControl = if (isVodMode) {
-                DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(15_000, 120_000, 2_500, 5_000)
-                    .build()
+                if (isTorrent) {
+                    // Torrent: arrancar con POCOS megas (como Stremio) —
+                    // 1.2s de media reproducida bastan para el primer frame.
+                    DefaultLoadControl.Builder()
+                        .setBufferDurationsMs(8_000, 60_000, 1_200, 2_500)
+                        .build()
+                } else {
+                    DefaultLoadControl.Builder()
+                        .setBufferDurationsMs(15_000, 120_000, 2_500, 5_000)
+                        .build()
+                }
             } else {
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(5_000, 30_000, 1_500, 2_500)

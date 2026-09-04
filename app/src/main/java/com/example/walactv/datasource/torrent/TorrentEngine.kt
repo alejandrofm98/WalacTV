@@ -288,7 +288,7 @@ class TorrentEngine @Inject constructor(
                             metadataOk = true
                             break
                         }
-                        Thread.sleep(1_000)
+                        Thread.sleep(400)
                     }
                     if (metadataOk) break
                 }
@@ -434,12 +434,14 @@ class TorrentEngine @Inject constructor(
             Log.d(TAG, "onMetadataReceived: buffer circular desde pieza $startPiece (resume=${"%.2f".format(resume)}); [0,$startPiece) a IGNORE")
         }
 
-        // Prioridad alta a la ventana de arranque para arrancar rapido
+        // Prioridad alta a la ventana de arranque para arrancar rapido.
+        // Deadline 0 = pedir YA (con 2000ms la cola del MKV tardaba y el
+        // primer frame se retrasaba).
         val preparePieces = (selectedFileSize / pieceLength).toInt().coerceIn(MIN_PREPARE_PIECES, MAX_PREPARE_PIECES)
         val windowStart = startPiece
         val windowEnd = (startPiece + preparePieces).coerceAtMost(numPieces)
         for (i in windowStart until windowEnd) {
-            found.setPieceDeadline(i, 2_000)
+            found.setPieceDeadline(i, 0)
             found.piecePriority(i, Priority.TOP_PRIORITY)
         }
         // Priorizar tambien la COLA del archivo: el extractor de Media3 sondea el
@@ -977,7 +979,10 @@ class TorrentEngine @Inject constructor(
                     android.util.Log.w("TorrentStream", "read: offset=$offset > end=$end, EOF")
                     return -1
                 }
-                val toRead = minOf(len, (end - offset + 1).toInt()).coerceAtLeast(0)
+                // remaining en LONG: con toInt() los archivos >2GB desbordaban
+                // y el primer read devolvia EOF (peliculas grandes = imposible)
+                val remaining = end - offset + 1
+                val toRead = minOf(len.toLong(), remaining).toInt().coerceAtLeast(0)
                 if (toRead <= 0) {
                     android.util.Log.w("TorrentStream", "read: toRead=$toRead (len=$len offset=$offset end=$end), EOF")
                     return -1
