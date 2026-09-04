@@ -18,7 +18,7 @@ object TorrentioClient {
 
     private const val TAG = "TorrentioClient"
     private const val BASE_URL = "https://torrentio.strem.fun"
-    private const val PROVIDERS = "wolfmax4k"
+    private const val PROVIDERS = "wolfmax4k,comando,yts,eztv,rarbg,1337x,thepiratebay,kickasstorrents,torrentgalaxy,magnetdl,torrentproject,ibit,filelist"
     private const val LANGUAGES = "spanish,english"
     private const val TIMEOUT_SECONDS = 15L
     private const val CACHE_TTL_MS = 60_000L
