@@ -237,6 +237,7 @@ class MovieDetailFragment : Fragment() {
                 sizeBytes = stream.sizeBytes,
                 torrentTitle = stream.torrentTitle,
                 language = stream.language,
+                languages = stream.languages,
                 quality = stream.quality,
             )
         } else {

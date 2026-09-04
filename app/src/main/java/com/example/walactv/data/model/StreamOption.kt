@@ -12,6 +12,7 @@ data class StreamOption(
     val providerId: String? = null,
     val headers: Map<String, String> = emptyMap(),
     val language: String? = null,
+    val languages: List<String> = emptyList(),
     val quality: String? = null,
     val provider: String? = null,
     val providerVideoId: String? = null,
@@ -58,6 +59,20 @@ fun List<StreamOption>.toUnifiedOptions(): List<UnifiedStreamOption> {
             compareByDescending<UnifiedStreamOption> { STREAM_QUALITY_ORDER[it.quality] ?: 0 }
                 .thenBy { it.language },
         )
+}
+
+/**
+ * Devuelve solo los torrents cuyo idioma declarado incluye el idioma
+ * preferido del usuario. Torrentio etiqueta cada release con banderas
+ * (p.ej. dual "🇬🇧 / 🇪🇸" = [EN, ES]); un torrent sin el idioma del
+ * usuario no se ofrece para reproduccion.
+ */
+fun List<StreamOption>.filterByPreferredLanguage(preferredLanguage: String?): List<StreamOption> {
+    val target = normalizeLanguageCode(preferredLanguage)
+    return filter { stream ->
+        val candidates = stream.languages.ifEmpty { listOfNotNull(stream.language) }
+        candidates.any { normalizeLanguageCode(it) == target }
+    }
 }
 
 internal val STREAM_QUALITY_ORDER = mapOf(

@@ -33,6 +33,7 @@ import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.HomeCatalog
 import com.example.walactv.data.model.RemoteCatalogPage
 import com.example.walactv.data.model.StreamOption
+import com.example.walactv.data.model.filterByPreferredLanguage
 import com.example.walactv.data.preferences.CredentialStore
 import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.data.util.isTmdbImagePath
@@ -630,6 +631,7 @@ class IptvRepository @Inject constructor(context: Context) {
             if (!TorrentioClient.isImdbId(movieId)) return@withContext emptyList()
             Log.d(TAG, "getTorrentioMovieStreams: imdbId='$movieId'")
             TorrentioClient.movieStreams(movieId)
+                .filterByPreferredLanguage(PreferencesManager.getPreferredLanguageOrDefault())
         }
 
     suspend fun getTorrentioEpisodeStreams(seriesId: String, season: Int, episode: Int): List<StreamOption> =
@@ -637,6 +639,7 @@ class IptvRepository @Inject constructor(context: Context) {
             if (!TorrentioClient.isImdbId(seriesId)) return@withContext emptyList()
             Log.d(TAG, "getTorrentioEpisodeStreams: imdbId='$seriesId' S${season}E$episode")
             TorrentioClient.episodeStreams(seriesId, season, episode)
+                .filterByPreferredLanguage(PreferencesManager.getPreferredLanguageOrDefault())
         }
 
     // ── Content pagination for home sections ───────────────────────────────────

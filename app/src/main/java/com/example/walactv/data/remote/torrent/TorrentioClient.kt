@@ -37,7 +37,13 @@ object TorrentioClient {
     private val SIZE_RE = Regex("\uD83D\uDCBE\\s*([\\d,.]+)\\s*(KB|MB|GB|TB)", RegexOption.IGNORE_CASE)
     private val QUALITY_RE = Regex("\\b(4k|2160p|1080p|720p|480p)\\b", RegexOption.IGNORE_CASE)
 
-    private val LANGUAGE_FLAGS = mapOf("\uD83C\uDDF8\uD83C\uDDE6" to "ES", "\uD83C\uDDEC\uD83C\uDDE7" to "EN", "\uD83C\uDDEF\uD83C\uDDF5" to "JP")
+    // Bandera de España real (E+S). Antes tenia S+A (Arabia Saudita) y la
+    // deteccion de ES por bandera nunca matcheaba.
+    private val LANGUAGE_FLAGS = mapOf(
+        "\uD83C\uDDEA\uD83C\uDDF8" to "ES",
+        "\uD83C\uDDEC\uD83C\uDDE7" to "EN",
+        "\uD83C\uDDEF\uD83C\uDDF5" to "JP",
+    )
     private val EXCLUDED_MARKERS = listOf("\uD83C\uDDF2\uD83C\uDDFD", "latino")
     private val FOREIGN_FLAGS = listOf(
         "\uD83C\uDDEE\uD83C\uDDF9", "\uD83C\uDDF5\uD83C\uDDF9", "\uD83C\uDDF7\uD83C\uDDFA",
@@ -125,7 +131,8 @@ object TorrentioClient {
         val infoHash = infoHashRaw?.trim() ?: return null
         if (!INFO_HASH_RE.matches(infoHash)) return null
         val fullTitle = title?.trim().orEmpty()
-        val language = detectLanguage(fullTitle) ?: return null
+        val languages = detectLanguages(fullTitle)
+        if (languages.isEmpty()) return null
         val qualityMatch = QUALITY_RE.find(name.orEmpty()) ?: QUALITY_RE.find(fullTitle)
         val sizeMatch = SIZE_RE.find(fullTitle)
         val seedersMatch = SEEDERS_RE.find(fullTitle)
@@ -134,7 +141,8 @@ object TorrentioClient {
             label = label,
             url = "magnet:?xt=urn:btih:${infoHash.lowercase()}",
             providerId = infoHash.lowercase(),
-            language = language,
+            language = languages.first(),
+            languages = languages,
             quality = qualityMatch?.value?.uppercase(),
             infoHash = infoHash.lowercase(),
             fileIdx = fileIdx,
@@ -144,16 +152,25 @@ object TorrentioClient {
         )
     }
 
-    private fun detectLanguage(title: String): String? {
+    /**
+     * Idiomas declarados en el titulo Torrentio (banderas, [ES]/[EN] o
+     * palabras clave). Espejo de detect_languages del scrapper. Una release
+     * dual "🇬🇧 / 🇪🇸" devuelve [EN, ES]. Lista vacia = descartar el stream.
+     */
+    private fun detectLanguages(title: String): List<String> {
+        if (EXCLUDED_MARKERS.any { title.contains(it, ignoreCase = true) }) return emptyList()
+        val knownFlags = LANGUAGE_FLAGS.filterKeys { title.contains(it) }.values.distinct()
+        if (knownFlags.isNotEmpty()) return knownFlags
+        if (FOREIGN_FLAGS.any { title.contains(it) }) return emptyList()
+        val bracketed = Regex("\\[(ES|EN|JP)\\]", RegexOption.IGNORE_CASE)
+            .findAll(title).map { it.groupValues[1].uppercase() }.distinct().toList()
+        if (bracketed.isNotEmpty()) return bracketed
         val lowered = title.lowercase()
-        if (EXCLUDED_MARKERS.any { title.contains(it, ignoreCase = true) }) return null
-        val hasForeign = FOREIGN_FLAGS.any { title.contains(it) }
-        val hasKnown = LANGUAGE_FLAGS.keys.any { title.contains(it) }
-        if (hasForeign && !hasKnown) return null
-        LANGUAGE_FLAGS.forEach { (flag, code) -> if (title.contains(flag)) return code }
-        if (Regex("\\b(spanish|castellano)\\b", RegexOption.IGNORE_CASE).containsMatchIn(lowered)) return "ES"
-        if (Regex("\\benglish\\b", RegexOption.IGNORE_CASE).containsMatchIn(lowered)) return "EN"
-        return "EN"
+        val found = mutableListOf<String>()
+        if (Regex("\\b(spanish|castellano|español)\\b", RegexOption.IGNORE_CASE).containsMatchIn(lowered)) found += "ES"
+        if (Regex("\\benglish\\b", RegexOption.IGNORE_CASE).containsMatchIn(lowered)) found += "EN"
+        if (found.isNotEmpty()) return found
+        return listOf("EN")
     }
 
     private fun providerLabel(title: String): String {
