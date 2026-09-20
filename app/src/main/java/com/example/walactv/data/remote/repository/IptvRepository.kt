@@ -90,6 +90,7 @@ class IptvRepository @Inject constructor(context: Context) {
     private val localizedMetadataCache = ConcurrentHashMap<String, CatalogItem>()
 
     @Volatile private var memoryHomeCatalog: HomeCatalog? = null
+    @Volatile private var iptvEnabled: Boolean = true
 
     // ── Credenciales / sesion ─────────────────────────────────────────────────
 
@@ -109,11 +110,13 @@ class IptvRepository @Inject constructor(context: Context) {
             if (!response.isSuccessful) {
                 throw IllegalStateException("HTTP ${response.code()}: ${response.errorBody()?.string()}")
             }
-            val token = response.body()?.access_token
-                ?: response.body()?.token
-                ?: response.body()?.access
+            val loginBody = response.body()
+            val token = loginBody?.access_token
+                ?: loginBody?.token
+                ?: loginBody?.access
                 ?: throw IllegalStateException("Respuesta de login sin access_token")
             authInterceptor.token = token
+            iptvEnabled = loginBody?.iptvEnabled ?: true
             CredentialStore.save(user, pass)
             clearAllCaches()
             Log.d(TAG, "Login correcto para ${maskUsername(user)}")
@@ -125,11 +128,14 @@ class IptvRepository @Inject constructor(context: Context) {
 
     fun signOut() {
         authInterceptor.token = null
+        iptvEnabled = true
         CredentialStore.clear()
         clearAllCaches()
     }
 
     fun clearHomeMemoryCache() = clearAllCaches()
+
+    fun hasIptvProvider(): Boolean = iptvEnabled
 
     fun updateHomeEventsCache(eventSections: List<BrowseSection>) {
         val current = memoryHomeCatalog ?: return
@@ -1251,11 +1257,13 @@ class IptvRepository @Inject constructor(context: Context) {
         val c = requireCredentials()
         val response = apiService.login(c.username, c.password)
         if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        val token = response.body()?.access_token
-            ?: response.body()?.token
-            ?: response.body()?.access
+        val loginBody = response.body()
+        val token = loginBody?.access_token
+            ?: loginBody?.token
+            ?: loginBody?.access
             ?: throw IllegalStateException("Respuesta de login sin access_token")
         authInterceptor.token = token
+        iptvEnabled = loginBody?.iptvEnabled ?: true
         return token
     }
 
