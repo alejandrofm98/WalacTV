@@ -6,6 +6,7 @@ import com.example.walactv.data.remote.api.AuthInterceptor
 import com.example.walactv.data.remote.api.IptvApiService
 import com.example.walactv.data.remote.api.dto.CatalogItemDto
 import com.example.walactv.data.remote.api.dto.AddonMetaDto
+import com.example.walactv.data.remote.api.dto.AddonEpisodeDto
 import com.example.walactv.data.remote.torrent.TorrentioClient
 import com.example.walactv.data.remote.api.dto.CalendarEventDto
 import com.example.walactv.data.remote.api.dto.CanalResueltoDto
@@ -205,6 +206,59 @@ class IptvRepository @Inject constructor(context: Context) {
     }
 
     private fun CatalogItem.nameOrTitleFallback(): String = title.ifBlank { subtitle }
+
+    suspend fun loadCinemetaCatalog(kind: ContentKind, skip: Int = 0): List<CatalogItem> =
+        withContext(Dispatchers.IO) {
+            if (kind != ContentKind.MOVIE && kind != ContentKind.SERIES) return@withContext emptyList()
+            val contentType = if (kind == ContentKind.MOVIE) "movie" else "series"
+            val response = apiService.getAddonCatalog(contentType, "top", skip)
+            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+            response.body()?.items.orEmpty()
+                .map { it.toCatalogItem(kind) }
+                .filter { it.imdbId?.let(TorrentioClient::isImdbId) == true }
+                .distinctBy(CatalogItem::stableId)
+        }
+
+    suspend fun loadCinemetaSeriesEpisodes(imdbId: String): List<CatalogItem> =
+        withContext(Dispatchers.IO) {
+            if (!TorrentioClient.isImdbId(imdbId)) return@withContext emptyList()
+            val response = apiService.getAddonMeta("series", imdbId, includeVideos = true)
+            if (!response.isSuccessful) return@withContext emptyList()
+            val meta = response.body() ?: return@withContext emptyList()
+            meta.episodes.mapNotNull { episode ->
+                val season = episode.season ?: return@mapNotNull null
+                val number = episode.episode ?: return@mapNotNull null
+                mapCinemetaEpisode(imdbId, meta, episode, season, number)
+            }.sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+        }
+
+    private fun mapCinemetaEpisode(
+        imdbId: String,
+        meta: AddonMetaDto,
+        episode: AddonEpisodeDto,
+        season: Int,
+        number: Int,
+    ): CatalogItem = CatalogItem(
+        stableId = "series:$imdbId:$season:$number",
+        catalogId = imdbId,
+        providerId = episode.id,
+        title = episode.title?.ifBlank { null } ?: "Episodio $number",
+        subtitle = "T$season E$number",
+        description = episode.overview.orEmpty(),
+        imageUrl = episode.thumbnail.orEmpty(),
+        kind = ContentKind.SERIES,
+        group = "Cinemeta",
+        badgeText = "T$season E$number",
+        seriesName = meta.titleEs?.ifBlank { null } ?: meta.name.orEmpty(),
+        seriesKey = imdbId,
+        seriesProviderId = imdbId,
+        seasonNumber = season,
+        episodeNumber = number,
+        imdbId = imdbId,
+        stillPath = episode.thumbnail,
+        airDate = episode.released,
+        tmdbTitle = meta.titleEs,
+    )
 
     // ── Home catalog ──────────────────────────────────────────────────────────
 
@@ -754,7 +808,30 @@ class IptvRepository @Inject constructor(context: Context) {
         val response = apiService.getHomeCatalog(country)
         if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
         val payload = response.body() ?: throw IllegalStateException("Empty response body")
-        return resolveStreamTemplates(mapHomeCatalogResponse(payload))
+        val remote = resolveStreamTemplates(mapHomeCatalogResponse(payload))
+        val hasProviderVod = remote.searchableItems.any {
+            it.kind == ContentKind.MOVIE || it.kind == ContentKind.SERIES
+        }
+        if (hasProviderVod) return remote
+
+        val externalSections = coroutineScope {
+            val movies = async { runCatching { loadCinemetaCatalog(ContentKind.MOVIE) }.getOrDefault(emptyList()) }
+            val series = async { runCatching { loadCinemetaCatalog(ContentKind.SERIES) }.getOrDefault(emptyList()) }
+            buildList {
+                movies.await().takeIf { it.isNotEmpty() }?.let { items ->
+                    add(BrowseSection("Catálogo general · Películas", items, contentType = "movies", groupName = "Cinemeta"))
+                }
+                series.await().takeIf { it.isNotEmpty() }?.let { items ->
+                    add(BrowseSection("Catálogo general · Series", items, contentType = "series", groupName = "Cinemeta"))
+                }
+            }
+        }
+        if (externalSections.isEmpty()) return remote
+        return remote.copy(
+            sections = remote.sections + externalSections,
+            searchableItems = (remote.searchableItems + externalSections.flatMap(BrowseSection::items))
+                .distinctBy(CatalogItem::stableId),
+        )
     }
 
     private suspend fun fetchEventSections(): List<BrowseSection> {

@@ -14,4 +14,15 @@ data class AddonMetaDto(
     val genres: List<String> = emptyList(),
     @SerializedName("imdb_rating") val imdbRating: String? = null,
     @SerializedName("moviedb_id") val movieDbId: Int? = null,
+    val episodes: List<AddonEpisodeDto> = emptyList(),
+)
+
+data class AddonEpisodeDto(
+    val id: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val title: String? = null,
+    val overview: String? = null,
+    val thumbnail: String? = null,
+    val released: String? = null,
 )

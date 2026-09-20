@@ -413,6 +413,18 @@ fun SeriesDetailScreen(
         try {
             loadError = null
             Log.d("SeriesDetail", "load start seriesName='$seriesName' seriesId='$seriesId'")
+            val externalImdb = initialSeriesItem?.imdbId
+                ?.takeIf(TorrentioClient::isImdbId)
+                ?.takeIf { initialSeriesItem?.catalogId == it }
+            if (externalImdb != null) {
+                val externalEpisodes = runCatching {
+                    repository.loadCinemetaSeriesEpisodes(externalImdb)
+                }.getOrDefault(emptyList())
+                if (externalEpisodes.isNotEmpty()) {
+                    value = externalEpisodes
+                    return@produceState
+                }
+            }
             var episodes = if (!seriesId.isNullOrBlank()) {
                 val byId = runCatching { repository.loadSeriesEpisodesById(seriesId) }.getOrElse { emptyList() }
                 Log.d("SeriesDetail", "byId '$seriesId' -> ${byId.size} eps")

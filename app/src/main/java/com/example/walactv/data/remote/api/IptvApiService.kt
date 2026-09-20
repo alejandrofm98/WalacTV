@@ -2,6 +2,7 @@ package com.example.walactv.data.remote.api
 
 import com.example.walactv.data.remote.api.dto.CatalogItemDto
 import com.example.walactv.data.remote.api.dto.AddonMetaDto
+import com.example.walactv.data.remote.api.dto.AddonCatalogResponse
 import com.example.walactv.data.remote.api.dto.CatalogPageResponse
 import com.example.walactv.data.remote.api.dto.FilterOptionsResponse
 import com.example.walactv.data.remote.api.dto.GenresResponse
@@ -80,6 +81,13 @@ interface IptvApiService {
         @Query("include_videos") includeVideos: Boolean = false,
         @Query("include_sources") includeSources: Boolean = false,
     ): Response<AddonMetaDto>
+
+    @GET("api/addons/catalog/{contentType}/{catalogId}")
+    suspend fun getAddonCatalog(
+        @Path("contentType") contentType: String,
+        @Path("catalogId") catalogId: String,
+        @Query("skip") skip: Int = 0,
+    ): Response<AddonCatalogResponse>
 
     @GET("api/content/countries")
     suspend fun getCountries(

@@ -4,6 +4,7 @@ import com.example.walactv.data.remote.api.IptvApiService
 import com.example.walactv.data.remote.api.dto.CalendarResponse
 import com.example.walactv.data.remote.api.dto.CatalogItemDto
 import com.example.walactv.data.remote.api.dto.AddonMetaDto
+import com.example.walactv.data.remote.api.dto.AddonCatalogResponse
 import com.example.walactv.data.remote.api.dto.CatalogPageResponse
 import com.example.walactv.data.remote.api.dto.ContentStatsResponse
 import com.example.walactv.data.remote.api.dto.FilterOptionsResponse
@@ -181,6 +182,7 @@ class WatchProgressRepositoryTest {
         ): Response<CatalogPageResponse> = todo()
         override suspend fun getContentItem(kind: String, id: String): Response<CatalogItemDto> = todo()
         override suspend fun getAddonMeta(contentType: String, imdbId: String, includeVideos: Boolean, includeSources: Boolean): Response<AddonMetaDto> = todo()
+        override suspend fun getAddonCatalog(contentType: String, catalogId: String, skip: Int): Response<AddonCatalogResponse> = todo()
         override suspend fun getCountries(contentType: String): Response<FilterOptionsResponse> = todo()
         override suspend fun getGroups(contentType: String, countries: String?, country: String?): Response<FilterOptionsResponse> = todo()
         override suspend fun getGenres(contentType: String): Response<GenresResponse> = todo()
