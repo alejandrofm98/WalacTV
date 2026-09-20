@@ -34,6 +34,11 @@ data class UnifiedStreamOption(
     val url: String,
     val providerId: String? = null,
     val headers: Map<String, String> = emptyMap(),
+    val isTorrent: Boolean = false,
+    val provider: String? = null,
+    val seeders: Int? = null,
+    val sizeBytes: Long? = null,
+    val torrentTitle: String? = null,
 ) {
     val displayLabel: String get() = "$language $quality"
 }
@@ -52,6 +57,11 @@ fun List<StreamOption>.toUnifiedOptions(): List<UnifiedStreamOption> {
             url = stream.url,
             providerId = stream.providerId,
             headers = stream.headers,
+            isTorrent = stream.isTorrent,
+            provider = stream.provider,
+            seeders = stream.seeders,
+            sizeBytes = stream.sizeBytes,
+            torrentTitle = stream.torrentTitle,
         )
     }
         .distinctBy { it.url }

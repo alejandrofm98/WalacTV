@@ -91,6 +91,7 @@ class IptvRepository @Inject constructor(context: Context) {
 
     @Volatile private var memoryHomeCatalog: HomeCatalog? = null
     @Volatile private var iptvEnabled: Boolean = true
+    @Volatile private var iptvCapabilityLoaded: Boolean = false
 
     // ── Credenciales / sesion ─────────────────────────────────────────────────
 
@@ -117,6 +118,8 @@ class IptvRepository @Inject constructor(context: Context) {
                 ?: throw IllegalStateException("Respuesta de login sin access_token")
             authInterceptor.token = token
             iptvEnabled = loginBody?.iptvEnabled ?: true
+            iptvCapabilityLoaded = true
+            CredentialStore.saveIptvEnabled(iptvEnabled)
             CredentialStore.save(user, pass)
             clearAllCaches()
             Log.d(TAG, "Login correcto para ${maskUsername(user)}")
@@ -129,13 +132,20 @@ class IptvRepository @Inject constructor(context: Context) {
     fun signOut() {
         authInterceptor.token = null
         iptvEnabled = true
+        iptvCapabilityLoaded = true
         CredentialStore.clear()
         clearAllCaches()
     }
 
     fun clearHomeMemoryCache() = clearAllCaches()
 
-    fun hasIptvProvider(): Boolean = iptvEnabled
+    fun hasIptvProvider(): Boolean {
+        if (!iptvCapabilityLoaded) {
+            iptvEnabled = CredentialStore.iptvEnabled() ?: true
+            iptvCapabilityLoaded = true
+        }
+        return iptvEnabled
+    }
 
     fun updateHomeEventsCache(eventSections: List<BrowseSection>) {
         val current = memoryHomeCatalog ?: return
@@ -213,11 +223,15 @@ class IptvRepository @Inject constructor(context: Context) {
 
     private fun CatalogItem.nameOrTitleFallback(): String = title.ifBlank { subtitle }
 
-    suspend fun loadCinemetaCatalog(kind: ContentKind, skip: Int = 0): List<CatalogItem> =
+    suspend fun loadCinemetaCatalog(
+        kind: ContentKind,
+        skip: Int = 0,
+        searchQuery: String? = null,
+    ): List<CatalogItem> =
         withContext(Dispatchers.IO) {
             if (kind != ContentKind.MOVIE && kind != ContentKind.SERIES) return@withContext emptyList()
             val contentType = if (kind == ContentKind.MOVIE) "movie" else "series"
-            val response = apiService.getAddonCatalog(contentType, "top", skip)
+            val response = apiService.getAddonCatalog(contentType, "top", skip, searchQuery)
             if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
             response.body()?.items.orEmpty()
                 .map { it.toCatalogItem(kind) }

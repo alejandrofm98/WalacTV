@@ -724,6 +724,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     )
 
     val loader = fragment.discoverLoaders.getValue(selectedTab)
+    val hasIptvProvider = fragment.repository.hasIptvProvider()
     var displayItems by remember { mutableStateOf(loader.getDisplayItems()) }
     var totalCount by remember { mutableIntStateOf(loader.getTotalCount()) }
     var currentPage by rememberSaveable { mutableIntStateOf(0) }
@@ -745,7 +746,11 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     var genreOptions by remember { mutableStateOf<List<FilterOptionDto>>(emptyList()) }
     var forceFocusFirstItem by remember { mutableStateOf(false) }
 
-    LaunchedEffect(selectedTab, selectedCountry, currentFilters) {
+    LaunchedEffect(selectedTab, selectedCountry, currentFilters, hasIptvProvider) {
+        if (!hasIptvProvider) {
+            genreOptions = listOf(FilterOptionDto(ALL_OPTION, "Todos"))
+            return@LaunchedEffect
+        }
         val country = selectedCountry.takeUnless { it == ALL_OPTION }
         val filters = if (country != null) {
             runCatching { fragment.repository.loadCatalogFilters(selectedTab, country) }
@@ -769,9 +774,9 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
 
     var lastLoadKey by rememberSaveable { mutableStateOf("") }
 
-    LaunchedEffect(selectedTab, selectedCountry, selectedGenre, searchQuery) {
+    LaunchedEffect(selectedTab, selectedCountry, selectedGenre, searchQuery, fragment.searchableItems, hasIptvProvider) {
         val key = "$selectedTab|$selectedCountry|$selectedGenre|$searchQuery"
-        if (key == lastLoadKey && loader.getDisplayItems().isNotEmpty()) {
+        if (hasIptvProvider && key == lastLoadKey && loader.getDisplayItems().isNotEmpty()) {
             return@LaunchedEffect
         }
         Log.d("DiscoverContent", "filter changed: key=$key, reloading")
@@ -783,6 +788,18 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
         val country = selectedCountry.takeUnless { it == ALL_OPTION }
         val genre = selectedGenre.takeUnless { it == ALL_OPTION }
         loadError = null
+        if (!hasIptvProvider) {
+            val localItems = fragment.searchableItems.filter { item ->
+                item.kind == selectedTab &&
+                    (searchQuery.isBlank() || item.searchableText().any { it.contains(searchQuery, ignoreCase = true) }) &&
+                    (genre == null || item.genres.any { it.equals(genre, ignoreCase = true) }) &&
+                    (country == null || item.countries.any { it.equals(country, ignoreCase = true) })
+            }
+            displayItems = localItems
+            totalCount = localItems.size
+            lastLoadKey = key
+            return@LaunchedEffect
+        }
         Log.d("DiscoverContent", "loading: country=$country, genre=$genre, search=$searchQuery")
         runCatching {
             if (searchQuery.isNotBlank()) {
@@ -800,7 +817,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
     }
 
     LaunchedEffect(lazyGridState, searchQuery) {
-        if (searchQuery.isNotBlank()) return@LaunchedEffect
+        if (!hasIptvProvider || searchQuery.isNotBlank()) return@LaunchedEffect
         snapshotFlow { lazyGridState.layoutInfo }
             .map { info ->
                 (info.visibleItemsInfo.lastOrNull()?.index ?: -1) to info.totalItemsCount
@@ -862,7 +879,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
         // Give the grid time to lay out before scrolling/requesting focus.
         delay(300.milliseconds)
         // Re-read items from the loader to avoid stale composition captures.
-        val items = loader.getDisplayItems()
+        val items = if (hasIptvProvider) loader.getDisplayItems() else displayItems
         if (items.isEmpty()) {
             fragment.discoverFocusLocked = false
             Log.d("MainShellFocus", "discover restore skip: items empty, unlock")

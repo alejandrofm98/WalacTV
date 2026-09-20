@@ -233,6 +233,27 @@ class CatalogModelsTest {
     }
 
     @Test
+    fun `preserves torrent metadata in unified playback options`() {
+        val option = listOf(StreamOption(
+            label = "1080p",
+            url = "torrent://source",
+            language = "ES",
+            quality = "1080p",
+            provider = "Torrentio",
+            seeders = 42,
+            sizeBytes = 5_000_000_000L,
+            torrentTitle = "release.mkv",
+            infoHash = "abc123",
+        )).toUnifiedOptions().single()
+
+        assertEquals(true, option.isTorrent)
+        assertEquals("Torrentio", option.provider)
+        assertEquals(42, option.seeders)
+        assertEquals(5_000_000_000L, option.sizeBytes)
+        assertEquals("release.mkv", option.torrentTitle)
+    }
+
+    @Test
     fun `deduplicates repeated metadata for the same video source`() {
         val options = listOf(
             StreamOption(label = "Directo", url = "https://example.com/video.mkv", language = "ES"),

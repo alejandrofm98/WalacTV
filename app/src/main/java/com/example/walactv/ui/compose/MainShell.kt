@@ -70,7 +70,10 @@ internal fun ComposeRoot(fragment: ComposeMainFragment) {
 
 @Composable
 internal fun MainShell(fragment: ComposeMainFragment) {
-    val railItems = remember { buildDefaultSideRailEntries().map { entry -> fragment.toNavItem(entry) } }
+    val hasIptvProvider = fragment.repository.hasIptvProvider()
+    val railItems = remember(hasIptvProvider) {
+        buildDefaultSideRailEntries(includeIptv = hasIptvProvider).map { entry -> fragment.toNavItem(entry) }
+    }
     val focusRequesters = remember { List(railItems.size + 1) { FocusRequester() } }
     val contentFocusRequester = remember { FocusRequester() }
 

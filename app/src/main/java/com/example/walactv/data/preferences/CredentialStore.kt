@@ -44,14 +44,24 @@ object CredentialStore {
         }
     }
 
+    fun iptvEnabled(): Boolean? {
+        return if (prefs.contains(KEY_IPTV_ENABLED)) prefs.getBoolean(KEY_IPTV_ENABLED, true) else null
+    }
+
+    fun saveIptvEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_IPTV_ENABLED, enabled) }
+    }
+
     fun clear() {
         prefs.edit {
             remove(KEY_USERNAME)
             remove(KEY_PASSWORD)
+            remove(KEY_IPTV_ENABLED)
         }
     }
 
     private const val PREFS_NAME = "credential_store"
     private const val KEY_USERNAME = "username"
     private const val KEY_PASSWORD = "password"
+    private const val KEY_IPTV_ENABLED = "iptv_enabled"
 }

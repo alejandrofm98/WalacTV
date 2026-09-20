@@ -1620,8 +1620,9 @@ private var overlayBackdropUrl: String = ""
 
         // Stream torrent: los errores de red/piezas (timeout de lectura, pieza
         // aun no descargada) NO deben reiniciar el player ni mostrar overlay:
-        // TorrServer sigue descargando y la pantalla de carga informa. Solo
-        // los errores fatales de codec caen al fallback normal.
+        // TorrServer sigue descargando y la pantalla de carga informa. Los
+        // errores de parser/codec se consideran fallo de esta fuente y pasan
+        // al siguiente torrent o enlace disponible.
         if (TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
             val torrentError = (error?.message.orEmpty()) + " " + (error?.errorCodeName.orEmpty())
             if (!isFatalPlaybackErrorForDevice(torrentError)) {
@@ -1647,7 +1648,7 @@ private var overlayBackdropUrl: String = ""
                 }, 2_000)
                 return
             }
-            Log.w(TAG, "Error fatal de codec en stream torrent, aplicando fallback: $torrentError")
+            Log.w(TAG, "Error no recuperable en stream torrent, aplicando fallback: $torrentError")
         }
 
         // Capturar la posición ANTES de tocar el player: tras un error,

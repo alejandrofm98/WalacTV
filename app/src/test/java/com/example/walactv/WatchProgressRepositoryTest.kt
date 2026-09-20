@@ -182,7 +182,12 @@ class WatchProgressRepositoryTest {
         ): Response<CatalogPageResponse> = todo()
         override suspend fun getContentItem(kind: String, id: String): Response<CatalogItemDto> = todo()
         override suspend fun getAddonMeta(contentType: String, imdbId: String, includeVideos: Boolean, includeSources: Boolean): Response<AddonMetaDto> = todo()
-        override suspend fun getAddonCatalog(contentType: String, catalogId: String, skip: Int): Response<AddonCatalogResponse> = todo()
+        override suspend fun getAddonCatalog(
+            contentType: String,
+            catalogId: String,
+            skip: Int,
+            search: String?,
+        ): Response<AddonCatalogResponse> = todo()
         override suspend fun getCountries(contentType: String): Response<FilterOptionsResponse> = todo()
         override suspend fun getGroups(contentType: String, countries: String?, country: String?): Response<FilterOptionsResponse> = todo()
         override suspend fun getGenres(contentType: String): Response<GenresResponse> = todo()

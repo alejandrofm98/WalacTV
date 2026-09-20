@@ -13,12 +13,14 @@ internal data class SideRailEntry(
     val destination: SideRailDestination,
 )
 
-internal fun buildDefaultSideRailEntries(): List<SideRailEntry> {
-    return listOf(
-        SideRailEntry(label = "Buscar", destination = SideRailDestination.SEARCH),
-        SideRailEntry(label = "Inicio", destination = SideRailDestination.HOME),
-        SideRailEntry(label = "Eventos", destination = SideRailDestination.EVENTS),
-        SideRailEntry(label = "TV en directo", destination = SideRailDestination.TV),
-        SideRailEntry(label = "Discover", destination = SideRailDestination.DISCOVER),
-    )
+internal fun buildDefaultSideRailEntries(includeIptv: Boolean = true): List<SideRailEntry> {
+    return buildList {
+        add(SideRailEntry(label = "Buscar", destination = SideRailDestination.SEARCH))
+        add(SideRailEntry(label = "Inicio", destination = SideRailDestination.HOME))
+        if (includeIptv) {
+            add(SideRailEntry(label = "Eventos", destination = SideRailDestination.EVENTS))
+            add(SideRailEntry(label = "TV en directo", destination = SideRailDestination.TV))
+        }
+        add(SideRailEntry(label = "Discover", destination = SideRailDestination.DISCOVER))
+    }
 }

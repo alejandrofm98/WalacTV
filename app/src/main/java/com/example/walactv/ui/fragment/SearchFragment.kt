@@ -11,6 +11,7 @@ import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.CatalogMemory
 import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.searchableText
 import com.example.walactv.data.preferences.ChannelStateStore
 import com.example.walactv.data.model.preferredVodPosterUrl
 import com.example.walactv.data.model.playbackContentId
@@ -348,17 +349,21 @@ fun SearchScreen(
         delay(400)
         try {
             val (items, _) = repository.search(query)
+            val localMatches = allItems.filter { item ->
+                item.searchableText().any { value -> value.contains(query, ignoreCase = true) }
+            }
+            val mergedItems = (items + localMatches).distinctBy(CatalogItem::stableId)
             val grouped = listOf(
                 ContentKind.EVENT to "Eventos",
                 ContentKind.CHANNEL to "Canales",
                 ContentKind.MOVIE to "Películas",
                 ContentKind.SERIES to "Series",
             ).mapNotNull { (kind, title) ->
-                val kindMatches = items.filter { it.kind == kind }
+                val kindMatches = mergedItems.filter { it.kind == kind }
                 if (kindMatches.isEmpty()) null else title to kindMatches
             }
             searchResults = grouped
-            onUpdateResults(items, items.filter { it.kind == ContentKind.CHANNEL })
+            onUpdateResults(mergedItems, mergedItems.filter { it.kind == ContentKind.CHANNEL })
         } catch (e: Exception) {
             Log.e("SearchFragment", "Search failed", e)
             searchResults = emptyList()

@@ -13,4 +13,10 @@ class PlayerErrorHandlingTest {
         assertTrue(isFatalPlaybackErrorForDevice("video codec dolby-vision unsupported"))
         assertFalse(isFatalPlaybackErrorForDevice("network timeout"))
     }
+
+    @Test
+    fun `detects malformed torrent containers as source failures`() {
+        assertTrue(isFatalPlaybackErrorForDevice("ERROR_CODE_PARSING_CONTAINER_MALFORMED ContentCompAlgo 0"))
+        assertTrue(isFatalPlaybackErrorForDevice("ParserException: malformed Matroska container"))
+    }
 }

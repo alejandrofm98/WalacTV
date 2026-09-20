@@ -10,6 +10,9 @@ internal fun isFatalPlaybackErrorForDevice(errorMessage: String): Boolean {
     return errorMessage.contains("NO_EXCEEDS_CAPABILITIES") ||
             errorMessage.contains("Decoder failed") ||
             errorMessage.contains("ERROR_CODE_DECODER_INIT_FAILED") ||
+            errorMessage.contains("ERROR_CODE_PARSING_CONTAINER_MALFORMED") ||
+            errorMessage.contains("ContentCompAlgo") ||
+            errorMessage.contains("ParserException") ||
             errorMessage.contains("MediaCodecAudioRenderer error") ||
             errorMessage.contains("MediaCodecVideoRenderer error") ||
             errorMessage.contains("dolby-vision")

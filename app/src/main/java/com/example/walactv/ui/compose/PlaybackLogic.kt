@@ -152,16 +152,17 @@ internal fun ComposeMainFragment.openContinueWatchingDetails(cardItem: CatalogIt
 }
 
 private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: CatalogItem, progress: WatchProgressDto) {
-    val item = try {
+    val catalogFallback = searchableItems.firstOrNull { candidate ->
+        candidate.kind == ContentKind.MOVIE && (
+            candidate.providerId == progress.contentId ||
+                candidate.title.trim().equals(cardItem.title.trim(), ignoreCase = true)
+            )
+    } ?: cardItem
+    val item = runCatching {
         repository.fetchContentItem(ContentKind.MOVIE, progress.contentId.orEmpty())
-    } catch (e: Exception) {
-        Log.e(TAG, "Error fetching movie ${progress.contentId}", e)
-        null
-    }
-    if (item == null) {
-        withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la pelicula", Toast.LENGTH_SHORT).show() }
-        return
-    }
+    }.onFailure {
+        Log.w(TAG, "No se pudo recuperar ${progress.contentId} desde IPTV; usando la ficha local del catalogo", it)
+    }.getOrNull() ?: catalogFallback
     val sourceMode = PreferencesManager.playbackSourceMode
     val orderedPlayable = repository.orderStreamsForPlayback(item)
     val playable = orderedPlayable.copy(
@@ -174,7 +175,19 @@ private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: Cata
         (sourceMode == PlaybackSourceMode.TORRENT_ONLY ||
             resolved.streamOptions.none { it.url.isNotBlank() || it.isTorrent })
     ) {
-        val imdb = sequenceOf(playable.imdbId, cardItem.imdbId).firstOrNull { TorrentioClient.isImdbId(it) }
+        val directImdb = sequenceOf(progress.imdbId, playable.imdbId, cardItem.imdbId)
+            .firstOrNull { TorrentioClient.isImdbId(it) }
+        val searchedImdb = if (directImdb == null) {
+            runCatching {
+                repository.loadCinemetaCatalog(
+                    ContentKind.MOVIE,
+                    searchQuery = (progress.title ?: cardItem.title).ifBlank { cardItem.title },
+                ).firstOrNull()?.imdbId
+            }.getOrNull()
+        } else {
+            null
+        }
+        val imdb = directImdb ?: searchedImdb
         val torrents = if (imdb != null) {
             runCatching { repository.getTorrentioMovieStreams(imdb) }.getOrElse { emptyList() }
         } else {

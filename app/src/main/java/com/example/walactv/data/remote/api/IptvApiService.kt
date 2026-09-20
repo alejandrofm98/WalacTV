@@ -87,6 +87,7 @@ interface IptvApiService {
         @Path("contentType") contentType: String,
         @Path("catalogId") catalogId: String,
         @Query("skip") skip: Int = 0,
+        @Query("search") search: String? = null,
     ): Response<AddonCatalogResponse>
 
     @GET("api/content/countries")
