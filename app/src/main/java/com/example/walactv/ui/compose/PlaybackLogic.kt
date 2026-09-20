@@ -21,6 +21,7 @@ import com.example.walactv.ui.fragment.UfcDetailFragment
 import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.UnifiedStreamOption
 import com.example.walactv.data.model.bestTorrentFirst
+import com.example.walactv.data.model.filterByPreferredLanguage
 import com.example.walactv.data.model.sortedForPlayback
 import com.example.walactv.data.remote.torrent.TorrentioClient
 import com.example.walactv.data.model.toUnifiedOptions
@@ -172,7 +173,12 @@ private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: Cata
         }
         Log.d(TAG, "openContinueWatchingMovie: torrentio imdb=$imdb -> ${torrents.size} streams")
         if (torrents.isNotEmpty()) {
-            resolved = resolved.copy(streamOptions = torrents.bestTorrentFirst())
+            // Ruta automatica: solo el idioma preferido (el drawer muestra todos).
+            resolved = resolved.copy(
+                streamOptions = torrents
+                    .filterByPreferredLanguage(PreferencesManager.getPreferredLanguageOrDefault())
+                    .bestTorrentFirst(),
+            )
         }
     }
     if (resolved.streamOptions.none { it.url.isNotBlank() || it.isTorrent }) {
@@ -275,7 +281,12 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
                 .getOrElse { emptyList() }
             Log.d(TAG, "openContinueWatchingSeries: torrentio imdb=$imdb S$sn E$en -> ${torrents.size} streams")
             if (torrents.isNotEmpty()) {
-                playableEpisode = playableEpisode.copy(streamOptions = torrents.bestTorrentFirst())
+                // Ruta automatica: solo el idioma preferido (el drawer muestra todos).
+                playableEpisode = playableEpisode.copy(
+                    streamOptions = torrents
+                        .filterByPreferredLanguage(PreferencesManager.getPreferredLanguageOrDefault())
+                        .bestTorrentFirst(),
+                )
             }
         }
     }

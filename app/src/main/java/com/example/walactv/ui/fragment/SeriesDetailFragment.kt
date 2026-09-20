@@ -17,6 +17,7 @@ import com.example.walactv.data.model.StreamOption
 import com.example.walactv.WalacApp
 import com.example.walactv.data.model.bestTorrentFirst
 import com.example.walactv.data.model.idioma
+import com.example.walactv.data.model.sortedByPreferredLanguage
 import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.model.uniqueSeriesEpisodes
 import com.example.walactv.data.preferences.PreferencesManager
@@ -27,6 +28,8 @@ import com.example.walactv.data.remote.api.dto.progressPercent
 import com.example.walactv.data.remote.repository.IptvRepository
 import com.example.walactv.data.remote.torrent.TorrentioClient
 import com.example.walactv.data.util.buildSeriesEpisodeProgressMap
+import com.example.walactv.data.util.isSeasonPackTitle
+import com.example.walactv.data.util.languageBadgeLabel
 import com.example.walactv.data.util.normalizeLanguageCode
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,11 +43,17 @@ import com.example.walactv.ui.compose.LONG_PRESS_THRESHOLD_MS
 import com.example.walactv.ui.compose.WatchedBadge
 import com.example.walactv.ui.compose.buildEpisodeLabel
 import com.example.walactv.ui.compose.tvClickable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.ui.draw.shadow
 import com.google.gson.Gson
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -66,15 +75,18 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,11 +110,14 @@ import com.example.walactv.ui.theme.*
 class SeriesDetailFragment : Fragment() {
     private lateinit var repository: IptvRepository
     private var detailProgressReloadTrigger by mutableIntStateOf(0)
+    private var episodesReloadTrigger by mutableIntStateOf(0)
+    private var lastEpisodesLoadMs = 0L
     private var seriesBackdropUrl: String = ""
     private var seriesPosterUrl: String = ""
 
     companion object {
         private const val TAG = "SeriesDetailFragment"
+        private const val EPISODES_STALE_MS = 15 * 60 * 1000L
         private const val PLAYER_FRAGMENT_TAG = "player_fragment"
         private const val ARG_SERIES_ITEM = "series_item"
         private const val ARG_SERIES_ID = "series_id"
@@ -128,6 +143,22 @@ class SeriesDetailFragment : Fragment() {
         super.onCreate(savedInstanceState)
         repository = IptvRepository(requireContext())
         Log.d(TAG, "SeriesDetailFragment created for series")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Los episodios (y sus fuentes) se cargan una vez al abrir el detalle.
+        // Si la pantalla lleva mucho tiempo viva (p.ej. varias reproducciones
+        // con el player superpuesto), al volver se recarga para no mostrar
+        // fuentes obsoletas. La temporada y el foco se preservan en Compose.
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (lastEpisodesLoadMs == 0L) {
+            lastEpisodesLoadMs = now
+        } else if (now - lastEpisodesLoadMs > EPISODES_STALE_MS) {
+            Log.d(TAG, "Episodes stale, triggering reload")
+            lastEpisodesLoadMs = now
+            episodesReloadTrigger++
+        }
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -159,9 +190,10 @@ class SeriesDetailFragment : Fragment() {
                         initialSeriesItem = catalogItem,
                         repository = repository,
                         progressReloadTrigger = detailProgressReloadTrigger,
+                        episodesReloadTrigger = episodesReloadTrigger,
                         onBack = { requireActivity().onBackPressedDispatcher.onBackPressed() }
-                    ) { item, allEpisodesForSeries, logicalEpisodes, resumePositionMs ->
-                        playEpisode(item, allEpisodesForSeries, logicalEpisodes, resumePositionMs)
+                    ) { item, allEpisodesForSeries, logicalEpisodes, resumePositionMs, selectedStreamUrl ->
+                        playEpisode(item, allEpisodesForSeries, logicalEpisodes, resumePositionMs, selectedStreamUrl)
                     }
                 }
             }
@@ -213,13 +245,21 @@ class SeriesDetailFragment : Fragment() {
                     it.streamOptions.any { stream -> stream.url == url }
             }
         }
-        val episodeToPlay = selectedSourceEpisode ?: allEpisodesForSeries.find {
+        val episodeToPlay = if (!selectedStreamUrl.isNullOrBlank() && item.streamOptions.any { it.url == selectedStreamUrl }) {
+            // Eleccion manual del drawer: el item ya trae la lista completa
+            // (incluidos torrents) con la fuente elegida en primer lugar.
+            item
+        } else selectedSourceEpisode ?: allEpisodesForSeries.find {
             it.seriesName == item.seriesName &&
                 it.seasonNumber == item.seasonNumber &&
                 it.episodeNumber == item.episodeNumber &&
                 normalizeLanguageCode(it.idioma) == normalizeLanguageCode(preferredLanguage)
         } ?: allEpisodesForSeries.find { it.stableId == item.stableId } ?: item
-        val playableEpisode = repository.orderStreamsForPlayback(episodeToPlay)
+        val playableEpisode = repository.orderStreamsForPlayback(
+            episodeToPlay,
+            // Eleccion manual del drawer: sin sondeos previos.
+            probeHealth = selectedStreamUrl == null,
+        )
         // Sin eleccion manual: primero directo del proveedor, luego el torrent
         // con mas seeds (applyGradient mantiene la descarga pegada al playhead).
         val stream = selectedStreamUrl?.let { url ->
@@ -290,6 +330,7 @@ class SeriesDetailFragment : Fragment() {
             },
             playbackCatalogId = catalogId,
             playbackPreference = preference,
+            torrentFileIdx = stream.fileIdx,
         )
         val fragmentManager = requireActivity().supportFragmentManager
         fragmentManager.findFragmentById(R.id.player_container)?.let { existing ->
@@ -319,8 +360,9 @@ fun SeriesDetailScreen(
     initialSeriesItem: CatalogItem?,
     repository: IptvRepository,
     progressReloadTrigger: Int = 0,
+    episodesReloadTrigger: Int = 0,
     onBack: () -> Unit,
-    onEpisodeClick: (CatalogItem, List<CatalogItem>, List<CatalogItem>, Long) -> Unit,
+    onEpisodeClick: (CatalogItem, List<CatalogItem>, List<CatalogItem>, Long, String?) -> Unit,
 ) {
     var isLoading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
@@ -340,8 +382,13 @@ fun SeriesDetailScreen(
     val loadKey = seriesId ?: seriesName
     val backFocusRequester = remember { FocusRequester() }
     val episodeFocusRequester = remember { FocusRequester() }
+    // Devolvera el foco a la tarjeta que abrio el drawer de fuentes al cerrarlo.
+    val sourceReturnRequester = remember { FocusRequester() }
+    // Capitulo en reproduccion: al cerrar el player el foco vuelve a su tarjeta.
+    var lastPlayedStableId by remember { mutableStateOf<String?>(null) }
+    val playedReturnRequester = remember { FocusRequester() }
 
-    val allEpisodesState = produceState<List<CatalogItem>>(initialValue = emptyList(), loadKey) {
+    val allEpisodesState = produceState<List<CatalogItem>>(initialValue = emptyList(), loadKey, episodesReloadTrigger) {
         try {
             loadError = null
             Log.d("SeriesDetail", "load start seriesName='$seriesName' seriesId='$seriesId'")
@@ -579,9 +626,14 @@ fun SeriesDetailScreen(
         }
     }
 
-    LaunchedEffect(seasons) {
-        if (initialSeason == null) {
-            selectedSeason = seasons.firstOrNull() ?: 1
+    var initialSeasonApplied by remember { mutableStateOf(false) }
+    LaunchedEffect(seasons, initialSeason) {
+        // Solo la primera vez: en recargas se conserva la temporada elegida.
+        if (!initialSeasonApplied && seasons.isNotEmpty()) {
+            if (initialSeason == null) {
+                selectedSeason = seasons.firstOrNull() ?: 1
+            }
+            initialSeasonApplied = true
         }
     }
 
@@ -592,6 +644,19 @@ fun SeriesDetailScreen(
             yield(initialSeriesItem?.imdbId)
             yieldAll(allEpisodes.map { it.imdbId })
         }.firstOrNull { TorrentioClient.isImdbId(it) }
+    }
+
+    // Idioma preferido de la serie (preferencias por serie); si no hay, el
+    // global. Ordena los torrents del drawer: preferido primero.
+    var seriesPrefLang by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(initialSeriesItem, seriesId) {
+        val catalogId = initialSeriesItem?.catalogId
+            ?: initialSeriesItem?.seriesKey
+            ?: initialSeriesItem?.providerId
+            ?: seriesId
+        seriesPrefLang = catalogId?.let { cid ->
+            runCatching { repository.getPlaybackPreference("series", cid)?.audioLanguage }.getOrNull()
+        }
     }
 
     // Carga las fuentes (IPTV + Torrentio) al abrir el selector de un episodio
@@ -607,11 +672,15 @@ fun SeriesDetailScreen(
         } else {
             emptyList()
         }
-        sourceStreams = iptv + torrents
+        // Idioma preferido de la serie (o global) primero, resto despues.
+        val orderedTorrents = torrents.sortedByPreferredLanguage(
+            seriesPrefLang ?: PreferencesManager.getPreferredLanguageOrDefault(),
+        )
+        sourceStreams = iptv + orderedTorrents
         // Preseleccion: primero directo (indice 0); solo si no hay directo,
-        // el torrent con mas seeds.
+        // el torrent top del idioma preferido.
         if (iptv.isEmpty()) {
-            torrents.bestTorrentFirst().firstOrNull()?.let { best ->
+            orderedTorrents.firstOrNull()?.let { best ->
                 sourceSelectedIndex = sourceStreams.indexOf(best)
             }
         }
@@ -625,16 +694,22 @@ fun SeriesDetailScreen(
         val selected = streams[sourceSelectedIndex.coerceIn(0, streams.lastIndex)]
         // Construir el episodio con la fuente elegida en primer lugar para que
         // el player la reproduzca directamente (manteniendo las demas como
-        // opciones de respaldo).
+        // opciones de respaldo). Se conserva la posicion guardada para
+        // continuar donde se dejo, no desde el principio.
         val reordered = buildList {
             add(selected)
             addAll(streams.filter { it != selected })
         }
+        val positionMs = ep.seasonNumber?.let { season ->
+            ep.episodeNumber?.let { number -> progressMap[season to number]?.positionMs }
+        } ?: 0L
+        lastPlayedStableId = ep.stableId
         onEpisodeClick(
             ep.copy(streamOptions = reordered),
             allEpisodes,
             uniqueEpisodes,
-            0L,
+            positionMs,
+            selected.url,
         )
         sourceEpisode = null
     }
@@ -643,7 +718,8 @@ fun SeriesDetailScreen(
     // del selector de fuentes (que consulta Torrentio) igual que desktop.
     fun playOrPickSource(ep: CatalogItem, positionMs: Long) {
         if (ep.streamOptions.any { it.url.isNotBlank() || it.isTorrent }) {
-            onEpisodeClick(ep, allEpisodes, uniqueEpisodes, positionMs)
+            lastPlayedStableId = ep.stableId
+            onEpisodeClick(ep, allEpisodes, uniqueEpisodes, positionMs, null)
         } else {
             sourceEpisode = ep
         }
@@ -652,6 +728,9 @@ fun SeriesDetailScreen(
     LaunchedEffect(allEpisodes, progressMap, continueProgressLoaded, watchedProgressLoaded, initialSeason, initialEpisode) {
         val episodes = allEpisodes.uniqueSeriesEpisodes(preferredLanguage)
         if (episodes.isEmpty()) return@LaunchedEffect
+        // En una recarga con el drawer de fuentes o el menu abiertos no se
+        // roba el foco: el usuario esta interactuando con ellos.
+        if (sourceEpisode != null || contextEpisode != null) return@LaunchedEffect
         if (!continueProgressLoaded && initialSeason == null && initialEpisode == null) return@LaunchedEffect
         val targetEpisode = resumeEpisode
         if (targetEpisode == null) {
@@ -679,6 +758,16 @@ fun SeriesDetailScreen(
         if (seasonIndex >= 0) {
             seasonsListState.scrollToItem(seasonIndex)
         }
+    }
+
+    // Al cerrar el player, el foco vuelve a la tarjeta del capitulo que se
+    // estaba reproduciendo, por encima de la restauracion generica (que puede
+    // apuntar a otro lado si la recarga de progreso aun no llego).
+    LaunchedEffect(progressReloadTrigger) {
+        if (progressReloadTrigger == 0) return@LaunchedEffect
+        if (lastPlayedStableId == null) return@LaunchedEffect
+        delay(150.milliseconds)
+        runCatching { playedReturnRequester.requestFocus() }
     }
 
     if (isLoading) {
@@ -905,8 +994,10 @@ fun SeriesDetailScreen(
                                 }
                             },
                             onMenuRequest = { contextEpisode = it },
-                            onChooseSource = { sourceEpisode = it },
-                            modifier = if (isInitial) Modifier.focusRequester(episodeFocusRequester) else Modifier,
+                            modifier = Modifier
+                                .then(if (isInitial) Modifier.focusRequester(episodeFocusRequester) else Modifier)
+                                .then(if (ep.stableId == sourceEpisode?.stableId) Modifier.focusRequester(sourceReturnRequester) else Modifier)
+                                .then(if (ep.stableId == lastPlayedStableId) Modifier.focusRequester(playedReturnRequester) else Modifier),
                         )
                     }
                 }
@@ -917,6 +1008,7 @@ fun SeriesDetailScreen(
     contextEpisode?.let { ep ->
         EpisodeOptionsMenu(
             episode = ep,
+            onChooseSource = { sourceEpisode = ep },
             onMarkEpisode = { markEpisodes(listOf(ep)) },
             onMarkSeason = { markEpisodes(uniqueEpisodes.filter { it.seasonNumber == ep.seasonNumber }) },
             onMarkPrevious = {
@@ -943,7 +1035,7 @@ fun SeriesDetailScreen(
     }
 
     sourceEpisode?.let { ep ->
-        SourcePickerDialog(
+        EpisodeSourceDrawer(
             episode = ep,
             streams = sourceStreams,
             loading = sourceLoading,
@@ -951,13 +1043,16 @@ fun SeriesDetailScreen(
             selectedIndex = sourceSelectedIndex,
             onSelect = { sourceSelectedIndex = it },
             onPlay = { playSelectedSource() },
-            onDismiss = { sourceEpisode = null },
+            onDismiss = {
+                runCatching { sourceReturnRequester.requestFocus() }
+                sourceEpisode = null
+            },
         )
     }
 }
 
 @Composable
-private fun SourcePickerDialog(
+private fun EpisodeSourceDrawer(
     episode: CatalogItem,
     streams: List<StreamOption>,
     loading: Boolean,
@@ -967,137 +1062,275 @@ private fun SourcePickerDialog(
     onPlay: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val focusRequester = remember { FocusRequester() }
     var focusedIndex by remember { mutableIntStateOf(selectedIndex) }
+    val rowRequesters = remember(streams.size) { List(streams.size) { FocusRequester() } }
+    val emptyCloseRequester = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) {
-        delay(50.milliseconds)
-        try { focusRequester.requestFocus() } catch (_: Exception) {}
+    // Pestañas de idioma (estilo premium): Todos / idiomas presentes en orden
+    // de aparicion (el sort ya pone el preferido primero).
+    var activeTab by remember { mutableIntStateOf(0) }
+    val tabLabels = remember(streams) {
+        buildList {
+            add("Todos · ${streams.size}")
+            streams.map { it.language }
+                .filterNotNull()
+                .filter { it.isNotBlank() }
+                .distinct()
+                .forEach { add(languageBadgeLabel(it)) }
+        }
     }
-    LaunchedEffect(streams, selectedIndex) {
-        focusedIndex = selectedIndex
+    // Indices globales visibles segun la pestaña activa.
+    val visibleIndices = remember(streams, activeTab) {
+        if (activeTab == 0) {
+            streams.indices.toList()
+        } else {
+            val wanted = tabLabels.getOrNull(activeTab)
+            streams.indices.filter { idx ->
+                streams[idx].language?.let { languageBadgeLabel(it) } == wanted
+            }
+        }
     }
 
-    val torrents = streams.filter { it.isTorrent }
+    fun moveFocusTo(index: Int) {
+        if (visibleIndices.isEmpty()) return
+        val clamped = index.coerceIn(visibleIndices.indices)
+        val global = visibleIndices[clamped]
+        focusedIndex = global
+        onSelect(global)
+        runCatching { rowRequesters[global].requestFocus() }
+    }
+
+    LaunchedEffect(streams, selectedIndex, loading, activeTab) {
+        if (activeTab == 0) focusedIndex = selectedIndex
+        delay(80.milliseconds)
+        runCatching {
+            when {
+                visibleIndices.isNotEmpty() -> {
+                    val pos = if (activeTab == 0) {
+                        visibleIndices.indexOf(focusedIndex).coerceAtLeast(0)
+                    } else 0
+                    rowRequesters[visibleIndices[pos.coerceIn(visibleIndices.indices)]].requestFocus()
+                }
+                !loading -> emptyCloseRequester.requestFocus()
+            }
+        }
+    }
+
     val iptv = streams.filter { !it.isTorrent }
+    val drawerShape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
 
+    // Ventana propia como el menu de opciones: al abrirse, el sistema mete el
+    // foco dentro del drawer y no se queda en los capitulos de fondo.
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = false),
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+        ),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .focusRequester(focusRequester)
-                .focusable()
-                .onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    when (event.key) {
-                        Key.DirectionUp -> { focusedIndex = (focusedIndex - 1).coerceAtLeast(0); true }
-                        Key.DirectionDown -> {
-                            focusedIndex = (focusedIndex + 1).coerceAtMost((streams.size - 1).coerceAtLeast(0))
-                            true
-                        }
-                        Key.DirectionCenter, Key.Enter -> {
-                            if (streams.isNotEmpty()) { onSelect(focusedIndex); onPlay() }
-                            true
-                        }
-                        Key.Back, Key.Escape -> { onDismiss(); true }
-                        else -> false
-                    }
-                },
-            contentAlignment = Alignment.Center,
+    // Sin oscurecer el fondo: el detalle sigue visible a la izquierda.
+    val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+    SideEffect { dialogWindow?.setDimAmount(0f) }
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        AnimatedVisibility(
+            visible = true,
+            enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
         ) {
             Column(
                 modifier = Modifier
-                    .width(560.dp)
-                    .background(Color(0xFF1A1A2E), RoundedCornerShape(16.dp))
-                    .border(1.dp, Color(0xFF2E2E4E), RoundedCornerShape(16.dp))
+                    .width(500.dp)
+                    .fillMaxHeight()
+                    .shadow(40.dp, drawerShape)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF0E1730), Color(0xFF0A1224)),
+                        ),
+                        drawerShape,
+                    )
+                    .border(1.dp, Color(0xFF2E2E4E), drawerShape)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.DirectionUp -> { moveFocusTo(visibleIndices.indexOf(focusedIndex) - 1); true }
+                            Key.DirectionDown -> { moveFocusTo(visibleIndices.indexOf(focusedIndex) + 1); true }
+                            Key.DirectionCenter, Key.Enter -> {
+                                if (visibleIndices.isNotEmpty()) { onSelect(focusedIndex); onPlay() }
+                                true
+                            }
+                            // Izquierda sobre la primera fuente cambia de pestaña
+                            // de idioma; si ya es la primera, cierra.
+                            Key.DirectionLeft -> {
+                                val pos = visibleIndices.indexOf(focusedIndex)
+                                if (pos <= 0) onDismiss() else moveFocusTo(pos - 1)
+                                true
+                            }
+                            Key.DirectionRight -> true
+                            Key.Back, Key.Escape -> { onDismiss(); true }
+                            else -> false
+                        }
+                    }
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    "Fuentes · ${buildEpisodeLabel(episode.seasonNumber, episode.episodeNumber)}",
+                    "Fuentes de reproducción",
                     color = Color.White,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    episode.title,
+                    buildEpisodeLabel(episode.seasonNumber, episode.episodeNumber)
+                        .ifBlank { episode.title } + " · " + episode.title,
                     color = Color.LightGray,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(4.dp))
+                // Pestañas de idioma (Todos / Español / Inglés…). Visual only:
+                // el foco sigue en las filas; ← en la primera fuente cambia.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tabLabels.forEachIndexed { idx, label ->
+                        val active = idx == activeTab
+                        Text(
+                            text = label,
+                            color = if (active) Color(0xFF0B1022) else Color(0xFFB8C2D8),
+                            fontSize = 12.sp,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(
+                                    if (active) Color.White else Color.White.copy(alpha = 0.07f),
+                                    RoundedCornerShape(18.dp),
+                                )
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(2.dp))
 
-                when {
-                    loading -> Text("Buscando fuentes en Torrentio...", color = Color.LightGray, fontSize = 14.sp)
-                    streams.isEmpty() -> Text(
-                        if (error) "No se pudieron cargar las fuentes" else "Sin fuentes disponibles",
-                        color = Color.LightGray,
-                        fontSize = 14.sp,
-                    )
-                    else -> {
-                        if (iptv.isNotEmpty()) {
-                            Text("DIRECTO IPTV", color = Color(0xFF6FA8DC), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            iptv.forEachIndexed { idx, stream ->
-                                val globalIdx = idx
-                                val isSelected = globalIdx == focusedIndex
-                                SourceRow(
-                                    label = stream.label,
-                                    quality = stream.quality,
-                                    language = stream.language,
-                                    seeders = null,
-                                    size = null,
-                                    isTorrent = false,
-                                    isSelected = isSelected,
-                                    onClick = { focusedIndex = globalIdx; onSelect(globalIdx) },
-                                )
-                            }
+                // La lista ocupa todo el alto disponible con scroll: el foco
+                // arrastra el scroll al moverse entre filas. La barra lateral
+                // indica cuanta lista queda por ver.
+                val listState = rememberScrollState()
+                Row(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(listState),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                    when {
+                    loading -> {
+                        Text("Buscando fuentes en Torrentio...", color = Color.LightGray, fontSize = 14.sp)
+                        repeat(3) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp)
+                                    .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(8.dp))
+                            )
                         }
-                        if (torrents.isNotEmpty()) {
-                            Text("TORRENT · TORRENTIO", color = Color(0xFFD68FE2), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            torrents.forEachIndexed { idx, stream ->
-                                val globalIdx = iptv.size + idx
-                                val isSelected = globalIdx == focusedIndex
-                                SourceRow(
-                                    label = stream.torrentTitle ?: stream.label,
-                                    quality = stream.quality,
-                                    language = stream.language,
-                                    seeders = stream.seeders,
-                                    size = stream.sizeBytes,
-                                    isTorrent = true,
-                                    isSelected = isSelected,
-                                    onClick = { focusedIndex = globalIdx; onSelect(globalIdx) },
+                    }
+                    streams.isEmpty() -> {
+                        Text(
+                            if (error) "No se pudieron cargar las fuentes" else "Sin fuentes disponibles",
+                            color = Color.LightGray,
+                            fontSize = 14.sp,
+                        )
+                        var closeFocused by remember { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (closeFocused) Color.White.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.1f),
+                                    RoundedCornerShape(8.dp),
                                 )
-                            }
+                                .onFocusChanged { closeFocused = it.isFocused }
+                                .focusRequester(emptyCloseRequester)
+                                .focusable()
+                                .tvClickable { onDismiss() }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Cerrar",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                    visibleIndices.isEmpty() -> {
+                        Text(
+                            "Sin fuentes en este idioma",
+                            color = Color.LightGray,
+                            fontSize = 14.sp,
+                        )
+                    }
+                    else -> {
+                        visibleIndices.forEach { globalIdx ->
+                            val stream = streams[globalIdx]
+                            SourceRow(
+                                label = (stream.torrentTitle ?: stream.label).lineSequence().firstOrNull().orEmpty()
+                                    .ifBlank { stream.label },
+                                quality = stream.quality,
+                                language = stream.language,
+                                languages = stream.languages,
+                                seeders = stream.seeders,
+                                size = stream.sizeBytes,
+                                isTorrent = stream.isTorrent,
+                                isPack = stream.isTorrent && isSeasonPackTitle(stream.torrentTitle),
+                                isSelected = globalIdx == focusedIndex,
+                                focusRequester = rowRequesters[globalIdx],
+                                onFocused = { focusedIndex = globalIdx; onSelect(globalIdx) },
+                                onConfirm = { focusedIndex = globalIdx; onSelect(globalIdx); onPlay() },
+                            )
+                        }
+                    }
+                    }
+                    // Barra de scroll indicadora: su posicion muestra cuanto
+                    // queda de la lista. Se mueve con el foco automaticamente.
+                    if (listState.maxValue > 0) {
+                        Box(
+                            modifier = Modifier
+                                .width(4.dp)
+                                .fillMaxHeight()
+                                .padding(start = 4.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth()
+                                    .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(2.dp)),
+                            )
+                            val scrollFraction = listState.value.toFloat() / listState.maxValue
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .fillMaxHeight(0.25f)
+                                    .layout { measurable, constraints ->
+                                        val placeable = measurable.measure(constraints)
+                                        val maxOffset = placeable.height * 3
+                                        val offsetY = (scrollFraction * maxOffset).toInt()
+                                        layout(placeable.width, placeable.height) {
+                                            placeable.placeRelative(0, offsetY)
+                                        }
+                                    }
+                                    .background(Color.White.copy(alpha = 0.35f), RoundedCornerShape(2.dp)),
+                            )
                         }
                     }
                 }
-
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (streams.isNotEmpty()) Color.White else Color.Gray)
-                        .then(if (streams.isNotEmpty()) Modifier.tvClickable {
-                            onSelect(focusedIndex); onPlay()
-                        } else Modifier)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Reproducir",
-                        color = Color.Black,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+            }
             }
         }
+    }
     }
 }
 
@@ -1106,70 +1339,116 @@ private fun SourceRow(
     label: String,
     quality: String?,
     language: String?,
+    languages: List<String> = emptyList(),
     seeders: Int?,
     size: Long?,
     isTorrent: Boolean,
     isSelected: Boolean,
-    onClick: () -> Unit,
+    isPack: Boolean = false,
+    focusRequester: FocusRequester,
+    onFocused: () -> Unit,
+    onConfirm: () -> Unit,
 ) {
+    val border = if (isSelected) IptvAccent else Color(0xFFB8C2D8).copy(alpha = 0.14f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isSelected) Color.White.copy(alpha = 0.15f) else Color.Transparent)
-            .border(
-                width = if (isSelected) 2.dp else 0.dp,
-                color = if (isSelected) Color.White else Color.Transparent,
-                shape = RoundedCornerShape(8.dp),
-            )
-            .tvClickable(onClick = onClick)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (isSelected) IptvAccent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.025f))
+            .border(2.dp, border, RoundedCornerShape(14.dp))
+            .focusRequester(focusRequester)
+            .focusable()
+            .onFocusChanged { if (it.isFocused) onFocused() }
+            .onPreviewKeyEvent { event ->
+                // OK en la fila reproduce directo, como en Stremio. El clickable
+                // queda solo para puntero; las teclas las posee este handler.
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                ) {
+                    onConfirm()
+                    true
+                } else false
+            }
+            .clickable { onConfirm() }
             .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = if (isTorrent) "⬤" else "▶",
-                color = if (isTorrent) Color(0xFFD68FE2) else Color(0xFF6FA8DC),
-                fontSize = 12.sp,
-            )
+        Column {
+            // Chips superiores: calidad + PACK + idiomas (todos los del release).
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                quality?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it.uppercase(),
+                        color = if (isSelected) Color.White else Color(0xFFB8C2D8),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(
+                                if (isSelected) IptvAccent else Color.White.copy(alpha = 0.12f),
+                                RoundedCornerShape(6.dp),
+                            )
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+                if (isPack) {
+                    Text(
+                        "PACK",
+                        color = Color(0xFFD9A8FF),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(Color(0xFFC77DFF).copy(alpha = 0.16f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+                val langChips = languages.ifEmpty { listOfNotNull(language) }
+                langChips.filter { it.isNotBlank() }.distinct().forEach { lang ->
+                    Text(
+                        languageBadgeLabel(lang),
+                        color = Color(0xFF9DB7FF),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .background(Color(0xFF9DB7FF).copy(alpha = 0.14f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 9.dp, vertical = 3.dp),
+                    )
+                }
+            }
             Text(
                 text = label,
-                color = if (isSelected) Color.White else Color.LightGray,
-                fontSize = 14.sp,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
+                color = if (isSelected) Color.White else Color(0xFFB8C2D8),
+                fontSize = 14.5.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                lineHeight = 19.sp,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.padding(top = 7.dp),
             )
-            quality?.takeIf { it.isNotBlank() }?.let {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 7.dp),
+            ) {
+                seeders?.let {
+                    Text("$it seeds", color = Color(0xFF46D369), fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                }
+                size?.let {
+                    val gb = it / (1024.0 * 1024.0 * 1024.0)
+                    Text(
+                        if (gb >= 1) String.format(java.util.Locale.US, "%.1f GB", gb) else "${it / (1024 * 1024)} MB",
+                        color = Color(0xFF8692AA),
+                        fontSize = 12.5.sp,
+                    )
+                }
+                // Proveedor a la derecha: el nombre de release ya lo suele
+                // incluir; aqui destacamos el tipo de fuente.
                 Text(
-                    it.uppercase(),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                )
-            }
-            seeders?.let {
-                Text("$it seeds", color = Color(0xFF46D369), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-            size?.let {
-                val gb = it / (1024.0 * 1024.0 * 1024.0)
-                Text(
-                    if (gb >= 1) String.format(java.util.Locale.US, "%.1f GB", gb) else "${it / (1024 * 1024)} MB",
-                    color = Color.Gray,
-                    fontSize = 12.sp,
-                )
-            }
-            language?.takeIf { it.isNotBlank() && !isTorrent }?.let {
-                Text(
-                    it,
-                    color = Color.LightGray,
-                    fontSize = 11.sp,
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                    if (isTorrent) "Torrentio" else "IPTV directo",
+                    color = Color(0xFF8692AA),
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(start = 2.dp),
                 )
             }
         }
@@ -1179,12 +1458,14 @@ private fun SourceRow(
 @Composable
 private fun EpisodeOptionsMenu(
     episode: CatalogItem,
+    onChooseSource: () -> Unit,
     onMarkEpisode: () -> Unit,
     onMarkSeason: () -> Unit,
     onMarkPrevious: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val options = listOf(
+        stringResource(R.string.episode_menu_choose_source),
         stringResource(R.string.episode_menu_mark_this),
         stringResource(R.string.episode_menu_mark_season),
         stringResource(R.string.episode_menu_mark_previous),
@@ -1221,9 +1502,10 @@ private fun EpisodeOptionsMenu(
                         Key.DirectionCenter,
                         Key.Enter -> {
                             when (selectedIndex) {
-                                0 -> onMarkEpisode()
-                                1 -> onMarkSeason()
-                                2 -> onMarkPrevious()
+                                0 -> onChooseSource()
+                                1 -> onMarkEpisode()
+                                2 -> onMarkSeason()
+                                3 -> onMarkPrevious()
                             }
                             onDismiss()
                             true
@@ -1271,9 +1553,10 @@ private fun EpisodeOptionsMenu(
                                 )
                                 .tvClickable {
                                     when (index) {
-                                        0 -> onMarkEpisode()
-                                        1 -> onMarkSeason()
-                                        2 -> onMarkPrevious()
+                                        0 -> onChooseSource()
+                                        1 -> onMarkEpisode()
+                                        2 -> onMarkSeason()
+                                        3 -> onMarkPrevious()
                                     }
                                     onDismiss()
                                 }
@@ -1301,46 +1584,45 @@ fun EpisodeCard(
     onFocus: () -> Unit,
     modifier: Modifier = Modifier,
     onMenuRequest: ((CatalogItem) -> Unit)? = null,
-    onChooseSource: ((CatalogItem) -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     var keyDownMillis by remember { mutableLongStateOf(0L) }
+    var downSeen by remember { mutableStateOf(false) }
     var consumeClick by remember { mutableStateOf(false) }
 
     val isWatched = item.isWatched || watchProgress?.isWatched == true
     val progressPercent = watchProgress?.progressPercent ?: 0
     val hasProgress = progressPercent in 1..99 && !isWatched
 
+    // Un solo dueño de los eventos de teclado: el KeyDown se consume aqui para
+    // que el clickable base no dispare por su cuenta, y en el KeyUp se decide
+    // entre click corto (reproducir) y pulsacion larga (menu). Asi no pueden
+    // salir las dos acciones del mismo gesto. El clickable queda solo para
+    // puntero (raton/air-mouse).
     val clickModifier = if (onMenuRequest != null) {
         Modifier
             .clickable { if (!consumeClick) onClick() }
-            .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyUp &&
-                    (event.key == Key.Enter || event.key == Key.DirectionCenter) &&
-                    !consumeClick
-                ) {
-                    onClick()
-                    true
-                } else false
-            }
             .onPreviewKeyEvent { event ->
                 if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
                     when (event.type) {
                         KeyEventType.KeyDown -> {
-                            keyDownMillis = event.nativeKeyEvent.downTime
-                            consumeClick = false
-                            false
+                            if (event.nativeKeyEvent.repeatCount == 0) {
+                                keyDownMillis = event.nativeKeyEvent.downTime
+                                downSeen = true
+                            }
+                            consumeClick = true
+                            true
                         }
                         KeyEventType.KeyUp -> {
-                            val elapsed = event.nativeKeyEvent.eventTime - keyDownMillis
-                            if (elapsed >= LONG_PRESS_THRESHOLD_MS) {
-                                consumeClick = true
+                            consumeClick = false
+                            if (downSeen && event.nativeKeyEvent.eventTime - keyDownMillis >= LONG_PRESS_THRESHOLD_MS) {
+                                downSeen = false
                                 onMenuRequest(item)
-                                true
                             } else {
-                                consumeClick = false
-                                false
+                                downSeen = false
+                                onClick()
                             }
+                            true
                         }
                         else -> false
                     }
@@ -1477,30 +1759,6 @@ fun EpisodeCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (onChooseSource != null) {
-                var sourcesFocused by remember { mutableStateOf(false) }
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-                        .background(
-                            if (sourcesFocused) Color.White.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.1f),
-                            androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
-                        )
-                        .onFocusChanged { sourcesFocused = it.isFocused }
-                        .tvClickable { onChooseSource(item) }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "Fuentes",
-                        color = if (sourcesFocused) Color.White else Color.LightGray,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
         }
     }
 }

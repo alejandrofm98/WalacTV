@@ -38,6 +38,7 @@ import com.example.walactv.data.preferences.CredentialStore
 import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.data.util.isTmdbImagePath
 import com.example.walactv.data.util.normalizeRemoteImageUrl
+import com.example.walactv.data.util.translateBareLanguageCode
 import com.example.walactv.WalacApp
 import com.example.walactv.data.model.cleanQualityLabels
 import com.example.walactv.data.model.parseNormalizedMetadata
@@ -630,8 +631,9 @@ class IptvRepository @Inject constructor(context: Context) {
         withContext(Dispatchers.IO) {
             if (!TorrentioClient.isImdbId(movieId)) return@withContext emptyList()
             Log.d(TAG, "getTorrentioMovieStreams: imdbId='$movieId'")
+            // Sin filtrar: el drawer ordena por idioma preferido y muestra el
+            // resto despues; las rutas automaticas filtran al consumir.
             TorrentioClient.movieStreams(movieId)
-                .filterByPreferredLanguage(PreferencesManager.getPreferredLanguageOrDefault())
         }
 
     suspend fun getTorrentioEpisodeStreams(seriesId: String, season: Int, episode: Int): List<StreamOption> =
@@ -639,7 +641,6 @@ class IptvRepository @Inject constructor(context: Context) {
             if (!TorrentioClient.isImdbId(seriesId)) return@withContext emptyList()
             Log.d(TAG, "getTorrentioEpisodeStreams: imdbId='$seriesId' S${season}E$episode")
             TorrentioClient.episodeStreams(seriesId, season, episode)
-                .filterByPreferredLanguage(PreferencesManager.getPreferredLanguageOrDefault())
         }
 
     // ── Content pagination for home sections ───────────────────────────────────
@@ -872,12 +873,16 @@ class IptvRepository @Inject constructor(context: Context) {
      * y probando salud dentro de cada grupo, la primera opcion que se intenta
      * reproducir es la mejor valida.
      */
-    suspend fun orderStreamsForPlayback(item: CatalogItem): CatalogItem {
+    suspend fun orderStreamsForPlayback(item: CatalogItem, probeHealth: Boolean = true): CatalogItem {
         if (item.kind != ContentKind.MOVIE && item.kind != ContentKind.SERIES) return item
         if (item.streamOptions.size <= 1) return item
+        val sorted = item.streamOptions.sortedForPlayback()
+        // Eleccion manual del usuario (drawer de fuentes): no sondear, ir
+        // directo a reproducir como hace Stremio. El player ya gestiona el
+        // error y el fallback si la fuente elegida falla.
+        if (!probeHealth) return item.copy(streamOptions = sorted)
         val user = CredentialStore.username()
         val pass = CredentialStore.password()
-        val sorted = item.streamOptions.sortedForPlayback()
         val healthy = mutableListOf<StreamOption>()
         val broken = mutableListOf<StreamOption>()
         for (opt in sorted) {
@@ -1028,7 +1033,7 @@ class IptvRepository @Inject constructor(context: Context) {
         }
         val streamOptionsVal = streams.orEmpty().mapNotNull { s ->
             s.url.takeIf { !it.isNullOrBlank() }?.let {
-                val base = s.label ?: "Ver"
+                val base = translateBareLanguageCode(s.label ?: "Ver")
                 val q = s.quality?.trim().orEmpty()
                 val label = if (q.isBlank() || base.contains(q, ignoreCase = true)) base else "$base $q"
                 StreamOption(
@@ -1043,9 +1048,13 @@ class IptvRepository @Inject constructor(context: Context) {
         // En VOD, el enlace que se intenta reproducir primero es la mejor
         // calidad (igual que la primera opcion del selector de calidad/audio);
         // el "Directo" de stream_url va al final porque suele ser un enlace
-        // roto que fallaba al abrir peliculas/series.
+        // roto que fallaba al abrir peliculas/series. Si su URL ya esta en la
+        // lista (el backend lo repite como stream), se descarta el duplicado.
         val streamOptionsFinal = if (kind == ContentKind.MOVIE || kind == ContentKind.SERIES) {
-            streamOptionsVal.sortedForPlayback() + listOfNotNull(directoOption)
+            val dedupedDirecto = directoOption?.takeUnless { direct ->
+                streamOptionsVal.any { it.url == direct.url }
+            }
+            streamOptionsVal.sortedForPlayback() + listOfNotNull(dedupedDirecto)
         } else {
             listOfNotNull(directoOption) + streamOptionsVal
         }

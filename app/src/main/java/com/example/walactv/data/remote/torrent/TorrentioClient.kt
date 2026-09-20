@@ -137,6 +137,9 @@ object TorrentioClient {
         val sizeMatch = SIZE_RE.find(fullTitle)
         val seedersMatch = SEEDERS_RE.find(fullTitle)
         val label = providerLabel(fullTitle)
+        // El titulo Torrentio es multilinea ("Nombre\n👤 seeds 💾 size ⚙️ prov\nflags"):
+        // para mostrar solo la primera linea util, sin emojis ni duplicados.
+        val displayTitle = fullTitle.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }
         return StreamOption(
             label = label,
             url = "magnet:?xt=urn:btih:${infoHash.lowercase()}",
@@ -148,7 +151,7 @@ object TorrentioClient {
             fileIdx = fileIdx,
             seeders = seedersMatch?.groupValues?.get(1)?.replace(",", "")?.replace(".", "")?.toIntOrNull(),
             sizeBytes = sizeBytes(sizeMatch),
-            torrentTitle = fullTitle.ifBlank { null },
+            torrentTitle = displayTitle,
         )
     }
 

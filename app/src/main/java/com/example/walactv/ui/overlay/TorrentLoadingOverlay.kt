@@ -154,6 +154,7 @@ fun TorrentLoadingOverlay(
                 val downloadedMb = stats.downloadedBytes / (1024f * 1024f)
                 val totalGb = stats.totalBytes / (1024f * 1024f * 1024f)
                 val mainLine = when {
+                    stats.statusMessage != null -> stats.statusMessage
                     !stats.metadataReady -> "Obteniendo metadatos del torrent…"
                     stats.etaSeconds != null && stats.etaSeconds > 0 ->
                         "%.1f MB/s · empieza en ~%d s".format(Locale.US, speedMb, stats.etaSeconds)

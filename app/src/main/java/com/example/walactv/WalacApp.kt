@@ -8,6 +8,7 @@ import com.example.walactv.di.DaggerAppComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class WalacApp : Application() {
 
@@ -22,5 +23,10 @@ class WalacApp : Application() {
         super.onCreate()
         appComponent = DaggerAppComponent.factory().create(this)
         CredentialStore.init(this)
+        // Precalentar DHT/torrent en fondo: la primera reproduccion Torrentio
+        // no debe pagar el bootstrap en frio.
+        applicationScope.launch {
+            runCatching { appComponent.torrentEngine.warmup() }
+        }
     }
 }

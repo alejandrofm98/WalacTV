@@ -75,6 +75,20 @@ fun List<StreamOption>.filterByPreferredLanguage(preferredLanguage: String?): Li
     }
 }
 
+/**
+ * Ordena torrents para el selector de fuentes: primero los del idioma
+ * preferido (global o por serie/pelicula), luego el resto. Dentro de cada
+ * grupo, por seeds. Los duales aparecen en el grupo preferido.
+ */
+fun List<StreamOption>.sortedByPreferredLanguage(preferredLanguage: String?): List<StreamOption> {
+    val target = normalizeLanguageCode(preferredLanguage)
+    val (preferred, rest) = partition { stream ->
+        val candidates = stream.languages.ifEmpty { listOfNotNull(stream.language) }
+        candidates.any { normalizeLanguageCode(it) == target }
+    }
+    return preferred.bestTorrentFirst() + rest.bestTorrentFirst()
+}
+
 internal val STREAM_QUALITY_ORDER = mapOf(
     "UHD" to 7, "4K" to 6, "FHD" to 5, "HD" to 4, "SD" to 3, "HQ" to 2, "LQ" to 1,
 )

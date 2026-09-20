@@ -71,6 +71,8 @@ import com.example.walactv.ui.overlay.isFatalPlaybackErrorForDevice
 class PlayerFragment : Fragment() {
 
     private var streamUrl: String = ""
+    private var initialTorrentFileIdx: Int? = null
+    private var playbackStartMs = 0L
     private var overlayNumber: String = ""
     private var overlayTitle: String = ""
     private var overlayMeta: String = ""
@@ -150,8 +152,10 @@ private var overlayBackdropUrl: String = ""
         onSelectUnifiedOption: ((Int, Long) -> Unit)? = null,
         playbackCatalogId: String = "",
         playbackPreference: PlaybackPreferenceDto? = null,
+        torrentFileIdx: Int? = null,
     ) {
         this.streamUrl = streamUrl
+        this.playbackStartMs = android.os.SystemClock.elapsedRealtime()
         this.overlayNumber = overlayNumber
         this.overlayTitle = overlayTitle
         this.overlayMeta = overlayMeta
@@ -193,6 +197,7 @@ private var overlayBackdropUrl: String = ""
         this.onSelectUnifiedOption = onSelectUnifiedOption
         this.playbackCatalogId = playbackCatalogId
         this.playbackPreference = playbackPreference
+        this.initialTorrentFileIdx = torrentFileIdx
     }
 
     private var currentSeriesEpisode: CatalogItem? = currentEpisode
@@ -563,12 +568,11 @@ private var overlayBackdropUrl: String = ""
             Log.d(TAG, "initializePlayer: streamUrl=${streamUrl.take(60)}..., isStreamWish=$isStreamWish, isTorrent=$isTorrent, hasCustomHeaders=$hasCustomHeaders")
 
             val dataSourceFactory = if (isTorrent) {
-                // Torrent: se sirve via servidor HTTP local (buffer'ado por
-                // rangos, robusto para seeks/extractor) en vez del DataSource
-                // custom que causaba EOFException/bucles.
+                // Torrent via TorrServer local: la URL reproducible se resuelve
+                // de forma asincrona (demonio + magnet + fichero); el resto de
+                // la inicializacion continua al resolver.
                 val engine = (requireActivity().application as WalacApp).appComponent.torrentEngine
                 val infoHash = streamUrl.removePrefix("magnet:?xt=urn:btih:").substringBefore('&')
-                engine.startStream(infoHash)
                 torrentEngineRef = engine
                 // Generacion de este stream: si un fragment viejo se destruye
                 // DESPUES de que otro arranco, no podra parar el torrent nuevo.
@@ -594,22 +598,30 @@ private var overlayBackdropUrl: String = ""
                 engine.addListener(engineListener)
                 torrentEngineListener = engineListener
                 showTorrentOverlay(engine)
-                val localUrl = engine.localStreamUrl()
-                if (localUrl.isBlank()) {
-                    Log.e(TAG, "initializePlayer: no se pudo generar URL local del torrent")
-                    return
-                }
-                Log.d(TAG, "initializePlayer: torrent -> local http url ${localUrl.takeLast(60)}")
-                currentHttpUrl = localUrl
-                // Read timeout ALTO (120s): el servidor HTTP local bloquea a
-                // proposito hasta que la pieza llega (hasta 45s por pieza con
-                // pocos seeds). Con el default de 8s, cualquier tramo lento
-                // del torrent cortaba la lectura y ExoPlayer re-preparaba
-                // (el usuario lo veia como un reinicio a mitad).
-                DefaultHttpDataSource.Factory()
+                // Read timeout ALTO (120s): TorrServer puede tardar en servir
+                // un rango si las piezas aun vienen en camino. Con el default
+                // de 8s, cualquier tramo lento cortaba la lectura y ExoPlayer
+                // re-preparaba (el usuario lo veia como un reinicio a mitad).
+                val torrentFactory = DefaultHttpDataSource.Factory()
                     .setConnectTimeoutMs(15_000)
                     .setReadTimeoutMs(120_000)
                     .setUserAgent("WalacTV-Torrent-Local")
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val url = engine.startTorrentAndGetUrl(infoHash, initialTorrentFileIdx)
+                    withContext(Dispatchers.Main) {
+                        if (!isAdded || isReleasing || registeredGen != playerGeneration) return@withContext
+                        if (url.isNullOrBlank()) {
+                            Log.e(TAG, "initializePlayer: TorrServer no resolvio URL para ${infoHash.take(8)}")
+                            fallbackToNextSourceForCodec()
+                            return@withContext
+                        }
+                        Log.d(TAG, "initializePlayer: torrent -> ${url.takeLast(80)}")
+                        currentHttpUrl = url
+                        torrentStreamGeneration = engine.currentStreamGeneration()
+                        buildAndPreparePlayer(torrentFactory, isTorrent = true)
+                    }
+                }
+                return
             } else if (isStreamWish) {
                 val referer = extractReferer(streamUrl)
                 val origin = "https://${streamUrl.toUri().host}"
@@ -644,9 +656,24 @@ private var overlayBackdropUrl: String = ""
 
             // Pantalla de carga para peliculas/series (torrent o directo):
             // poster de fondo; las stats de descarga solo existen en torrents.
-            if (isTorrent) {
-                // showTorrentOverlay ya invocado en la rama del engine
-            } else if (isVodMode) {
+            buildAndPreparePlayer(dataSourceFactory, isTorrent = false)
+        } catch (exception: Exception) {
+            Log.e(TAG, "Error al inicializar el player", exception)
+            isPlayerInitialized = false
+        }
+    }
+
+    /**
+     * Construye ExoPlayer y prepara la reproduccion. En torrents se llama
+     * cuando TorrServer ya resolvio la URL (ver rama torrent de
+     * [initializePlayer]); en el resto, directamente.
+     */
+    private fun buildAndPreparePlayer(
+        dataSourceFactory: androidx.media3.datasource.DataSource.Factory,
+        isTorrent: Boolean,
+    ) {
+        try {
+            if (!isTorrent && isVodMode) {
                 showDirectLoadingOverlay()
             }
 
@@ -1593,8 +1620,8 @@ private var overlayBackdropUrl: String = ""
 
         // Stream torrent: los errores de red/piezas (timeout de lectura, pieza
         // aun no descargada) NO deben reiniciar el player ni mostrar overlay:
-        // el TorrentDataSource reintenta por si solo y la pantalla de carga
-        // informa. Solo los errores fatales de codec caen al fallback normal.
+        // TorrServer sigue descargando y la pantalla de carga informa. Solo
+        // los errores fatales de codec caen al fallback normal.
         if (TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
             val torrentError = (error?.message.orEmpty()) + " " + (error?.errorCodeName.orEmpty())
             if (!isFatalPlaybackErrorForDevice(torrentError)) {
@@ -2353,7 +2380,8 @@ private var overlayBackdropUrl: String = ""
             // hace falta aunque READY llegue unos instantes mas tarde.
             hideTorrentOverlay()
             if (TorrentDataSourceFactory.isTorrentUrl(streamUrl)) {
-                Log.i(TAG, "Primer fotograma — ${torrentEngineRef?.debugStatus()}")
+                val totalMs = android.os.SystemClock.elapsedRealtime() - playbackStartMs
+                Log.i(TAG, "Primer fotograma en ${totalMs}ms — ${torrentEngineRef?.debugStatus()}")
             }
         }
 

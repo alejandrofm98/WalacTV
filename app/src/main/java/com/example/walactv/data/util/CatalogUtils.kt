@@ -49,6 +49,58 @@ fun languageDisplayLabel(value: String?): String {
     }
 }
 
+/**
+ * Variante corta para insignias de las listas de fuentes (el drawer no tiene
+ * sitio para "Español Latinoamericano").
+ */
+fun languageBadgeLabel(value: String?): String {
+    return when (normalizeLanguageCode(value)) {
+        "EN" -> "Inglés"
+        "ES" -> "Español"
+        "LATAM" -> "Latino"
+        "CAST" -> "Castellano"
+        "VOSE" -> "VOSE"
+        "SUB" -> "Subtitulado"
+        else -> languageDisplayLabel(value)
+    }
+}
+
+private val DISPLAYABLE_LANGUAGE_CODES = setOf("EN", "ES", "LATAM", "CAST", "VOSE", "SUB")
+
+/**
+ * Traduce la etiqueta de una fuente cuando es un codigo de idioma pelado
+ * ("EN", "ES", "ENG"...) tal como lo manda el backend. Cualquier otro texto
+ * ("Servidor principal", "Ver", "Directo") se devuelve intacto.
+ */
+fun translateBareLanguageCode(rawLabel: String?): String {
+    val text = rawLabel?.trim().orEmpty()
+    if (text.isEmpty() || text.length > 12 || text.any { it.isWhitespace() }) return text
+    val normalized = normalizeLanguageCode(text)
+    if (normalized !in DISPLAYABLE_LANGUAGE_CODES) return text
+    val upper = text.uppercase()
+    val isBareCode = upper == normalized || LANGUAGE_ALIASES[upper] == normalized
+    return if (isBareCode) languageBadgeLabel(text) else text
+}
+
+private val SEASON_MARKER_REGEX = Regex("""\bS(\d{1,2})\b""", RegexOption.IGNORE_CASE)
+private val PACK_WORD_REGEX = Regex("""COMPLETE|COMPLETA|\bPACK\b|\bSEASON\b|TEMPORADA""", RegexOption.IGNORE_CASE)
+private val EPISODE_MARKER_REGEX =
+    Regex("""\bE\d{1,3}\b|\bEP\.?\s*\d+|\bCAP\.?\s*\d+|CAPITULO|EPISODIO|EPISODE""", RegexOption.IGNORE_CASE)
+
+/**
+ * Detecta si el titulo de un torrent es un pack de temporada ("Silo.S03...",
+ * "Breaking Bad Season 2 COMPLETE") en vez de un capitulo suelto ("S03E03",
+ * "Cap.303"). Sirve para avisar de que el tamaño mostrado es el del pack
+ * completo y solo se descargara el archivo del capitulo (fileIdx).
+ */
+fun isSeasonPackTitle(title: String?): Boolean {
+    val text = title?.trim().orEmpty()
+    if (text.isEmpty()) return false
+    if (PACK_WORD_REGEX.containsMatchIn(text)) return true
+    if (!SEASON_MARKER_REGEX.containsMatchIn(text)) return false
+    return !EPISODE_MARKER_REGEX.containsMatchIn(text)
+}
+
 fun displayCardTitle(item: CatalogItem): String {
     return if (item.kind == ContentKind.CHANNEL && item.channelNumber != null) {
         "${item.channelNumber}  ${item.title}"
