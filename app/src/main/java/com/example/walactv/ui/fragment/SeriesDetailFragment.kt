@@ -181,6 +181,19 @@ class SeriesDetailFragment : Fragment() {
         seriesBackdropUrl = catalogItem?.backdropUrl.orEmpty()
         seriesPosterUrl = catalogItem?.preferredVodPosterUrl().orEmpty()
 
+        var localizedItem by mutableStateOf(catalogItem)
+        if (catalogItem != null) {
+            // La pantalla usa la ficha del catálogo inmediatamente y sustituye
+            // título/sinopsis cuando llega la versión española.
+            viewLifecycleOwner.lifecycleScope.launch {
+                repository.enrichWithSpanishMetadata(catalogItem)?.let { enriched ->
+                    localizedItem = enriched
+                    seriesBackdropUrl = enriched.backdropUrl.orEmpty()
+                    seriesPosterUrl = enriched.preferredVodPosterUrl()
+                }
+            }
+        }
+
         Log.d(TAG, "SeriesDetailFragment: seriesName='$seriesName' seriesId=$seriesId initialSeason=$initialSeason initialEpisode=$initialEpisode")
         return ComposeView(requireContext()).apply {
             setContent {
@@ -190,7 +203,7 @@ class SeriesDetailFragment : Fragment() {
                         seriesId = seriesId,
                         initialSeason = initialSeason,
                         initialEpisode = initialEpisode,
-                        initialSeriesItem = catalogItem,
+                        initialSeriesItem = localizedItem,
                         repository = repository,
                         progressReloadTrigger = detailProgressReloadTrigger,
                         episodesReloadTrigger = episodesReloadTrigger,

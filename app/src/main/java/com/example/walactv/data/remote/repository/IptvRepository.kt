@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.walactv.data.remote.api.AuthInterceptor
 import com.example.walactv.data.remote.api.IptvApiService
 import com.example.walactv.data.remote.api.dto.CatalogItemDto
+import com.example.walactv.data.remote.api.dto.AddonMetaDto
 import com.example.walactv.data.remote.torrent.TorrentioClient
 import com.example.walactv.data.remote.api.dto.CalendarEventDto
 import com.example.walactv.data.remote.api.dto.CanalResueltoDto
@@ -23,6 +24,7 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.example.walactv.BuildConfig
@@ -84,6 +86,7 @@ class IptvRepository @Inject constructor(context: Context) {
     // ── Caches ────────────────────────────────────────────────────────────────
 
     private val filterCache = mutableMapOf<String, CatalogFilters>()
+    private val localizedMetadataCache = ConcurrentHashMap<String, CatalogItem>()
 
     @Volatile private var memoryHomeCatalog: HomeCatalog? = null
 
@@ -149,7 +152,59 @@ class IptvRepository @Inject constructor(context: Context) {
     private fun clearAllCaches() {
         memoryHomeCatalog = null
         filterCache.clear()
+        localizedMetadataCache.clear()
     }
+
+    /**
+     * Completa una ficha con metadatos de Cinemeta y sinopsis española de TMDB.
+     *
+     * El catálogo no depende de esta llamada: si no existe un IMDb válido o el
+     * backend externo está degradado, se conserva la ficha original.
+     */
+    suspend fun enrichWithSpanishMetadata(item: CatalogItem): CatalogItem? = withContext(Dispatchers.IO) {
+        if (item.kind != ContentKind.MOVIE && item.kind != ContentKind.SERIES) return@withContext null
+
+        val baseItem = item.imdbId?.trim()?.takeIf(TorrentioClient::isImdbId)?.let { item }
+            ?: item.catalogId
+                ?.takeIf { it.isNotBlank() }
+                ?.let { lookupId -> runCatching { fetchContentItem(item.kind, lookupId) }.getOrNull() }
+            ?: item
+        val imdbId = baseItem.imdbId?.trim()?.takeIf(TorrentioClient::isImdbId)
+            ?: return@withContext null
+        val contentType = if (item.kind == ContentKind.MOVIE) "movie" else "series"
+        val cacheKey = "$contentType/$imdbId"
+        localizedMetadataCache[cacheKey]?.let { return@withContext it }
+
+        return@withContext runCatching {
+            val response = apiService.getAddonMeta(contentType, imdbId)
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Spanish metadata unavailable for $cacheKey: HTTP ${response.code()}")
+                return@runCatching null
+            }
+            val meta = response.body() ?: return@runCatching null
+            baseItem.mergeAddonMetadata(meta).also { localizedMetadataCache[cacheKey] = it }
+        }.onFailure { error ->
+            Log.w(TAG, "Spanish metadata request failed for $cacheKey", error)
+        }.getOrNull()
+    }
+
+    private fun CatalogItem.mergeAddonMetadata(meta: AddonMetaDto): CatalogItem {
+        val title = meta.titleEs.orEmpty().ifBlank { nameOrTitleFallback() }
+        val description = meta.overviewEs.orEmpty().ifBlank {
+            this@mergeAddonMetadata.description.ifBlank { meta.descriptionEn.orEmpty() }
+        }
+        return copy(
+            title = title,
+            description = description,
+            overviewEn = meta.descriptionEn?.takeIf { it.isNotBlank() } ?: overviewEn,
+            genres = genres.ifEmpty { meta.genres },
+            imageUrl = imageUrl.ifBlank { meta.poster.orEmpty() },
+            backdropUrl = backdropUrl?.takeIf { it.isNotBlank() } ?: meta.background,
+            imdbId = meta.imdbId.takeIf { it.isNotBlank() } ?: imdbId,
+        )
+    }
+
+    private fun CatalogItem.nameOrTitleFallback(): String = title.ifBlank { subtitle }
 
     // ── Home catalog ──────────────────────────────────────────────────────────
 
