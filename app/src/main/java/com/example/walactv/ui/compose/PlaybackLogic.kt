@@ -20,6 +20,8 @@ import com.example.walactv.ui.fragment.SeriesDetailFragment
 import com.example.walactv.ui.fragment.UfcDetailFragment
 import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.UnifiedStreamOption
+import com.example.walactv.data.model.PlaybackSourceMode
+import com.example.walactv.data.model.forPlaybackMode
 import com.example.walactv.data.model.bestTorrentFirst
 import com.example.walactv.data.model.filterByPreferredLanguage
 import com.example.walactv.data.model.sortedForPlayback
@@ -160,11 +162,18 @@ private suspend fun ComposeMainFragment.openContinueWatchingMovie(cardItem: Cata
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se pudo abrir la pelicula", Toast.LENGTH_SHORT).show() }
         return
     }
-    val playable = repository.orderStreamsForPlayback(item)
+    val sourceMode = PreferencesManager.playbackSourceMode
+    val orderedPlayable = repository.orderStreamsForPlayback(item)
+    val playable = orderedPlayable.copy(
+        streamOptions = orderedPlayable.streamOptions.forPlaybackMode(sourceMode),
+    )
     // Contenido solo-torrent (dev): sin urls IPTV, enriquecer con Torrentio igual
     // que hace desktop antes de reproducir.
     var resolved = playable
-    if (resolved.streamOptions.none { it.url.isNotBlank() || it.isTorrent }) {
+    if (sourceMode != PlaybackSourceMode.IPTV_ONLY &&
+        (sourceMode == PlaybackSourceMode.TORRENT_ONLY ||
+            resolved.streamOptions.none { it.url.isNotBlank() || it.isTorrent })
+    ) {
         val imdb = sequenceOf(playable.imdbId, cardItem.imdbId).firstOrNull { TorrentioClient.isImdbId(it) }
         val torrents = if (imdb != null) {
             runCatching { repository.getTorrentioMovieStreams(imdb) }.getOrElse { emptyList() }
@@ -269,9 +278,16 @@ private suspend fun ComposeMainFragment.openContinueWatchingSeries(
         withContext(Dispatchers.Main) { Toast.makeText(requireContext(), "No se encontró el episodio", Toast.LENGTH_SHORT).show() }
         return
     }
-    var playableEpisode = repository.orderStreamsForPlayback(targetEpisode)
+    val sourceMode = PreferencesManager.playbackSourceMode
+    val orderedEpisode = repository.orderStreamsForPlayback(targetEpisode)
+    var playableEpisode = orderedEpisode.copy(
+        streamOptions = orderedEpisode.streamOptions.forPlaybackMode(sourceMode),
+    )
     // Serie solo-torrentio (dev): sin urls IPTV, enriquecer con Torrentio como desktop.
-    if (playableEpisode.streamOptions.none { it.url.isNotBlank() || it.isTorrent }) {
+    if (sourceMode != PlaybackSourceMode.IPTV_ONLY &&
+        (sourceMode == PlaybackSourceMode.TORRENT_ONLY ||
+            playableEpisode.streamOptions.none { it.url.isNotBlank() || it.isTorrent })
+    ) {
         val imdb = sequenceOf(targetEpisode.imdbId, cardItem.imdbId, logicalEpisodes.firstOrNull()?.imdbId)
             .firstOrNull { TorrentioClient.isImdbId(it) }
         val sn = targetEpisode.seasonNumber

@@ -12,9 +12,12 @@ import android.widget.ImageView
 import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.PlaybackSourceMode
 import com.example.walactv.data.model.StreamOption
+import com.example.walactv.data.model.allows
 import com.example.walactv.data.model.bestTorrentFirst
 import com.example.walactv.data.model.filterByPreferredLanguage
+import com.example.walactv.data.model.forPlaybackMode
 import com.example.walactv.data.model.sortedByPreferredLanguage
 import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.data.model.preferredVodPosterUrl
@@ -138,7 +141,8 @@ class MovieDetailFragment : Fragment() {
         // Solo si hay imdb_id valido; sin el no se consulta y no se marca error.
         // El listado del catalogo puede venir sin imdb_id (bug backend en dev):
         // si falta, se resuelve con el detalle /api/content/movies/{id}.
-        viewLifecycleOwner.lifecycleScope.launch {
+        if (PreferencesManager.playbackSourceMode != PlaybackSourceMode.IPTV_ONLY) {
+            viewLifecycleOwner.lifecycleScope.launch {
             var imdb = item.imdbId
             if (!TorrentioClient.isImdbId(imdb)) {
                 val lookupId = item.catalogId ?: item.providerId ?: item.stableId
@@ -167,6 +171,7 @@ class MovieDetailFragment : Fragment() {
                 torrentPrefLang = prefLang
                 torrentStreams = fetched
                 torrentLoading = false
+            }
             }
         }
 
@@ -234,15 +239,19 @@ class MovieDetailFragment : Fragment() {
         // Fuente elegida por el selector, la seleccionada por URL, luego
         // directo del proveedor y por ultimo el torrent con mas seeds en el
         // idioma preferido (ruta automatica: el drawer muestra todos).
+        val sourceMode = PreferencesManager.playbackSourceMode
         val fallbackTorrent = torrentStreams
+            .forPlaybackMode(sourceMode)
             .filterByPreferredLanguage(torrentPrefLang ?: PreferencesManager.getPreferredLanguageOrDefault())
             .bestTorrentFirst()
             .firstOrNull()
+        val allowedStreams = item.streamOptions.forPlaybackMode(sourceMode)
         val stream = source
-            ?: selectedStreamUrl?.let { url -> item.streamOptions.firstOrNull { it.url == url } }
-            ?: item.streamOptions.firstOrNull { !it.isTorrent && it.url.isNotBlank() }
+            ?.takeIf { sourceMode.allows(it) }
+            ?: selectedStreamUrl?.let { url -> allowedStreams.firstOrNull { it.url == url } }
+            ?: allowedStreams.firstOrNull { !it.isTorrent && it.url.isNotBlank() }
             ?: fallbackTorrent
-            ?: item.streamOptions.firstOrNull { it.isTorrent }
+            ?: allowedStreams.firstOrNull { it.isTorrent }
         if (stream == null) {
             android.widget.Toast.makeText(requireContext(), R.string.no_streams_available, android.widget.Toast.LENGTH_SHORT).show()
             return
@@ -251,14 +260,14 @@ class MovieDetailFragment : Fragment() {
         // Si la fuente elegida es un torrent, construir el item con el magnet en
         // primer lugar y el resto de torrents como opciones de respaldo.
         val playableItem = if (stream.isTorrent) {
-            val otherTorrents = torrentStreams.bestTorrentFirst()
+            val otherTorrents = torrentStreams.forPlaybackMode(sourceMode).bestTorrentFirst()
                 .filter { it.infoHash != stream.infoHash }
             val allStreams = listOf(stream) +
-                item.streamOptions.filter { !it.isTorrent } +
+                item.streamOptions.filter { sourceMode.allows(it) && !it.isTorrent } +
                 otherTorrents
-            item.copy(streamOptions = allStreams)
+            item.copy(streamOptions = allStreams.distinctBy { it.infoHash ?: it.url })
         } else {
-            item
+            item.copy(streamOptions = allowedStreams)
         }
         val playableStream = if (stream.isTorrent) {
             StreamOption(
@@ -383,14 +392,16 @@ fun MovieDetailScreen(
 
     // Torrents ordenados: primero el idioma preferido de la pelicula (o el
     // global), luego el resto. Los directos IPTV siempre van delante.
-    val orderedTorrents = remember(torrentStreams, torrentPrefLang) {
+    val playbackSourceMode = PreferencesManager.playbackSourceMode
+    val orderedTorrents = remember(torrentStreams, torrentPrefLang, playbackSourceMode) {
         torrentStreams.sortedByPreferredLanguage(
             torrentPrefLang ?: PreferencesManager.getPreferredLanguageOrDefault(),
-        )
+        ).forPlaybackMode(playbackSourceMode)
     }
 
-    val allSources = remember(item.streamOptions, orderedTorrents) {
-        item.streamOptions.filter { !it.isTorrent && it.url.isNotBlank() } + orderedTorrents
+    val allSources = remember(item.streamOptions, orderedTorrents, playbackSourceMode) {
+        item.streamOptions.forPlaybackMode(playbackSourceMode)
+            .filter { it.isTorrent || it.url.isNotBlank() } + orderedTorrents
     }
 
     val backgroundImageUrl = item.backdropUrl?.takeIf { it.isNotBlank() }

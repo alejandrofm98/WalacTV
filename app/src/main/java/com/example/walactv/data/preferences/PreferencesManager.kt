@@ -3,11 +3,13 @@ package com.example.walactv.data.preferences
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import com.example.walactv.data.model.PlaybackSourceMode
 import com.example.walactv.data.util.normalizeLanguageCode
 
 object PreferencesManager {
     private const val PREFS_NAME = "walactv_prefs"
     private const val KEY_PREFERRED_LANGUAGE = "preferred_language"
+    private const val KEY_PLAYBACK_SOURCE_MODE = "playback_source_mode"
     private val SUPPORTED_LANGUAGES = setOf("ES", "EN")
 
     private var prefs: SharedPreferences? = null
@@ -30,6 +32,12 @@ object PreferencesManager {
         val normalized = normalizeLanguageCode(value)
         return if (normalized in SUPPORTED_LANGUAGES) normalized else "ES"
     }
+
+    var playbackSourceMode: PlaybackSourceMode
+        get() = PlaybackSourceMode.fromStorage(prefs?.getString(KEY_PLAYBACK_SOURCE_MODE, null))
+        set(value) {
+            prefs?.edit { putString(KEY_PLAYBACK_SOURCE_MODE, value.storageValue) }
+        }
 
 }
 

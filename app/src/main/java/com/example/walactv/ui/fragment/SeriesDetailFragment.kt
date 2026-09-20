@@ -13,9 +13,12 @@ import android.widget.ImageView.ScaleType.CENTER_CROP
 import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.PlaybackSourceMode
 import com.example.walactv.data.model.StreamOption
+import com.example.walactv.data.model.allows
 import com.example.walactv.WalacApp
 import com.example.walactv.data.model.bestTorrentFirst
+import com.example.walactv.data.model.forPlaybackMode
 import com.example.walactv.data.model.idioma
 import com.example.walactv.data.model.sortedByPreferredLanguage
 import com.example.walactv.data.model.toUnifiedOptions
@@ -260,13 +263,18 @@ class SeriesDetailFragment : Fragment() {
             // Eleccion manual del drawer: sin sondeos previos.
             probeHealth = selectedStreamUrl == null,
         )
+        val sourceMode = PreferencesManager.playbackSourceMode
         // Sin eleccion manual: primero directo del proveedor, luego el torrent
         // con mas seeds (applyGradient mantiene la descarga pegada al playhead).
         val stream = selectedStreamUrl?.let { url ->
-            playableEpisode.streamOptions.firstOrNull { it.url == url }
-        } ?: playableEpisode.streamOptions.firstOrNull { !it.isTorrent && it.url.isNotBlank() }
-            ?: playableEpisode.streamOptions.filter { it.isTorrent }.bestTorrentFirst().firstOrNull()
-            ?: playableEpisode.streamOptions.firstOrNull { it.url.isNotBlank() || it.isTorrent } ?: return
+            playableEpisode.streamOptions.firstOrNull { it.url == url && sourceMode.allows(it) }
+        } ?: playableEpisode.streamOptions.forPlaybackMode(sourceMode)
+            .firstOrNull { !it.isTorrent && it.url.isNotBlank() }
+            ?: playableEpisode.streamOptions.forPlaybackMode(sourceMode)
+                .filter { it.isTorrent }
+                .bestTorrentFirst()
+                .firstOrNull()
+            ?: return
         Log.d(TAG, "TMDB_SERIES_PLAY item=${item.tmdbDebug()} episode=${episodeToPlay.tmdbDebug()}")
 
         val currentIndex = logicalEpisodes.indexOfFirst {
@@ -667,7 +675,10 @@ fun SeriesDetailScreen(
         sourceSelectedIndex = 0
         sourceStreams = emptyList()
         val iptv = ep.streamOptions.filter { !it.isTorrent && it.url.isNotBlank() }
-        val torrents = if (ep.seasonNumber != null && ep.episodeNumber != null && seriesImdb != null) {
+        val torrents = if (
+            PreferencesManager.playbackSourceMode != PlaybackSourceMode.IPTV_ONLY &&
+            ep.seasonNumber != null && ep.episodeNumber != null && seriesImdb != null
+        ) {
             repository.getTorrentioEpisodeStreams(seriesImdb, ep.seasonNumber, ep.episodeNumber)
         } else {
             emptyList()
@@ -676,7 +687,11 @@ fun SeriesDetailScreen(
         val orderedTorrents = torrents.sortedByPreferredLanguage(
             seriesPrefLang ?: PreferencesManager.getPreferredLanguageOrDefault(),
         )
-        sourceStreams = iptv + orderedTorrents
+        sourceStreams = when (PreferencesManager.playbackSourceMode) {
+            PlaybackSourceMode.IPTV_ONLY -> iptv
+            PlaybackSourceMode.TORRENT_ONLY -> orderedTorrents
+            PlaybackSourceMode.AUTO -> iptv + orderedTorrents
+        }
         // Preseleccion: primero directo (indice 0); solo si no hay directo,
         // el torrent top del idioma preferido.
         if (iptv.isEmpty()) {
@@ -717,7 +732,10 @@ fun SeriesDetailScreen(
     // Reproduccion directa o, en series solo-torrentio sin urls IPTV, apertura
     // del selector de fuentes (que consulta Torrentio) igual que desktop.
     fun playOrPickSource(ep: CatalogItem, positionMs: Long) {
-        if (ep.streamOptions.any { it.url.isNotBlank() || it.isTorrent }) {
+        val sourceMode = PreferencesManager.playbackSourceMode
+        if (sourceMode != PlaybackSourceMode.TORRENT_ONLY &&
+            ep.streamOptions.any { sourceMode.allows(it) }
+        ) {
             lastPlayedStableId = ep.stableId
             onEpisodeClick(ep, allEpisodes, uniqueEpisodes, positionMs, null)
         } else {

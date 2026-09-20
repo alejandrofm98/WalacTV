@@ -43,6 +43,7 @@ import com.example.walactv.ui.compose.ChangelogDialog
 import com.example.walactv.ui.fragment.ComposeMainFragment
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.InstalledAppVersion
+import com.example.walactv.data.model.PlaybackSourceMode
 import com.example.walactv.data.preferences.PreferencesManager
 import com.example.walactv.data.model.evaluateAppUpdate
 import com.example.walactv.ui.theme.*
@@ -52,9 +53,12 @@ import com.example.walactv.ui.theme.*
 @Composable
 internal fun SettingsContent(fragment: ComposeMainFragment) {
     var preferredLanguage by remember { mutableStateOf(PreferencesManager.getPreferredLanguageOrDefault()) }
+    var playbackSourceMode by remember { mutableStateOf(PreferencesManager.playbackSourceMode) }
     var showLanguageDialog by remember { mutableStateOf(false) }
+    var showSourceModeDialog by remember { mutableStateOf(false) }
     var showChangelogDialog by remember { mutableStateOf(false) }
     val availableLanguages = listOf("ES" to "Español", "EN" to "Inglés")
+    val availableSourceModes = PlaybackSourceMode.entries.map { it.storageValue to it.displayLabel }
     val installedVersionLabel = fragment.installedAppVersion?.let { it.versionName } ?: "Desconocida"
     val hasUpdate = fragment.availableUpdate?.let { evaluateAppUpdate(fragment.installedAppVersion ?: InstalledAppVersion("0", 0), it) != AppUpdateAvailability.UP_TO_DATE } == true
     val firstFocusRequester = remember { FocusRequester() }
@@ -85,6 +89,10 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
                 value = selectedLanguageLabel,
                 modifier = Modifier.focusRequester(firstFocusRequester),
             ) { showLanguageDialog = true }
+            SettingsRowClickable(
+                label = "Fuente de reproducción",
+                value = playbackSourceMode.displayLabel,
+            ) { showSourceModeDialog = true }
             SettingsRow("Version de la app", installedVersionLabel)
             val channelsCount by produceState(initialValue = -1) {
                 value = fragment.contentCacheManager.getChannelsTotalCount(null, null)
@@ -117,6 +125,20 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
             selectedOption = preferredLanguage,
             onOptionSelected = { PreferencesManager.preferredLanguage = it.value; preferredLanguage = it.value; showLanguageDialog = false },
             onDismiss = { showLanguageDialog = false },
+        )
+    }
+
+    if (showSourceModeDialog) {
+        FilterDialog(
+            title = "Fuente de reproducción",
+            options = availableSourceModes.map { FilterOptionDto(value = it.first, label = it.second) },
+            selectedOption = playbackSourceMode.storageValue,
+            onOptionSelected = {
+                playbackSourceMode = PlaybackSourceMode.fromStorage(it.value)
+                PreferencesManager.playbackSourceMode = playbackSourceMode
+                showSourceModeDialog = false
+            },
+            onDismiss = { showSourceModeDialog = false },
         )
     }
 
@@ -298,5 +320,3 @@ internal fun SearchBar(query: String, onQueryChange: (String) -> Unit, focusRequ
         modifier = Modifier.width(260.dp),
     )
 }
-
-
