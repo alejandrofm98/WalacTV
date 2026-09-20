@@ -236,6 +236,7 @@ private var overlayBackdropUrl: String = ""
     private var retryCount: Int = 0
     private var forceRestartAttempted: Boolean = false
     private var isPlayerInitialized: Boolean = false
+    private var torrentResolving: Boolean = false
     private var isReleasing: Boolean = false
     private var closedByHost: Boolean = false
     private var playerClosed: Boolean = false
@@ -538,6 +539,10 @@ private var overlayBackdropUrl: String = ""
     }
 
     private fun initializePlayer() {
+        if (torrentResolving) {
+            Log.d(TAG, "initializePlayer: resolución torrent ya en curso, ignorando llamada duplicada")
+            return
+        }
         playerGeneration += 1
         if (isPlayerInitialized || player != null) {
             // Si ya hay player pero es el MISMO torrent, no borrar la descarga
@@ -606,9 +611,11 @@ private var overlayBackdropUrl: String = ""
                     .setConnectTimeoutMs(15_000)
                     .setReadTimeoutMs(120_000)
                     .setUserAgent("WalacTV-Torrent-Local")
+                torrentResolving = true
                 lifecycleScope.launch(Dispatchers.IO) {
                     val url = engine.startTorrentAndGetUrl(infoHash, initialTorrentFileIdx)
                     withContext(Dispatchers.Main) {
+                        torrentResolving = false
                         if (!isAdded || isReleasing || registeredGen != playerGeneration) return@withContext
                         if (url.isNullOrBlank()) {
                             Log.e(TAG, "initializePlayer: TorrServer no resolvio URL para ${infoHash.take(8)}")
@@ -659,6 +666,7 @@ private var overlayBackdropUrl: String = ""
             buildAndPreparePlayer(dataSourceFactory, isTorrent = false)
         } catch (exception: Exception) {
             Log.e(TAG, "Error al inicializar el player", exception)
+            torrentResolving = false
             isPlayerInitialized = false
         }
     }
@@ -2300,6 +2308,7 @@ private var overlayBackdropUrl: String = ""
         }
 
         isReleasing = true
+        torrentResolving = false
         isPlayerInitialized = false
         if (closeUi) playerClosed = true
         handler.removeCallbacksAndMessages(null)

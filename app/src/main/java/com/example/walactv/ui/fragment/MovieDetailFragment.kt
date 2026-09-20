@@ -256,9 +256,13 @@ class MovieDetailFragment : Fragment() {
             .bestTorrentFirst()
             .firstOrNull()
         val allowedStreams = item.streamOptions.forPlaybackMode(sourceMode)
+        val selectedStream = selectedStreamUrl?.let { url ->
+            (allowedStreams + torrentStreams.forPlaybackMode(sourceMode))
+                .firstOrNull { it.url == url }
+        }
         val stream = source
             ?.takeIf { sourceMode.allows(it) }
-            ?: selectedStreamUrl?.let { url -> allowedStreams.firstOrNull { it.url == url } }
+            ?: selectedStream
             ?: allowedStreams.firstOrNull { !it.isTorrent && it.url.isNotBlank() }
             ?: fallbackTorrent
             ?: allowedStreams.firstOrNull { it.isTorrent }
@@ -267,14 +271,14 @@ class MovieDetailFragment : Fragment() {
             return
         }
 
-        // Si la fuente elegida es un torrent, construir el item con el magnet en
-        // primer lugar y el resto de torrents como opciones de respaldo.
+        // Si la fuente elegida es un torrent, construir el item con todos los
+        // enlaces directos y torrents como opciones de respaldo.
         val playableItem = if (stream.isTorrent) {
-            val otherTorrents = torrentStreams.forPlaybackMode(sourceMode).bestTorrentFirst()
-                .filter { it.infoHash != stream.infoHash }
-            val allStreams = listOf(stream) +
-                item.streamOptions.filter { sourceMode.allows(it) && !it.isTorrent } +
-                otherTorrents
+            // Mantener un orden estable, independiente de la fuente actual.
+            // Si se antepone siempre el torrent seleccionado, el siguiente
+            // índice del fallback vuelve a apuntar al anterior y crea un bucle.
+            val allStreams = item.streamOptions.filter { sourceMode.allows(it) && !it.isTorrent } +
+                torrentStreams.forPlaybackMode(sourceMode).bestTorrentFirst()
             item.copy(streamOptions = allStreams.distinctBy { it.infoHash ?: it.url })
         } else {
             item.copy(streamOptions = allowedStreams)
