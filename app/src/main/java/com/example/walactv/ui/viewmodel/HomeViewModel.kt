@@ -425,6 +425,8 @@ class HomeViewModel @Inject constructor(
                 "wpTmdb=${wp.tmdbTitle.orEmpty()} wpBackdrop=${wp.backdropPath.orEmpty()} wpPoster=${wp.posterPath.orEmpty()} wpImage=${(wp.imageUrl ?: "").take(80)}",
         )
 
+        val externalPoster = externalPosterUrl(wp.imageUrl)
+
         return matched?.copy(
             stableId = fallbackStableId,
             providerId = wp.contentId,
@@ -432,16 +434,26 @@ class HomeViewModel @Inject constructor(
             normalizedTitle = null,
             subtitle = subtitle,
             description = matched.description.cleanDisplayText().ifBlank { wp.title.orEmpty() },
-            imageUrl = matched.imageUrl.ifBlank { wp.imageUrl.orEmpty() },
+            imageUrl = matched.imageUrl
+                .takeUnless { it.contains("/logo/", ignoreCase = true) }
+                ?.takeIf { it.isNotBlank() }
+                ?: externalPoster
+                ?: wp.imageUrl.orEmpty(),
+            tmdbPosterUrl = matched.tmdbPosterUrl ?: externalPoster,
+            imdbId = matched.imdbId ?: wp.imdbId ?: wp.contentId?.takeIf { it.matches(Regex("tt\\d{7,}")) },
             seriesName = matched.seriesName.cleanDisplayText().ifBlank { wp.seriesName.orEmpty() }.ifBlank { null },
         ) ?: wp.toCatalogItemFallback(
             stableId = fallbackStableId,
             subtitle = subtitle,
-            imageUrl = wp.imageUrl.orEmpty(),
+            imageUrl = externalPoster ?: wp.imageUrl.orEmpty(),
             kind = kind,
             title = fallbackTitle,
         )
     }
+
+    private fun externalPosterUrl(imageUrl: String?): String? = imageUrl
+        ?.takeIf { it.contains("images.metahub.space/logo/", ignoreCase = true) }
+        ?.replace("/logo/", "/poster/", ignoreCase = true)
 
     private fun WatchProgressDto.toCatalogItemFallback(
         stableId: String,
@@ -450,7 +462,7 @@ class HomeViewModel @Inject constructor(
         kind: ContentKind,
         title: String,
     ): CatalogItem {
-        val tmdbPosterUrl = buildTmdbImageUrl(posterPath, "w500")
+        val tmdbPosterUrl = buildTmdbImageUrl(posterPath, "w500") ?: externalPosterUrl(imageUrl)
         val backdropUrl = buildTmdbImageUrl(backdropPath, "w1280")
         return CatalogItem(
             stableId = stableId,
@@ -479,6 +491,7 @@ class HomeViewModel @Inject constructor(
             year = year,
             tmdbTitle = tmdbTitle,
             totalSeasons = totalSeasons,
+            imdbId = imdbId ?: this.imdbId ?: contentId?.takeIf { it.matches(Regex("tt\\d{7,}")) },
         )
     }
 

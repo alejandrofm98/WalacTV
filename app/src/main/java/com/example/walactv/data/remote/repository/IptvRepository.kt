@@ -210,13 +210,16 @@ class IptvRepository @Inject constructor(context: Context) {
         val description = meta.overviewEs.orEmpty().ifBlank {
             this@mergeAddonMetadata.description.ifBlank { meta.descriptionEn.orEmpty() }
         }
+        val poster = meta.poster?.takeIf { it.isNotBlank() }
+        val background = meta.background?.takeIf { it.isNotBlank() }
         return copy(
             title = title,
             description = description,
             overviewEn = meta.descriptionEn?.takeIf { it.isNotBlank() } ?: overviewEn,
             genres = genres.ifEmpty { meta.genres },
-            imageUrl = imageUrl.ifBlank { meta.poster.orEmpty() },
-            backdropUrl = backdropUrl?.takeIf { it.isNotBlank() } ?: meta.background,
+            imageUrl = poster ?: imageUrl,
+            tmdbPosterUrl = poster ?: tmdbPosterUrl,
+            backdropUrl = background ?: backdropUrl?.takeIf { it.isNotBlank() },
             imdbId = meta.imdbId.takeIf { it.isNotBlank() } ?: imdbId,
         )
     }
@@ -1155,10 +1158,23 @@ class IptvRepository @Inject constructor(context: Context) {
         val parsedYear = releaseDateVal?.takeIf { it.length >= 4 }?.substring(0, 4)?.toIntOrNull()
             ?: this@toCatalogItem.year
 
-        val rawImageUrl = listOf(
-            logo, logoUrl, image, imageUrl, poster, posterUrl, backdrop, backdropUrl,
-        ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
-        val imageUrlVal = normalizeRemoteImageUrl(rawImageUrl).ifBlank { tmdbPosterUrlVal.orEmpty() }
+        // VOD entries expose both a poster and a title logo. The poster must
+        // be the primary card image; logos are only a fallback for channels
+        // or incomplete external metadata.
+        val rawImageUrl = if (kind == ContentKind.MOVIE || kind == ContentKind.SERIES) {
+            listOf(
+                poster, posterUrl, image, imageUrl, logo, logoUrl, backdrop, backdropUrl,
+            )
+        } else {
+            listOf(
+                logo, logoUrl, image, imageUrl, poster, posterUrl, backdrop, backdropUrl,
+            )
+        }.firstOrNull { !it.isNullOrBlank() }.orEmpty()
+        val imageUrlVal = if (kind == ContentKind.MOVIE || kind == ContentKind.SERIES) {
+            tmdbPosterUrlVal.orEmpty().ifBlank { normalizeRemoteImageUrl(rawImageUrl) }
+        } else {
+            normalizeRemoteImageUrl(rawImageUrl).ifBlank { tmdbPosterUrlVal.orEmpty() }
+        }
 
         val channelDisplayName = displayName ?: channelName
         val inferredChannelNumber = Regex("^\\s*(\\d{1,5})\\s+")

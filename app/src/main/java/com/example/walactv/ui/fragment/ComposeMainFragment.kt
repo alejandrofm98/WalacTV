@@ -380,6 +380,24 @@ class ComposeMainFragment : Fragment() {
         )
     }
 
+    internal fun replaceHomeCatalogItem(updated: CatalogItem) {
+        homeSections = homeSections.map { section ->
+            if (section.items.none { it.stableId == updated.stableId }) {
+                section
+            } else {
+                section.copy(items = section.items.map { item ->
+                    if (item.stableId == updated.stableId) updated else item
+                })
+            }
+        }
+        searchableItems = searchableItems.map { item ->
+            if (item.stableId == updated.stableId) updated else item
+        }
+        if (selectedHero?.stableId == updated.stableId) {
+            selectedHero = updated
+        }
+    }
+
     internal fun requestHomeFocusRestoreFromRail(): Boolean {
         val target = lastHomeFocusTarget
         pendingHomeFocusTarget = target

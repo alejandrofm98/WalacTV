@@ -111,6 +111,22 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         Log.d("TMDB_HOME", "hero=${heroItem.tmdbDebug()}")
     }
 
+    LaunchedEffect(heroItem?.stableId) {
+        val item = heroItem ?: return@LaunchedEffect
+        val usesExternalImages = item.usesExternalAddonImages()
+        Log.d("TMDB_HOME", "metadata candidate stableId=${item.stableId} vod=${item.isVodContent()} external=$usesExternalImages")
+        if (!item.isVodContent() || !usesExternalImages) return@LaunchedEffect
+
+        // Cinemeta is intentionally fast and English-first. Localize only
+        // the item currently promoted to the hero so Home does not fan out
+        // metadata requests for the whole catalog during first render.
+        delay(180.milliseconds)
+        fragment.repository.enrichWithSpanishMetadata(item)?.let { localized ->
+            Log.d("TMDB_HOME", "metadata applied stableId=${localized.stableId} title=${localized.title}")
+            fragment.replaceHomeCatalogItem(localized)
+        }
+    }
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(IptvBackground)) {
         val screenHeight = maxHeight
         val heroHeight   = screenHeight * HOME_HERO_FRACTION
@@ -199,6 +215,11 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         }
     }
 }
+
+private fun CatalogItem.usesExternalAddonImages(): Boolean =
+    listOf(imageUrl, backdropUrl.orEmpty()).any { url ->
+        url.contains("images.metahub.space", ignoreCase = true)
+    }
 
 // ── Backdrop inmersivo ─────────────────────────────────────────────────────
 
