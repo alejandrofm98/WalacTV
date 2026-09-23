@@ -243,6 +243,7 @@ internal fun RemoteImage(
     AsyncImage(
         model = ImageRequest.Builder(LocalContext.current)
             .data(url)
+            .size(width.coerceAtLeast(1), height.coerceAtLeast(1))
             .crossfade(true)
             .apply {
                 if (disableCache) {

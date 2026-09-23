@@ -111,22 +111,6 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         Log.d("TMDB_HOME", "hero=${heroItem.tmdbDebug()}")
     }
 
-    LaunchedEffect(heroItem?.stableId) {
-        val item = heroItem ?: return@LaunchedEffect
-        val usesExternalImages = item.usesExternalAddonImages()
-        Log.d("TMDB_HOME", "metadata candidate stableId=${item.stableId} vod=${item.isVodContent()} external=$usesExternalImages")
-        if (!item.isVodContent() || !usesExternalImages) return@LaunchedEffect
-
-        // Cinemeta is intentionally fast and English-first. Localize only
-        // the item currently promoted to the hero so Home does not fan out
-        // metadata requests for the whole catalog during first render.
-        delay(180.milliseconds)
-        fragment.repository.enrichWithSpanishMetadata(item)?.let { localized ->
-            Log.d("TMDB_HOME", "metadata applied stableId=${localized.stableId} title=${localized.title}")
-            fragment.replaceHomeCatalogItem(localized)
-        }
-    }
-
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(IptvBackground)) {
         val screenHeight = maxHeight
         val heroHeight   = screenHeight * HOME_HERO_FRACTION
@@ -215,11 +199,6 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         }
     }
 }
-
-private fun CatalogItem.usesExternalAddonImages(): Boolean =
-    listOf(imageUrl, backdropUrl.orEmpty()).any { url ->
-        url.contains("images.metahub.space", ignoreCase = true)
-    }
 
 // ── Backdrop inmersivo ─────────────────────────────────────────────────────
 
@@ -347,13 +326,13 @@ private fun HomeBackdrop(
 @Composable
 private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier = modifier.clipToBounds()) {
-        val titleTopPadding = (maxHeight - 250.dp).coerceAtLeast(44.dp)
+        val titleTopPadding = (maxHeight - 280.dp).coerceAtLeast(28.dp)
         AnimatedContent(
             targetState = item,
             transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
             modifier = Modifier
                 .padding(start = 44.dp, end = 44.dp, top = titleTopPadding)
-                .fillMaxWidth(0.48f),
+                .fillMaxWidth(0.58f),
             label = "heroContent",
         ) { animatedItem ->
             val eventCompetitionText = animatedItem?.takeIf { it.kind == ContentKind.EVENT }?.eventCompetitionText().orEmpty()
@@ -361,7 +340,7 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
                 .takeIf { it.isNotBlank() }
             val descriptionText = when {
                 animatedItem?.kind == ContentKind.EVENT -> animatedItem.description.takeIf { it.isNotBlank() && it != animatedItem.group }
-                else -> animatedItem?.description?.takeIf { it.isNotBlank() && it != animatedItem.group } ?: animatedItem?.overviewEn
+                else -> animatedItem?.description?.takeIf { it.isNotBlank() && it != animatedItem.group }
             }
 
             Column(
@@ -370,11 +349,11 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
                 Text(
                     text = animatedItem?.resolveDisplayTitle().orEmpty().ifBlank { "Inicio" },
                     color = Color.White,
-                    fontSize = 42.sp,
+                    fontSize = 38.sp,
                     fontWeight = FontWeight.Black,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 48.sp,
+                    lineHeight = 44.sp,
                 )
 
                 if (animatedItem?.kind == ContentKind.EVENT) {
@@ -419,7 +398,7 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
                         color = IptvTextSecondary,
                         fontSize = 15.sp,
                         lineHeight = 21.sp,
-                        maxLines = if (animatedItem?.kind == ContentKind.EVENT) 2 else 4,
+                        maxLines = if (animatedItem?.kind == ContentKind.EVENT) 2 else 5,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

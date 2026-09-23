@@ -67,7 +67,12 @@ fun CatalogItem.preferredVodPosterUrl(): String {
 }
 
 fun CatalogItem.preferredCardImageUrl(): String {
-    val result = if (isVodContent()) preferredVodPosterUrl() else imageUrl
+    // Landscape catalog cards look sharper with the scraped TMDB backdrop.
+    val result = if (isVodContent()) {
+        backdropUrl?.takeIf { it.isNotBlank() } ?: preferredVodPosterUrl()
+    } else {
+        imageUrl
+    }
     Log.d(TMDB_IMG_TAG, "preferredCardImageUrl stableId=${stableId.take(40)} kind=$kind isVod=${isVodContent()} result=${result.take(120)}")
     return result
 }

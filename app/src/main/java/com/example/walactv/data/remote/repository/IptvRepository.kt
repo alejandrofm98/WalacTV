@@ -25,7 +25,6 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.example.walactv.BuildConfig
@@ -87,7 +86,6 @@ class IptvRepository @Inject constructor(context: Context) {
     // ── Caches ────────────────────────────────────────────────────────────────
 
     private val filterCache = mutableMapOf<String, CatalogFilters>()
-    private val localizedMetadataCache = ConcurrentHashMap<String, CatalogItem>()
 
     @Volatile private var memoryHomeCatalog: HomeCatalog? = null
     @Volatile private var iptvEnabled: Boolean = true
@@ -169,77 +167,30 @@ class IptvRepository @Inject constructor(context: Context) {
     private fun clearAllCaches() {
         memoryHomeCatalog = null
         filterCache.clear()
-        localizedMetadataCache.clear()
     }
-
-    /**
-     * Completa una ficha con metadatos de Cinemeta y sinopsis española de TMDB.
-     *
-     * El catálogo no depende de esta llamada: si no existe un IMDb válido o el
-     * backend externo está degradado, se conserva la ficha original.
-     */
-    suspend fun enrichWithSpanishMetadata(item: CatalogItem): CatalogItem? = withContext(Dispatchers.IO) {
-        if (item.kind != ContentKind.MOVIE && item.kind != ContentKind.SERIES) return@withContext null
-
-        val baseItem = item.imdbId?.trim()?.takeIf(TorrentioClient::isImdbId)?.let { item }
-            ?: item.catalogId
-                ?.takeIf { it.isNotBlank() }
-                ?.let { lookupId -> runCatching { fetchContentItem(item.kind, lookupId) }.getOrNull() }
-            ?: item
-        val imdbId = baseItem.imdbId?.trim()?.takeIf(TorrentioClient::isImdbId)
-            ?: return@withContext null
-        val contentType = if (item.kind == ContentKind.MOVIE) "movie" else "series"
-        val cacheKey = "$contentType/$imdbId"
-        localizedMetadataCache[cacheKey]?.let { return@withContext it }
-
-        return@withContext runCatching {
-            val response = apiService.getAddonMeta(contentType, imdbId)
-            if (!response.isSuccessful) {
-                Log.w(TAG, "Spanish metadata unavailable for $cacheKey: HTTP ${response.code()}")
-                return@runCatching null
-            }
-            val meta = response.body() ?: return@runCatching null
-            baseItem.mergeAddonMetadata(meta).also { localizedMetadataCache[cacheKey] = it }
-        }.onFailure { error ->
-            Log.w(TAG, "Spanish metadata request failed for $cacheKey", error)
-        }.getOrNull()
-    }
-
-    private fun CatalogItem.mergeAddonMetadata(meta: AddonMetaDto): CatalogItem {
-        val title = meta.titleEs.orEmpty().ifBlank { nameOrTitleFallback() }
-        val description = meta.overviewEs.orEmpty().ifBlank {
-            this@mergeAddonMetadata.description.ifBlank { meta.descriptionEn.orEmpty() }
-        }
-        val poster = meta.poster?.takeIf { it.isNotBlank() }
-        val background = meta.background?.takeIf { it.isNotBlank() }
-        return copy(
-            title = title,
-            description = description,
-            overviewEn = meta.descriptionEn?.takeIf { it.isNotBlank() } ?: overviewEn,
-            genres = genres.ifEmpty { meta.genres },
-            imageUrl = poster ?: imageUrl,
-            tmdbPosterUrl = poster ?: tmdbPosterUrl,
-            backdropUrl = background ?: backdropUrl?.takeIf { it.isNotBlank() },
-            imdbId = meta.imdbId.takeIf { it.isNotBlank() } ?: imdbId,
-        )
-    }
-
-    private fun CatalogItem.nameOrTitleFallback(): String = title.ifBlank { subtitle }
 
     suspend fun loadCinemetaCatalog(
         kind: ContentKind,
         skip: Int = 0,
         searchQuery: String? = null,
-    ): List<CatalogItem> =
+    ): List<CatalogItem> = loadCinemetaCatalogPage(kind, skip, searchQuery).first
+
+    suspend fun loadCinemetaCatalogPage(
+        kind: ContentKind,
+        skip: Int = 0,
+        searchQuery: String? = null,
+    ): Pair<List<CatalogItem>, Boolean> =
         withContext(Dispatchers.IO) {
-            if (kind != ContentKind.MOVIE && kind != ContentKind.SERIES) return@withContext emptyList()
+            if (kind != ContentKind.MOVIE && kind != ContentKind.SERIES) return@withContext emptyList<CatalogItem>() to false
             val contentType = if (kind == ContentKind.MOVIE) "movie" else "series"
             val response = apiService.getAddonCatalog(contentType, "top", skip, searchQuery)
             if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
-            response.body()?.items.orEmpty()
+            val body = response.body()
+            val items = body?.items.orEmpty()
                 .map { it.toCatalogItem(kind) }
                 .filter { it.imdbId?.let(TorrentioClient::isImdbId) == true }
                 .distinctBy(CatalogItem::stableId)
+            items to (body?.has_next == true)
         }
 
     suspend fun loadCinemetaSeriesEpisodes(imdbId: String): List<CatalogItem> =
@@ -832,10 +783,6 @@ class IptvRepository @Inject constructor(context: Context) {
         if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
         val payload = response.body() ?: throw IllegalStateException("Empty response body")
         val remote = resolveStreamTemplates(mapHomeCatalogResponse(payload))
-        val hasProviderVod = remote.searchableItems.any {
-            it.kind == ContentKind.MOVIE || it.kind == ContentKind.SERIES
-        }
-        if (hasProviderVod) return remote
 
         val externalSections = coroutineScope {
             val movies = async { runCatching { loadCinemetaCatalog(ContentKind.MOVIE) }.getOrDefault(emptyList()) }
@@ -850,9 +797,15 @@ class IptvRepository @Inject constructor(context: Context) {
             }
         }
         if (externalSections.isEmpty()) return remote
+        val externalKinds = externalSections.flatMap(BrowseSection::items).mapTo(mutableSetOf()) { it.kind }
+        val nonVodSections = remote.sections.mapNotNull { section ->
+            val items = section.items.filterNot { it.kind in externalKinds }
+            section.copy(items = items).takeIf { items.isNotEmpty() }
+        }
+        val nonVodSearchable = remote.searchableItems.filterNot { it.kind in externalKinds }
         return remote.copy(
-            sections = remote.sections + externalSections,
-            searchableItems = (remote.searchableItems + externalSections.flatMap(BrowseSection::items))
+            sections = nonVodSections + externalSections,
+            searchableItems = (nonVodSearchable + externalSections.flatMap(BrowseSection::items))
                 .distinctBy(CatalogItem::stableId),
         )
     }

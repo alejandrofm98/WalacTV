@@ -70,7 +70,8 @@ internal fun ComposeMainFragment.buildContinueWatchingItem(
 ): CatalogItem {
     val kind = if (wp.contentType == "series") ContentKind.SERIES else ContentKind.MOVIE
     val subtitle = if (wp.contentType == "series") buildEpisodeLabel(wp.seasonNumber, wp.episodeNumber) else ""
-    val fallbackTitle = wp.normalizedTitle.cleanDisplayText()
+    val fallbackTitle = wp.tmdbTitle.cleanDisplayText()
+        .ifBlank { wp.normalizedTitle.cleanDisplayText() }
         .ifBlank { wp.seriesName.cleanDisplayText() }
         .ifBlank { wp.title.cleanDisplayText() }
     val fallbackStableId = if (wp.contentType == "series") "cw_series:${wp.contentId}" else "cw_movie:${wp.contentId}"
@@ -91,13 +92,21 @@ internal fun ComposeMainFragment.buildContinueWatchingItem(
             "wpTmdb=${wp.tmdbTitle.orEmpty()} wpBackdrop=${wp.backdropPath.orEmpty()} wpPoster=${wp.posterPath.orEmpty()} wpImage=${(wp.imageUrl ?: "").take(80)}",
     )
 
+    val displayTitle = wp.tmdbTitle.cleanDisplayText()
+        .ifBlank { matched?.resolveDisplayTitle()?.cleanDisplayText().orEmpty() }
+        .ifBlank { fallbackTitle }
+
     return matched?.copy(
         stableId = fallbackStableId,
         providerId = wp.contentId,
-        title = fallbackTitle,
+        title = displayTitle,
+        tmdbTitle = displayTitle,
         normalizedTitle = null,
         subtitle = subtitle,
-        description = matched.description.cleanDisplayText().ifBlank { wp.title.orEmpty() },
+        description = wp.overviewEs.cleanDisplayText()
+            .ifBlank { matched.description.cleanDisplayText() }
+            .ifBlank { wp.overview.cleanDisplayText() }
+            .ifBlank { wp.title.orEmpty() },
         imageUrl = matched.imageUrl.ifBlank { wp.imageUrl.orEmpty() },
         seriesName = matched.seriesName.cleanDisplayText().ifBlank { wp.seriesName.orEmpty() }.ifBlank { null },
     ) ?: wp.toCatalogItemFallback(
@@ -124,7 +133,9 @@ private fun WatchProgressDto.toCatalogItemFallback(
         title = title,
         normalizedTitle = null,
         subtitle = subtitle,
-        description = overview.cleanDisplayText().ifBlank { this.title.orEmpty() },
+        description = overviewEs.cleanDisplayText()
+            .ifBlank { overview.cleanDisplayText() }
+            .ifBlank { this.title.orEmpty() },
         imageUrl = imageUrl.ifBlank { tmdbPosterUrl.orEmpty() },
         kind = kind,
         group = "Continuar viendo",

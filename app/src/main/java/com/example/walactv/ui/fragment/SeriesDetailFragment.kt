@@ -181,18 +181,8 @@ class SeriesDetailFragment : Fragment() {
         seriesBackdropUrl = catalogItem?.backdropUrl.orEmpty()
         seriesPosterUrl = catalogItem?.preferredVodPosterUrl().orEmpty()
 
-        var localizedItem by mutableStateOf(catalogItem)
-        if (catalogItem != null) {
-            // La pantalla usa la ficha del catálogo inmediatamente y sustituye
-            // título/sinopsis cuando llega la versión española.
-            viewLifecycleOwner.lifecycleScope.launch {
-                repository.enrichWithSpanishMetadata(catalogItem)?.let { enriched ->
-                    localizedItem = enriched
-                    seriesBackdropUrl = enriched.backdropUrl.orEmpty()
-                    seriesPosterUrl = enriched.preferredVodPosterUrl()
-                }
-            }
-        }
+        // The catalog endpoint already returns scraper-localized fields from the database.
+        val localizedItem = catalogItem
 
         Log.d(TAG, "SeriesDetailFragment: seriesName='$seriesName' seriesId=$seriesId initialSeason=$initialSeason initialEpisode=$initialEpisode")
         return ComposeView(requireContext()).apply {
@@ -416,25 +406,26 @@ fun SeriesDetailScreen(
             val externalImdb = initialSeriesItem?.imdbId
                 ?.takeIf(TorrentioClient::isImdbId)
                 ?.takeIf { initialSeriesItem?.catalogId == it }
-            if (externalImdb != null) {
-                val externalEpisodes = runCatching {
-                    repository.loadCinemetaSeriesEpisodes(externalImdb)
-                }.getOrDefault(emptyList())
-                if (externalEpisodes.isNotEmpty()) {
-                    value = externalEpisodes
-                    return@produceState
-                }
+            val providerCatalogId = initialSeriesItem?.let { item ->
+                item.catalogId?.takeIf { it.isNotBlank() && it != item.imdbId }
             }
-            var episodes = if (!seriesId.isNullOrBlank()) {
-                val byId = runCatching { repository.loadSeriesEpisodesById(seriesId) }.getOrElse { emptyList() }
-                Log.d("SeriesDetail", "byId '$seriesId' -> ${byId.size} eps")
-                if (byId.isNotEmpty()) byId else runCatching { repository.loadSeriesEpisodes(seriesName) }.getOrElse { emptyList() }.also {
-                    Log.d("SeriesDetail", "fallback byName '$seriesName' -> ${it.size} eps")
-                }
+            var episodes = if (!providerCatalogId.isNullOrBlank()) {
+                runCatching { repository.loadSeriesEpisodesById(providerCatalogId) }.getOrElse { emptyList() }
+                    .also { Log.d("SeriesDetail", "provider id '$providerCatalogId' -> ${it.size} eps") }
             } else {
-                val byName = runCatching { repository.loadSeriesEpisodes(seriesName) }.getOrElse { emptyList() }
-                Log.d("SeriesDetail", "byName '$seriesName' -> ${byName.size} eps")
-                byName
+                emptyList()
+            }
+            if (episodes.isEmpty() && !seriesId.isNullOrBlank()) {
+                episodes = runCatching { repository.loadSeriesEpisodesById(seriesId) }.getOrElse { emptyList() }
+                Log.d("SeriesDetail", "byId '$seriesId' -> ${episodes.size} eps")
+            }
+            if (episodes.isEmpty()) {
+                episodes = runCatching { repository.loadSeriesEpisodes(seriesName) }.getOrElse { emptyList() }
+                    .also { Log.d("SeriesDetail", "fallback byName '$seriesName' -> ${it.size} eps") }
+            }
+            if (episodes.isEmpty() && externalImdb != null) {
+                episodes = runCatching { repository.loadCinemetaSeriesEpisodes(externalImdb) }
+                    .getOrDefault(emptyList())
             }
             if (episodes.isEmpty()) {
                 // 1) titulo alternativo (tmdbTitle / title)

@@ -4,6 +4,7 @@ import android.util.Log
 import android.widget.ImageView.ScaleType.CENTER_CROP
 import android.widget.ImageView.ScaleType.FIT_CENTER
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -275,10 +276,14 @@ internal fun MediaCard(
         isChannel -> CH_IMAGE_HEIGHT
         else -> VOD_IMAGE_HEIGHT
     }
-    val textAreaHeight = if (isEvent) EVENT_TEXT_AREA_HEIGHT else CH_TEXT_AREA_HEIGHT
+    val textAreaHeight = when {
+        isVod -> VOD_TEXT_AREA_HEIGHT
+        isEvent -> EVENT_TEXT_AREA_HEIGHT
+        else -> CH_TEXT_AREA_HEIGHT
+    }
 
     val vodModifier = if (isVod && narrowCard) {
-        Modifier.fillMaxWidth().aspectRatio(2f / 3f)
+        Modifier.fillMaxWidth()
     } else {
         Modifier.width(cardWidth)
     }
@@ -337,43 +342,78 @@ internal fun MediaCard(
         .then(clickModifier)
 
     if (isVod) {
-        Box(
-            modifier = baseModifier.then(if (narrowCard) Modifier else Modifier.background(IptvSurfaceVariant)),
-            contentAlignment = Alignment.Center,
+        Column(
+            modifier = baseModifier.background(IptvCard),
         ) {
             val cardImgUrl = item.preferredCardImageUrl()
             Log.d("TMDB_IMG", "MediaCard vod stableId=${item.stableId.take(40)} kind=${item.kind} url=${cardImgUrl.take(120)}")
-            if (cardImgUrl.isNotBlank()) {
-                RemoteImage(
-                    url = cardImgUrl,
-                    width = 300,
-                    height = 450,
-                    scaleType = CENTER_CROP,
-                )
-            } else {
-                PlaceholderIcon(kind = item.kind)
-            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (narrowCard) Modifier.aspectRatio(16f / 9f) else Modifier.height(imageHeight))
+                    .background(IptvSurfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (cardImgUrl.isNotBlank()) {
+                    RemoteImage(
+                        url = cardImgUrl,
+                        width = 520,
+                        height = 293,
+                        scaleType = CENTER_CROP,
+                    )
+                } else {
+                    PlaceholderIcon(kind = item.kind)
+                }
 
-            item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES }?.let { badge ->
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .background(IptvSurface.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                ) {
-                    Text(badge, color = IptvTextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES }?.let { badge ->
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .background(IptvSurface.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                    ) {
+                        Text(badge, color = IptvTextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                if (item.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
+
+                if (isFocused) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .border(2.dp, IptvFocusBorder, RoundedCornerShape(10.dp)),
+                    )
                 }
             }
 
-            if (item.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
-
-            if (isFocused) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .border(2.dp, IptvFocusBorder, RoundedCornerShape(10.dp)),
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(textAreaHeight)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = item.resolveDisplayTitle(),
+                    color = IptvTextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = if (isFocused) 1 else 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp,
+                    modifier = if (isFocused) Modifier.basicMarquee() else Modifier,
                 )
+                item.year?.toString()?.takeIf { it.isNotBlank() }?.let { year ->
+                    Text(
+                        text = year,
+                        color = IptvTextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     } else {

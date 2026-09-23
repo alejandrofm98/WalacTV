@@ -5,4 +5,5 @@ data class AddonCatalogResponse(
     val content_type: String? = null,
     val catalog_id: String? = null,
     val skip: Int = 0,
+    val has_next: Boolean = false,
 )

@@ -24,6 +24,7 @@ data class WatchProgressDto(
     @SerializedName("last_watched_at") val lastWatchedAt: String? = null,
     @SerializedName("is_watched") val isWatched: Boolean? = null,
     val overview: String? = null,
+    @SerializedName("overview_es") val overviewEs: String? = null,
     @SerializedName("overview_en") val overviewEn: String? = null,
     @SerializedName("vote_average") val voteAverage: Double? = null,
     @SerializedName("vote_count") val voteCount: Int? = null,

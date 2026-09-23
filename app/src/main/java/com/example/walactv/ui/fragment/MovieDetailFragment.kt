@@ -136,16 +136,8 @@ class MovieDetailFragment : Fragment() {
     ): View {
         val item = parseArguments(requireArguments())
         val repository = IptvRepository(requireContext())
-        var localizedItem by mutableStateOf(item)
-
-        // La ficha base llega con el catálogo para que la pantalla abra rápido.
-        // Cinemeta/TMDB completa título y sinopsis en español en segundo plano.
-        viewLifecycleOwner.lifecycleScope.launch {
-            repository.enrichWithSpanishMetadata(item)?.let { enriched ->
-                cachedItems[item.stableId] = enriched
-                localizedItem = enriched
-            }
-        }
+        // The catalog endpoint already returns scraper-localized fields from the database.
+        val localizedItem = item
 
         // Cargar fuentes Torrentio (consulta directa al addon) para la pelicula.
         // Solo si hay imdb_id valido; sin el no se consulta y no se marca error.
