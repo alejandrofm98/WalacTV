@@ -1846,13 +1846,17 @@ private var overlayBackdropUrl: String = ""
         val composeView = torrentOverlayView ?: return
         torrentOverlayActive = true
         torrentStatsJob?.cancel()
+        composeView.setContent {
+            com.example.walactv.ui.overlay.TorrentLoadingOverlay(
+                stats = null,
+                title = overlayTitle,
+                posterUrl = (overlayBackdropUrl.ifBlank { overlayLogoUrl }).ifBlank { null },
+            )
+        }
         torrentStatsJob = viewLifecycleOwner.lifecycleScope.launch {
             engine.stats.collect { st ->
                 if (!torrentOverlayActive) return@collect
-                if (st == null) {
-                    hideTorrentOverlay()
-                    return@collect
-                }
+                if (st == null) return@collect
                 composeView.setContent {
                     com.example.walactv.ui.overlay.TorrentLoadingOverlay(
                         stats = st,

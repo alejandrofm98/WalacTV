@@ -48,6 +48,7 @@ import com.example.walactv.ui.compose.LONG_PRESS_THRESHOLD_MS
 import com.example.walactv.ui.compose.WatchedBadge
 import com.example.walactv.ui.compose.buildEpisodeLabel
 import com.example.walactv.ui.compose.ExpandableSynopsis
+import com.example.walactv.ui.compose.TitleLogoOrText
 import com.example.walactv.ui.compose.tvClickable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -402,18 +403,22 @@ fun SeriesDetailScreen(
     var lastPlayedStableId by remember { mutableStateOf<String?>(null) }
     val playedReturnRequester = remember { FocusRequester() }
     var externalSeriesMetadata by remember(loadKey) { mutableStateOf<CatalogItem?>(null) }
+    var externalSeriesEpisodes by remember(loadKey) { mutableStateOf<List<CatalogItem>>(emptyList()) }
 
     val allEpisodesState = produceState<List<CatalogItem>>(initialValue = emptyList(), loadKey, episodesReloadTrigger) {
         try {
             loadError = null
             Log.d("SeriesDetail", "load start seriesName='$seriesName' seriesId='$seriesId'")
-            val externalImdb = initialSeriesItem?.imdbId
-                ?.takeIf(TorrentioClient::isImdbId)
-                ?.takeIf { initialSeriesItem?.catalogId == it }
-            if (externalImdb != null) {
-                val content = repository.loadCinemetaSeriesContent(externalImdb)
-                externalSeriesMetadata = content?.series
-                value = content?.episodes.orEmpty()
+            val externalImdb = initialSeriesItem?.imdbId?.takeIf(TorrentioClient::isImdbId)
+            val externalContent = externalImdb?.let { imdb ->
+                runCatching { repository.loadCinemetaSeriesContent(imdb) }
+                    .onFailure { Log.w("SeriesDetail", "Could not load saved Cinemeta episodes for $imdb", it) }
+                    .getOrNull()
+            }
+            externalSeriesMetadata = externalContent?.series
+            externalSeriesEpisodes = externalContent?.episodes.orEmpty()
+            if (externalImdb != null && initialSeriesItem?.catalogId == externalImdb) {
+                value = externalSeriesEpisodes
                 if (value.isEmpty()) loadError = "No se encontraron episodios para '$seriesName'"
                 return@produceState
             }
@@ -520,7 +525,16 @@ fun SeriesDetailScreen(
             isLoading = false
         }
     }
-    val allEpisodes = allEpisodesState.value
+    val allEpisodes = remember(allEpisodesState.value, externalSeriesEpisodes) {
+        val localizedByEpisode = externalSeriesEpisodes.associateBy {
+            it.seasonNumber to it.episodeNumber
+        }
+        allEpisodesState.value.map { episode ->
+            val spanish = localizedByEpisode[episode.seasonNumber to episode.episodeNumber]
+                ?.overviewEs?.takeIf { it.isNotBlank() }
+            if (spanish == null) episode else episode.copy(description = spanish, overviewEs = spanish)
+        }
+    }
 
     val watchProgressRepo = remember { (context.applicationContext as WalacApp).appComponent.watchProgressRepository }
     val episodeSeriesIds = remember(allEpisodes, seriesId, initialSeriesItem) {
@@ -832,6 +846,7 @@ fun SeriesDetailScreen(
                 overviewEn = initial.overviewEn?.takeIf { it.isNotBlank() } ?: external.overviewEn,
                 genres = initial.genres.ifEmpty { external.genres },
                 backdropUrl = initial.backdropUrl?.takeIf { it.isNotBlank() } ?: external.backdropUrl,
+                titleLogoUrl = initial.titleLogoUrl?.takeIf { it.isNotBlank() } ?: external.titleLogoUrl,
                 tmdbPosterUrl = initial.tmdbPosterUrl?.takeIf { it.isNotBlank() } ?: external.tmdbPosterUrl,
                 tmdbTitle = initial.tmdbTitle?.takeIf { it.isNotBlank() } ?: external.tmdbTitle,
             )
@@ -845,9 +860,12 @@ fun SeriesDetailScreen(
     val totalSeasons = seriesItem?.totalSeasons ?: seasons.size
     val year = seriesItem?.year?.toString() ?: seriesItem?.releaseDate?.take(4) ?: ""
     val genres = seriesItem?.genres?.joinToString(", ") ?: ""
-    val synopsis = focusedEpisode?.displaySynopsis()?.takeIf { it.isNotBlank() }
-        ?: seriesItem?.displaySynopsis()?.takeIf { it.isNotBlank() }
-        ?: "Sin sinopsis disponible."
+    val selectedEpisode = focusedEpisode
+    val synopsis = if (selectedEpisode != null) {
+        selectedEpisode.displaySynopsis().ifBlank { "Sin sinopsis disponible para este episodio." }
+    } else {
+        seriesItem?.displaySynopsis()?.takeIf { it.isNotBlank() } ?: "Sin sinopsis disponible."
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (bgUrl.isNotBlank()) {
@@ -917,7 +935,7 @@ fun SeriesDetailScreen(
 
             item {
                 Column(modifier = Modifier.fillMaxWidth(0.55f)) {
-                    Text(seriesDisplayName, color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold, lineHeight = 56.sp)
+                    TitleLogoOrText(seriesDisplayName, seriesItem?.titleLogoUrl, color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold, lineHeight = 56.sp)
                     Spacer(Modifier.height(8.dp))
                     val metaList = listOfNotNull(
                         year.takeIf { it.isNotBlank() },

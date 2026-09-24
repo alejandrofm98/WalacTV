@@ -346,8 +346,9 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
+                TitleLogoOrText(
                     text = heroTitle,
+                    logoUrl = animatedItem?.takeIf { it.isVodContent() }?.titleLogoUrl,
                     color = Color.White,
                     fontSize = if (longTitle) 31.sp else 38.sp,
                     fontWeight = FontWeight.Black,

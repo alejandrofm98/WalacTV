@@ -216,8 +216,10 @@ class IptvRepository @Inject constructor(context: Context) {
                 group = "Cinemeta",
                 badgeText = "",
                 overviewEn = meta.descriptionEn?.takeIf { it.isNotBlank() },
+                overviewEs = meta.overviewEs?.takeIf { it.isNotBlank() },
                 genres = meta.genres,
                 backdropUrl = meta.background,
+                titleLogoUrl = meta.logo,
                 tmdbPosterUrl = meta.poster,
                 year = meta.year?.take(4)?.toIntOrNull(),
                 tmdbTitle = meta.titleEs,
@@ -260,6 +262,7 @@ class IptvRepository @Inject constructor(context: Context) {
         airDate = episode.released,
         tmdbTitle = meta.titleEs,
         overviewEn = episode.overviewEn?.takeIf { it.isNotBlank() },
+        overviewEs = episode.overviewEs?.takeIf { it.isNotBlank() },
     )
 
     // ── Home catalog ──────────────────────────────────────────────────────────
@@ -1120,6 +1123,7 @@ class IptvRepository @Inject constructor(context: Context) {
         )
 
         val descriptionVal = listOf(
+            overviewEs,
             overview,
             this.description,
             overviewEn,
@@ -1241,12 +1245,17 @@ class IptvRepository @Inject constructor(context: Context) {
             streamOptions = streamOptionsFinal,
             isWatched = this@toCatalogItem.isWatched == true,
             overviewEn = overviewEn?.takeIf { it.isNotBlank() },
+            overviewEs = overviewEs?.takeIf { it.isNotBlank() },
             voteAverage = rating,
             voteCount = voteCount,
             runtimeMinutes = runtimeMinutes,
             genres = genres.orEmpty(),
             countries = this@toCatalogItem.countries.orEmpty(),
             backdropUrl = backdropUrlVal,
+            titleLogoUrl = if ((kind == ContentKind.MOVIE || kind == ContentKind.SERIES) &&
+                catalogIdVal?.startsWith("tt") == true && providerIdStr == null) {
+                (logo ?: logoUrl)?.takeIf { it.isNotBlank() }?.let(::normalizeRemoteImageUrl)
+            } else null,
             tmdbPosterUrl = tmdbPosterUrlVal,
             tagline = null,
             releaseDate = releaseDateVal,

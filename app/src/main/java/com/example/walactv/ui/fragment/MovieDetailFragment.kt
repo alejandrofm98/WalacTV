@@ -38,6 +38,7 @@ import androidx.compose.ui.layout.layout
 import com.example.walactv.data.util.isSeasonPackTitle
 import com.example.walactv.data.util.languageBadgeLabel
 import com.example.walactv.ui.compose.ExpandableSynopsis
+import com.example.walactv.ui.compose.TitleLogoOrText
 import com.example.walactv.ui.compose.tvClickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -116,6 +117,7 @@ class MovieDetailFragment : Fragment() {
                 putString("description", item.description)
                 putString("imageUrl", item.imageUrl)
                 putString("backdropUrl", item.backdropUrl)
+                putString("titleLogoUrl", item.titleLogoUrl)
                 putString("tmdbPosterUrl", item.tmdbPosterUrl.orEmpty())
                 putDouble("voteAverage", item.voteAverage ?: 0.0)
                 putInt("voteCount", item.voteCount ?: 0)
@@ -362,6 +364,7 @@ class MovieDetailFragment : Fragment() {
             group = args.getString("group") ?: "",
             badgeText = "",
             backdropUrl = args.getString("backdropUrl"),
+            titleLogoUrl = args.getString("titleLogoUrl"),
             voteAverage = args.getDouble("voteAverage").takeIf { it > 0 },
             voteCount = args.getInt("voteCount").takeIf { it > 0 },
             tagline = args.getString("tagline"),
@@ -516,8 +519,9 @@ fun MovieDetailScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                 ) {
-                    Text(
+                    TitleLogoOrText(
                         text = item.title,
+                        logoUrl = item.titleLogoUrl,
                         color = IptvTextPrimary,
                         fontSize = 56.sp,
                         fontWeight = FontWeight.ExtraBold,

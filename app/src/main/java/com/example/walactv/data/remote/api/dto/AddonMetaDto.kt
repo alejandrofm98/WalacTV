@@ -12,6 +12,7 @@ data class AddonMetaDto(
     @SerializedName("title_es") val titleEs: String? = null,
     val poster: String? = null,
     val background: String? = null,
+    val logo: String? = null,
     val genres: List<String> = emptyList(),
     @SerializedName("imdb_rating") val imdbRating: String? = null,
     @SerializedName("moviedb_id") val movieDbId: Int? = null,

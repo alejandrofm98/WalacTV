@@ -18,6 +18,7 @@ data class CatalogItemDto(
     val description: String? = null,
     @SerializedName("overview") val overview: String? = null,
     @SerializedName("overview_en") val overviewEn: String? = null,
+    @SerializedName("overview_es") val overviewEs: String? = null,
     @SerializedName("image_url") val imageUrl: String? = null,
     @SerializedName("poster_path") val posterPath: String? = null,
     @SerializedName("backdrop_path") val backdropPath: String? = null,
