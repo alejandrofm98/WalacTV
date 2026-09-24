@@ -401,6 +401,7 @@ fun SeriesDetailScreen(
     // Capitulo en reproduccion: al cerrar el player el foco vuelve a su tarjeta.
     var lastPlayedStableId by remember { mutableStateOf<String?>(null) }
     val playedReturnRequester = remember { FocusRequester() }
+    var externalSeriesMetadata by remember(loadKey) { mutableStateOf<CatalogItem?>(null) }
 
     val allEpisodesState = produceState<List<CatalogItem>>(initialValue = emptyList(), loadKey, episodesReloadTrigger) {
         try {
@@ -410,7 +411,9 @@ fun SeriesDetailScreen(
                 ?.takeIf(TorrentioClient::isImdbId)
                 ?.takeIf { initialSeriesItem?.catalogId == it }
             if (externalImdb != null) {
-                value = repository.loadCinemetaSeriesEpisodes(externalImdb)
+                val content = repository.loadCinemetaSeriesContent(externalImdb)
+                externalSeriesMetadata = content?.series
+                value = content?.episodes.orEmpty()
                 if (value.isEmpty()) loadError = "No se encontraron episodios para '$seriesName'"
                 return@produceState
             }
@@ -822,7 +825,18 @@ fun SeriesDetailScreen(
         return
     }
 
-    val seriesItem = initialSeriesItem ?: allEpisodes.firstOrNull { it.totalSeasons != null } ?: allEpisodes.firstOrNull()
+    val seriesItem = externalSeriesMetadata?.let { external ->
+        initialSeriesItem?.let { initial ->
+            initial.copy(
+                description = initial.displaySynopsis().ifBlank { external.displaySynopsis() },
+                overviewEn = initial.overviewEn?.takeIf { it.isNotBlank() } ?: external.overviewEn,
+                genres = initial.genres.ifEmpty { external.genres },
+                backdropUrl = initial.backdropUrl?.takeIf { it.isNotBlank() } ?: external.backdropUrl,
+                tmdbPosterUrl = initial.tmdbPosterUrl?.takeIf { it.isNotBlank() } ?: external.tmdbPosterUrl,
+                tmdbTitle = initial.tmdbTitle?.takeIf { it.isNotBlank() } ?: external.tmdbTitle,
+            )
+        } ?: external
+    } ?: initialSeriesItem ?: allEpisodes.firstOrNull { it.totalSeasons != null } ?: allEpisodes.firstOrNull()
     val bgUrl = seriesItem?.backdropUrl?.takeIf { it.isNotBlank() }
         ?: seriesItem?.tmdbPosterUrl?.takeIf { it.isNotBlank() }
         ?: seriesItem?.imageUrl?.takeIf { it.isNotBlank() }

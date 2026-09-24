@@ -75,6 +75,11 @@ internal fun mergeChannelVariants(items: List<CatalogItem>): List<CatalogItem> {
     return nonChannels + merged
 }
 
+data class CinemetaSeriesContent(
+    val series: CatalogItem,
+    val episodes: List<CatalogItem>,
+)
+
 @Singleton
 class IptvRepository @Inject constructor(context: Context) {
 
@@ -193,17 +198,37 @@ class IptvRepository @Inject constructor(context: Context) {
             items to (body?.has_next == true)
         }
 
-    suspend fun loadCinemetaSeriesEpisodes(imdbId: String): List<CatalogItem> =
+    suspend fun loadCinemetaSeriesContent(imdbId: String): CinemetaSeriesContent? =
         withContext(Dispatchers.IO) {
-            if (!TorrentioClient.isImdbId(imdbId)) return@withContext emptyList()
+            if (!TorrentioClient.isImdbId(imdbId)) return@withContext null
             val response = apiService.getAddonMeta("series", imdbId, includeVideos = true)
-            if (!response.isSuccessful) return@withContext emptyList()
-            val meta = response.body() ?: return@withContext emptyList()
-            meta.episodes.mapNotNull { episode ->
+            if (!response.isSuccessful) return@withContext null
+            val meta = response.body() ?: return@withContext null
+            val series = CatalogItem(
+                stableId = "series:$imdbId",
+                catalogId = imdbId,
+                title = meta.titleEs?.ifBlank { null } ?: meta.name.orEmpty(),
+                subtitle = "",
+                description = meta.overviewEs?.takeIf { it.isNotBlank() }
+                    ?: meta.descriptionEn?.takeIf { it.isNotBlank() }.orEmpty(),
+                imageUrl = meta.poster.orEmpty(),
+                kind = ContentKind.SERIES,
+                group = "Cinemeta",
+                badgeText = "",
+                overviewEn = meta.descriptionEn?.takeIf { it.isNotBlank() },
+                genres = meta.genres,
+                backdropUrl = meta.background,
+                tmdbPosterUrl = meta.poster,
+                year = meta.year?.take(4)?.toIntOrNull(),
+                tmdbTitle = meta.titleEs,
+                imdbId = imdbId,
+            )
+            val episodes = meta.episodes.mapNotNull { episode ->
                 val season = episode.season ?: return@mapNotNull null
                 val number = episode.episode ?: return@mapNotNull null
                 mapCinemetaEpisode(imdbId, meta, episode, season, number)
             }.sortedWith(compareBy({ it.seasonNumber ?: Int.MAX_VALUE }, { it.episodeNumber ?: Int.MAX_VALUE }))
+            CinemetaSeriesContent(series, episodes)
         }
 
     private fun mapCinemetaEpisode(

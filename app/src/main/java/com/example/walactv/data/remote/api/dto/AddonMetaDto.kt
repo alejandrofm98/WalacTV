@@ -6,6 +6,7 @@ data class AddonMetaDto(
     @SerializedName("imdb_id") val imdbId: String,
     @SerializedName("content_type") val contentType: String,
     val name: String? = null,
+    val year: String? = null,
     @SerializedName("description_en") val descriptionEn: String? = null,
     @SerializedName("overview_es") val overviewEs: String? = null,
     @SerializedName("title_es") val titleEs: String? = null,
