@@ -842,8 +842,11 @@ fun SeriesDetailScreen(
     val seriesItem = externalSeriesMetadata?.let { external ->
         initialSeriesItem?.let { initial ->
             initial.copy(
-                description = initial.displaySynopsis().ifBlank { external.displaySynopsis() },
+                description = initial.overviewEs?.takeIf { it.isNotBlank() }
+                    ?: external.overviewEs?.takeIf { it.isNotBlank() }
+                    ?: initial.displaySynopsis().ifBlank { external.displaySynopsis() },
                 overviewEn = initial.overviewEn?.takeIf { it.isNotBlank() } ?: external.overviewEn,
+                overviewEs = initial.overviewEs?.takeIf { it.isNotBlank() } ?: external.overviewEs,
                 genres = initial.genres.ifEmpty { external.genres },
                 backdropUrl = initial.backdropUrl?.takeIf { it.isNotBlank() } ?: external.backdropUrl,
                 titleLogoUrl = initial.titleLogoUrl?.takeIf { it.isNotBlank() } ?: external.titleLogoUrl,
