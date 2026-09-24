@@ -2,6 +2,7 @@ package com.example.walactv.ui.compose
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -665,8 +666,10 @@ private fun ChannelListItem(
                 color = titleColor,
                 fontSize = 14.sp,
                 fontWeight = if (isHighlighted || isPlaying) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                maxLines = if (isHighlighted) 1 else 2,
+                softWrap = !isHighlighted,
+                overflow = if (isHighlighted) TextOverflow.Visible else TextOverflow.Ellipsis,
+                modifier = if (isHighlighted) Modifier.basicMarquee() else Modifier,
             )
             if (item.group.isNotBlank()) {
                 Text(

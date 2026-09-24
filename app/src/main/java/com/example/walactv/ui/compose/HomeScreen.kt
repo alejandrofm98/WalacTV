@@ -43,6 +43,7 @@ import com.example.walactv.BuildConfig
 import com.example.walactv.data.model.BrowseSection
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.displaySynopsis
 import com.example.walactv.data.model.isVodContent
 import com.example.walactv.data.model.preferredVodPosterUrl
 import com.example.walactv.ui.fragment.ComposeMainFragment
@@ -338,22 +339,21 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
             val eventCompetitionText = animatedItem?.takeIf { it.kind == ContentKind.EVENT }?.eventCompetitionText().orEmpty()
             val eventTimeText = animatedItem?.takeIf { it.kind == ContentKind.EVENT }?.badgeText.orEmpty()
                 .takeIf { it.isNotBlank() }
-            val descriptionText = when {
-                animatedItem?.kind == ContentKind.EVENT -> animatedItem.description.takeIf { it.isNotBlank() && it != animatedItem.group }
-                else -> animatedItem?.description?.takeIf { it.isNotBlank() && it != animatedItem.group }
-            }
+            val descriptionText = animatedItem?.displaySynopsis()?.takeIf { it.isNotBlank() }
+            val heroTitle = animatedItem?.resolveDisplayTitle().orEmpty().ifBlank { "Inicio" }
+            val longTitle = heroTitle.length > 40
 
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = animatedItem?.resolveDisplayTitle().orEmpty().ifBlank { "Inicio" },
+                    text = heroTitle,
                     color = Color.White,
-                    fontSize = 38.sp,
+                    fontSize = if (longTitle) 31.sp else 38.sp,
                     fontWeight = FontWeight.Black,
-                    maxLines = 2,
+                    maxLines = if (longTitle) 3 else 2,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 44.sp,
+                    lineHeight = if (longTitle) 36.sp else 44.sp,
                 )
 
                 if (animatedItem?.kind == ContentKind.EVENT) {
@@ -398,7 +398,7 @@ private fun HomeHeroText(item: CatalogItem?, modifier: Modifier = Modifier) {
                         color = IptvTextSecondary,
                         fontSize = 15.sp,
                         lineHeight = 21.sp,
-                        maxLines = if (animatedItem?.kind == ContentKind.EVENT) 2 else 5,
+                        maxLines = if (animatedItem?.kind == ContentKind.EVENT) 2 else if (longTitle) 4 else 5,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

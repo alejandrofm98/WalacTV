@@ -25,6 +25,8 @@ data class CatalogItemDto(
     @SerializedName(value = "rating", alternate = ["vote_average"]) val rating: Double? = null,
     val year: Int? = null,
     @SerializedName("release_date") val releaseDate: String? = null,
+    @SerializedName("last_air_date") val lastAirDate: String? = null,
+    val status: String? = null,
     val genres: List<String>? = null,
     @SerializedName(value = "runtime_minutes", alternate = ["runtime"]) val runtimeMinutes: Int? = null,
     @SerializedName("total_seasons") val totalSeasons: Int? = null,

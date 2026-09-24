@@ -66,6 +66,8 @@
     <string name="cw_mark_watched_error">No se pudo marcar como vista</string>
     <string name="cw_mark_watched_success">Marcada como vista</string>
     <string name="vod_menu_title">Opciones</string>
+    <string name="details_show_more">Ver más</string>
+    <string name="details_show_less">Ver menos</string>
     <string name="vod_menu_mark_watched">Marcar como vista</string>
     <string name="episode_menu_choose_source">Ver fuentes</string>
     <string name="episode_menu_mark_this">Marcar este capítulo como visto</string>

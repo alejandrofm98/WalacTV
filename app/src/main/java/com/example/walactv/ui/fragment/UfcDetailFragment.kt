@@ -16,6 +16,7 @@ import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.playbackContentId
 import com.example.walactv.data.remote.repository.IptvRepository
 import com.example.walactv.ui.compose.tvClickable
+import com.example.walactv.ui.compose.ExpandableSynopsis
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -286,8 +287,6 @@ fun UfcDetailScreen(
                     color = IptvTextPrimary,
                     fontSize = 52.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
                     lineHeight = 56.sp,
                 )
 
@@ -311,13 +310,12 @@ fun UfcDetailScreen(
                 }
 
                 if (item.description.isNotBlank()) {
-                    Text(
+                    ExpandableSynopsis(
                         text = item.description,
+                        collapsedMaxLines = 6,
                         color = IptvTextPrimary,
                         fontSize = 15.sp,
                         lineHeight = 22.sp,
-                        maxLines = 6,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 

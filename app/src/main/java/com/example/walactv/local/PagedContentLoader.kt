@@ -21,6 +21,7 @@ class PagedContentLoader(
     private val pagesWithNext = mutableSetOf<Int>()
     private var totalCount = 0
     private var lastCountry: String? = null
+    private var lastGroup: String? = null
     private var lastGenre: String? = null
     private var isSearchMode = false
     private var isLoading = false
@@ -32,14 +33,15 @@ class PagedContentLoader(
     fun isCurrentlyLoading(): Boolean = isLoading
 
     suspend fun loadPage(page: Int, country: String?, group: String? = null, genre: String? = null) {
-        // Check filter change FIRST: if the country/genre changed, the cached pages are
+        // Check filter change FIRST: if the filters changed, the cached pages are
         // stale, so clear loadedPages before the "already loaded" short-circuit below.
-        if (country != lastCountry || genre != lastGenre) {
-            Log.d(TAG, "loadPage($kind, page=$page): filter changed (country: $lastCountry→$country, genre: $lastGenre→$genre), clearing cache")
+        if (country != lastCountry || group != lastGroup || genre != lastGenre) {
+            Log.d(TAG, "loadPage($kind, page=$page): filter changed (country: $lastCountry→$country, group: $lastGroup→$group, genre: $lastGenre→$genre), clearing cache")
             cache.clear()
             loadedPages.clear()
             pagesWithNext.clear()
             lastCountry = country
+            lastGroup = group
             lastGenre = genre
             isSearchMode = false
         }
@@ -66,13 +68,7 @@ class PagedContentLoader(
                     }
                     entities.map { it.toCatalogItem(user, pass) }
                 }
-                ContentKind.MOVIE -> {
-                    val (items, hasNext) = repository.loadCinemetaCatalogPage(kind, page * pageSize)
-                    externalHasNext = hasNext
-                    totalCount = page * pageSize + items.size + if (hasNext) pageSize else 0
-                    items
-                }
-                ContentKind.SERIES -> {
+                ContentKind.MOVIE, ContentKind.SERIES -> {
                     val (items, hasNext) = repository.loadCinemetaCatalogPage(kind, page * pageSize)
                     externalHasNext = hasNext
                     totalCount = page * pageSize + items.size + if (hasNext) pageSize else 0
@@ -143,12 +139,7 @@ class PagedContentLoader(
                     Log.d(TAG, "loadSearch: channels search returned ${entities.size} entities")
                     entities.map { it.toCatalogItem(user, pass) }
                 }
-                ContentKind.MOVIE -> {
-                    val (items, _) = repository.loadCinemetaCatalogPage(kind, 0, query)
-                    totalCount = items.size
-                    items
-                }
-                ContentKind.SERIES -> {
+                ContentKind.MOVIE, ContentKind.SERIES -> {
                     val (items, _) = repository.loadCinemetaCatalogPage(kind, 0, query)
                     totalCount = items.size
                     items
@@ -216,6 +207,7 @@ class PagedContentLoader(
         pagesWithNext.clear()
         totalCount = 0
         lastCountry = null
+        lastGroup = null
         lastGenre = null
         isSearchMode = false
         isLoading = false

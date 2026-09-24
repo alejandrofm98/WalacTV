@@ -103,10 +103,7 @@ internal fun ComposeMainFragment.buildContinueWatchingItem(
         tmdbTitle = displayTitle,
         normalizedTitle = null,
         subtitle = subtitle,
-        description = wp.overviewEs.cleanDisplayText()
-            .ifBlank { matched.description.cleanDisplayText() }
-            .ifBlank { wp.overview.cleanDisplayText() }
-            .ifBlank { wp.title.orEmpty() },
+        description = wp.preferredDescription(matched.description),
         imageUrl = matched.imageUrl.ifBlank { wp.imageUrl.orEmpty() },
         seriesName = matched.seriesName.cleanDisplayText().ifBlank { wp.seriesName.orEmpty() }.ifBlank { null },
     ) ?: wp.toCatalogItemFallback(
@@ -133,9 +130,7 @@ private fun WatchProgressDto.toCatalogItemFallback(
         title = title,
         normalizedTitle = null,
         subtitle = subtitle,
-        description = overviewEs.cleanDisplayText()
-            .ifBlank { overview.cleanDisplayText() }
-            .ifBlank { this.title.orEmpty() },
+        description = preferredDescription(),
         imageUrl = imageUrl.ifBlank { tmdbPosterUrl.orEmpty() },
         kind = kind,
         group = "Continuar viendo",
@@ -172,6 +167,13 @@ internal fun buildTmdbImageUrl(path: String?, size: String): String? {
 
 internal fun String?.cleanDisplayText(): String =
     this?.takeUnless { it.equals("null", ignoreCase = true) }?.trim().orEmpty()
+
+internal fun WatchProgressDto.preferredDescription(matchedDescription: String? = null): String =
+    overviewEs.cleanDisplayText()
+        .ifBlank { matchedDescription.cleanDisplayText() }
+        .ifBlank { overview.cleanDisplayText() }
+        .ifBlank { overviewEn.cleanDisplayText() }
+        .ifBlank { title.cleanDisplayText() }
 
 internal fun CatalogItem.matchesByProviderId(contentId: String): Boolean {
     val itemId = contentId.substringAfterLast(":")

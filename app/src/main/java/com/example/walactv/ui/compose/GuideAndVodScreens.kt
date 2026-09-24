@@ -2,6 +2,7 @@ package com.example.walactv.ui.compose
 
 import android.util.Log
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
@@ -416,8 +417,10 @@ internal fun EpgChannelCard(
                 color = if (isCurrentChannel) IptvAccent else IptvTextPrimary,
                 fontSize = 15.sp,
                 fontWeight = if (isCurrentChannel) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                maxLines = if (isFocused) 1 else 2,
+                softWrap = !isFocused,
+                overflow = if (isFocused) TextOverflow.Visible else TextOverflow.Ellipsis,
+                modifier = if (isFocused) Modifier.basicMarquee() else Modifier,
             )
             if (item.group.isNotBlank()) Text(
                 item.group,

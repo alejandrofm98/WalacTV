@@ -218,7 +218,9 @@ class IptvRepository @Inject constructor(context: Context) {
         providerId = episode.id,
         title = episode.title?.ifBlank { null } ?: "Episodio $number",
         subtitle = "T$season E$number",
-        description = episode.overview.orEmpty(),
+        description = episode.overviewEs?.takeIf { it.isNotBlank() }
+            ?: episode.overviewEn?.takeIf { it.isNotBlank() }
+            ?: episode.overview.orEmpty(),
         imageUrl = episode.thumbnail.orEmpty(),
         kind = ContentKind.SERIES,
         group = "Cinemeta",
@@ -232,6 +234,7 @@ class IptvRepository @Inject constructor(context: Context) {
         stillPath = episode.thumbnail,
         airDate = episode.released,
         tmdbTitle = meta.titleEs,
+        overviewEn = episode.overviewEn?.takeIf { it.isNotBlank() },
     )
 
     // ── Home catalog ──────────────────────────────────────────────────────────
@@ -1094,6 +1097,7 @@ class IptvRepository @Inject constructor(context: Context) {
         val descriptionVal = listOf(
             overview,
             this.description,
+            overviewEn,
             subtitle,
         ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
 
@@ -1221,7 +1225,9 @@ class IptvRepository @Inject constructor(context: Context) {
             tmdbPosterUrl = tmdbPosterUrlVal,
             tagline = null,
             releaseDate = releaseDateVal,
+            lastAirDate = lastAirDate?.takeIf { it.isNotBlank() },
             year = parsedYear,
+            status = status?.takeIf { it.isNotBlank() },
             tmdbTitle = tmdbTitleVal.ifBlank { null },
             totalSeasons = totalSeasons,
             stillPath = stillPathVal,

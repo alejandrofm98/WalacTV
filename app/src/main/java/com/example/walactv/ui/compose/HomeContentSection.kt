@@ -218,6 +218,8 @@ internal fun ContentSection(
     }
 
     val isEventSection = section.items.firstOrNull()?.kind == ContentKind.EVENT
+    val firstItemKind = section.items.firstOrNull()?.kind
+    val isPosterSection = firstItemKind == ContentKind.MOVIE || firstItemKind == ContentKind.SERIES
     val columnModifier = Modifier
         .focusRequester(selfFocusRequester)
         .padding(horizontal = 32.dp)
@@ -285,7 +287,7 @@ internal fun ContentSection(
             val rowPaddingEnd = with(density) { rowWidth.toDp() }.coerceAtLeast(32.dp)
             LazyRow(
                 state = lazyListState,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (isPosterSection) 6.dp else 12.dp),
                 contentPadding = PaddingValues(end = rowPaddingEnd),
                 modifier = Modifier
                     .onSizeChanged { rowWidth = it.width }
@@ -358,6 +360,7 @@ internal fun ContentSection(
                                 item = itemWithWatched,
                                 modifier = cardModifier,
                                 debugTag = "${section.title}[$index]",
+                                posterStyle = item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES,
                                 onFocused = {
                                     fragment.rememberHomeFocus(sectionIndex, section.title, item, index)
                                     onFocused(item)

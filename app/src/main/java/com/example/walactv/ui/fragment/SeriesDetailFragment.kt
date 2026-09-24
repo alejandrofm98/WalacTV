@@ -13,6 +13,7 @@ import android.widget.ImageView.ScaleType.CENTER_CROP
 import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.displaySynopsis
 import com.example.walactv.data.model.PlaybackSourceMode
 import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.allows
@@ -35,6 +36,7 @@ import com.example.walactv.data.util.isSeasonPackTitle
 import com.example.walactv.data.util.languageBadgeLabel
 import com.example.walactv.data.util.normalizeLanguageCode
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -45,6 +47,7 @@ import androidx.compose.foundation.lazy.items
 import com.example.walactv.ui.compose.LONG_PRESS_THRESHOLD_MS
 import com.example.walactv.ui.compose.WatchedBadge
 import com.example.walactv.ui.compose.buildEpisodeLabel
+import com.example.walactv.ui.compose.ExpandableSynopsis
 import com.example.walactv.ui.compose.tvClickable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -406,6 +409,11 @@ fun SeriesDetailScreen(
             val externalImdb = initialSeriesItem?.imdbId
                 ?.takeIf(TorrentioClient::isImdbId)
                 ?.takeIf { initialSeriesItem?.catalogId == it }
+            if (externalImdb != null) {
+                value = repository.loadCinemetaSeriesEpisodes(externalImdb)
+                if (value.isEmpty()) loadError = "No se encontraron episodios para '$seriesName'"
+                return@produceState
+            }
             val providerCatalogId = initialSeriesItem?.let { item ->
                 item.catalogId?.takeIf { it.isNotBlank() && it != item.imdbId }
             }
@@ -423,10 +431,6 @@ fun SeriesDetailScreen(
                 episodes = runCatching { repository.loadSeriesEpisodes(seriesName) }.getOrElse { emptyList() }
                     .also { Log.d("SeriesDetail", "fallback byName '$seriesName' -> ${it.size} eps") }
             }
-            if (episodes.isEmpty() && externalImdb != null) {
-                episodes = runCatching { repository.loadCinemetaSeriesEpisodes(externalImdb) }
-                    .getOrDefault(emptyList())
-            }
             if (episodes.isEmpty()) {
                 // 1) titulo alternativo (tmdbTitle / title)
                 val altName = initialSeriesItem?.tmdbTitle?.takeIf { it.isNotBlank() && it != seriesName }
@@ -442,7 +446,7 @@ fun SeriesDetailScreen(
                 // 2) busqueda por nombre normalizado (sin año, lower)
                 val searchCandidates = listOfNotNull(
                     seriesName.substringBefore("(").trim().takeIf { it.isNotBlank() && it != seriesName },
-                    initialSeriesItem?.seriesKey?.substringBefore(" ").toString().takeIf { it.length > 3 },
+                    initialSeriesItem?.seriesKey?.substringBefore(" ")?.takeIf { it.length > 3 },
                     seriesName.replace(Regex("\\s*\\(\\d{4}\\)\\s*"), "").trim().takeIf { it != seriesName },
                 ).distinct()
                 for (cand in searchCandidates) {
@@ -827,19 +831,9 @@ fun SeriesDetailScreen(
     val totalSeasons = seriesItem?.totalSeasons ?: seasons.size
     val year = seriesItem?.year?.toString() ?: seriesItem?.releaseDate?.take(4) ?: ""
     val genres = seriesItem?.genres?.joinToString(", ") ?: ""
-    val synopsis = focusedEpisode?.description?.takeIf { it.isNotBlank() }
-        ?: seriesItem?.description?.takeIf { it.isNotBlank() }
+    val synopsis = focusedEpisode?.displaySynopsis()?.takeIf { it.isNotBlank() }
+        ?: seriesItem?.displaySynopsis()?.takeIf { it.isNotBlank() }
         ?: "Sin sinopsis disponible."
-
-    Log.d("SeriesDetailScreen", "=== SERIES DETAIL DEBUG ===")
-    Log.d("SeriesDetailScreen", "seriesName=$seriesName seriesDisplayName=$seriesDisplayName")
-    Log.d("SeriesDetailScreen", "bgUrl='$bgUrl'")
-    Log.d("SeriesDetailScreen", "backdropUrl='${seriesItem?.backdropUrl}'")
-    Log.d("SeriesDetailScreen", "tmdbPosterUrl='${seriesItem?.tmdbPosterUrl}'")
-    Log.d("SeriesDetailScreen", "imageUrl='${seriesItem?.imageUrl}'")
-    Log.d("SeriesDetailScreen", "description='${seriesItem?.description?.take(120)}'")
-    Log.d("SeriesDetailScreen", "synopsis='${synopsis.take(120)}'")
-    Log.d("SeriesDetailScreen", "year=$year genres=$genres totalSeasons=$totalSeasons")
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (bgUrl.isNotBlank()) {
@@ -854,11 +848,16 @@ fun SeriesDetailScreen(
                     }
                 },
                 update = { iv ->
-                    Log.d("SeriesDetailScreen", "Glide loading bgUrl='$bgUrl' into iv=${iv.width}x${iv.height}")
-                    Glide.with(iv)
-                        .load(bgUrl)
-                        .override(com.bumptech.glide.request.target.Target.SIZE_ORIGINAL)
-                        .into(iv)
+                    if (iv.tag != bgUrl) {
+                        iv.tag = bgUrl
+                        Glide.with(iv)
+                            .load(bgUrl)
+                            .override(
+                                iv.resources.displayMetrics.widthPixels.coerceAtMost(1920),
+                                iv.resources.displayMetrics.heightPixels.coerceAtMost(1080),
+                            )
+                            .into(iv)
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -926,12 +925,12 @@ fun SeriesDetailScreen(
                         }
                     }
                     Spacer(Modifier.height(16.dp))
-                    Text(
+                    ExpandableSynopsis(
                         text = synopsis, 
-                        color = Color.White, 
-                        fontSize = 14.sp, 
-                        maxLines = 5, 
-                        overflow = TextOverflow.Ellipsis,
+                        collapsedMaxLines = 5,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
                         modifier = Modifier.heightIn(min = 100.dp)
                     )
 
@@ -1221,7 +1220,7 @@ private fun EpisodeSourceDrawer(
                         .ifBlank { episode.title } + " · " + episode.title,
                     color = Color.LightGray,
                     fontSize = 13.sp,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 // Pestañas de idioma (Todos / Español / Inglés…). Visual only:
@@ -1569,7 +1568,7 @@ private fun EpisodeOptionsMenu(
                         buildEpisodeLabel(episode.seasonNumber, episode.episodeNumber).ifBlank { episode.title },
                         color = Color.LightGray,
                         fontSize = 14.sp,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(8.dp))
@@ -1790,8 +1789,10 @@ fun EpisodeCard(
                 color = if (isFocused) Color.White else Color.LightGray,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                maxLines = if (isFocused) 1 else 2,
+                softWrap = !isFocused,
+                overflow = if (isFocused) TextOverflow.Visible else TextOverflow.Ellipsis,
+                modifier = if (isFocused) Modifier.basicMarquee() else Modifier,
             )
         }
     }

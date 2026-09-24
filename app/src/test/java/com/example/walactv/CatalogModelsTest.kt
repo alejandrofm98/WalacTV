@@ -3,6 +3,8 @@ package com.example.walactv
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.buildSeriesGridItems
+import com.example.walactv.data.model.displaySynopsis
+import com.example.walactv.data.model.displayYearLabel
 import com.example.walactv.data.model.idioma
 import com.example.walactv.data.model.parseNormalizedMetadata
 import com.example.walactv.data.model.parseSeriesMetadata
@@ -12,6 +14,8 @@ import com.example.walactv.data.model.toUnifiedOptions
 import com.example.walactv.data.util.displayCardTitle
 import com.example.walactv.data.util.filterItemsByCountrySelection
 import com.example.walactv.data.util.matchesFilterSearch
+import com.example.walactv.data.remote.api.dto.WatchProgressDto
+import com.example.walactv.ui.compose.preferredDescription
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -36,6 +40,40 @@ class CatalogModelsTest {
         val item = createItem("ES | Accion")
         assertEquals("ES", item.idioma)
         assertEquals("Accion", item.subgrupo)
+    }
+
+    @Test
+    fun `uses English synopsis when description is only the group label`() {
+        val item = createItem("Drama").copy(
+            description = "Drama",
+            overviewEn = "English synopsis",
+        )
+
+        assertEquals("English synopsis", item.displaySynopsis())
+    }
+
+    @Test
+    fun `continue watching prefers Spanish then persisted English`() {
+        val progress = WatchProgressDto(
+            title = "Series",
+            overviewEs = "Sinopsis española",
+            overviewEn = "English synopsis",
+        )
+
+        assertEquals("Sinopsis española", progress.preferredDescription("Another synopsis"))
+        assertEquals("English synopsis", progress.copy(overviewEs = null).preferredDescription())
+    }
+
+    @Test
+    fun `formats series years as start to end or open ended`() {
+        val series = createItem("Drama").copy(kind = ContentKind.SERIES, year = 2004)
+
+        assertEquals("2004 - 2011", series.copy(lastAirDate = "2011-09-24", status = "Ended").displayYearLabel())
+        assertEquals(
+            "2004 -",
+            series.copy(lastAirDate = "2025-06-01", status = "Returning Series").displayYearLabel(),
+        )
+        assertEquals("2004", series.copy(status = "Ended").displayYearLabel())
     }
 
     @Test

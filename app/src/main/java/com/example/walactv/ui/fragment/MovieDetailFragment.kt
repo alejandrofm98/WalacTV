@@ -12,6 +12,7 @@ import android.widget.ImageView
 import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
+import com.example.walactv.data.model.displaySynopsis
 import com.example.walactv.data.model.PlaybackSourceMode
 import com.example.walactv.data.model.StreamOption
 import com.example.walactv.data.model.allows
@@ -36,6 +37,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.layout.layout
 import com.example.walactv.data.util.isSeasonPackTitle
 import com.example.walactv.data.util.languageBadgeLabel
+import com.example.walactv.ui.compose.ExpandableSynopsis
 import com.example.walactv.ui.compose.tvClickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -52,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -392,6 +395,8 @@ fun MovieDetailScreen(
 ) {
     val focusRequester = remember { FocusRequester() }
     val fuentesFocusRequester = remember { FocusRequester() }
+    val synopsisFocusRequester = remember { FocusRequester() }
+    var synopsisCanExpand by remember(item.stableId) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var showSourcePicker by remember { mutableStateOf(false) }
     var sourceSelectedIndex by remember { mutableIntStateOf(0) }
@@ -500,57 +505,59 @@ fun MovieDetailScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.weight(1f))
-
-            Column(
-                modifier = Modifier.fillMaxWidth(0.55f),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+            BoxWithConstraints(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.BottomStart,
             ) {
-                // Título
-                Text(
-                    text = item.title,
-                    color = IptvTextPrimary,
-                    fontSize = 56.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 60.sp
-                )
-
-                // Botones
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.focusRequester(focusRequester)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth(0.55f)
+                        .heightIn(max = maxHeight)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
                 ) {
-                    ActionButton(
-                        text = "Reproducir",
-                        icon = Icons.Default.PlayArrow,
-                        isPrimary = true,
-                        onClick = onPlayClick
-                    )
-                    ActionButton(
-                        text = "Fuentes",
-                        icon = Icons.Default.List,
-                        isPrimary = false,
-                        onClick = { showSourcePicker = true },
-                        modifier = Modifier.focusRequester(fuentesFocusRequester)
-                    )
-                }
-
-                // Descripción
-                if (item.description.isNotBlank()) {
                     Text(
-                        text = item.description,
+                        text = item.title,
                         color = IptvTextPrimary,
-                        fontSize = 16.sp,
-                        lineHeight = 24.sp,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis
+                        fontSize = 56.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        lineHeight = 60.sp,
                     )
-                }
 
-                // Bloque de metadatos (Géneros, Año, Duración, Rating)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        ActionButton(
+                            text = "Reproducir",
+                            icon = Icons.Default.PlayArrow,
+                            isPrimary = true,
+                            onClick = onPlayClick,
+                            modifier = Modifier.focusRequester(focusRequester)
+                                .then(if (synopsisCanExpand) Modifier.focusProperties { down = synopsisFocusRequester } else Modifier),
+                        )
+                        ActionButton(
+                            text = "Fuentes",
+                            icon = Icons.Default.List,
+                            isPrimary = false,
+                            onClick = { showSourcePicker = true },
+                            modifier = Modifier.focusRequester(fuentesFocusRequester)
+                                .then(if (synopsisCanExpand) Modifier.focusProperties { down = synopsisFocusRequester } else Modifier),
+                        )
+                    }
+
+                    item.displaySynopsis().takeIf { it.isNotBlank() }?.let { synopsis ->
+                        ExpandableSynopsis(
+                            text = synopsis,
+                            collapsedMaxLines = 4,
+                            color = IptvTextPrimary,
+                            fontSize = 16.sp,
+                            lineHeight = 24.sp,
+                            actionFocusRequester = synopsisFocusRequester,
+                            onExpandableChanged = { synopsisCanExpand = it },
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Línea 1: Géneros • Año
                     val line1Parts = buildList {
                         if (item.genres.isNotEmpty()) add(item.genres.joinToString(" • "))
@@ -633,6 +640,7 @@ fun MovieDetailScreen(
                                 fontWeight = FontWeight.Bold
                             )
                         }
+                    }
                     }
                 }
             }

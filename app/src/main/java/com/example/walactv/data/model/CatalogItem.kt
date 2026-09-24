@@ -1,6 +1,5 @@
 package com.example.walactv.data.model
 
-import android.util.Log
 
 data class CatalogItem(
     val stableId: String,
@@ -34,7 +33,9 @@ data class CatalogItem(
     val tmdbPosterUrl: String? = null,
     val tagline: String? = null,
     val releaseDate: String? = null,
+    val lastAirDate: String? = null,
     val year: Int? = null,
+    val status: String? = null,
     val tmdbTitle: String? = null,
     val totalSeasons: Int? = null,
     val stillPath: String? = null,
@@ -45,7 +46,6 @@ data class CatalogItem(
     val skipSegments: SkipSegments? = null,
 )
 
-private const val TMDB_IMG_TAG = "TMDB_IMG"
 
 fun CatalogItem.searchableText(): List<String> {
     return buildList {
@@ -61,9 +61,29 @@ fun CatalogItem.searchableText(): List<String> {
 fun CatalogItem.isVodContent(): Boolean = kind == ContentKind.MOVIE || kind == ContentKind.SERIES
 
 fun CatalogItem.preferredVodPosterUrl(): String {
-    val result = tmdbPosterUrl?.takeIf { it.isNotBlank() } ?: imageUrl
-    Log.d(TMDB_IMG_TAG, "preferredVodPosterUrl stableId=${stableId.take(40)} kind=$kind tmdbPosterUrl=${tmdbPosterUrl.orEmpty().take(120)} imageUrl=${imageUrl.take(120)} result=${result.take(120)}")
-    return result
+    return tmdbPosterUrl?.takeIf { it.isNotBlank() } ?: imageUrl
+}
+
+fun CatalogItem.displaySynopsis(): String {
+    return description.takeIf { it.isNotBlank() && it != group }
+        ?: overviewEn?.takeIf { it.isNotBlank() && it != group }
+        ?: ""
+}
+
+fun CatalogItem.displayYearLabel(): String? {
+    val startYear = year ?: releaseDate?.take(4)?.toIntOrNull() ?: return null
+    if (kind != ContentKind.SERIES) return startYear.toString()
+
+    val endYear = lastAirDate?.take(4)?.toIntOrNull()
+    val isEnded = status?.equals("Ended", ignoreCase = true) == true ||
+        status?.equals("Canceled", ignoreCase = true) == true ||
+        status?.equals("Cancelled", ignoreCase = true) == true
+
+    return when {
+        !isEnded && !status.isNullOrBlank() -> "$startYear -"
+        endYear != null && endYear > startYear -> "$startYear - $endYear"
+        else -> startYear.toString()
+    }
 }
 
 fun CatalogItem.preferredCardImageUrl(): String {
@@ -73,7 +93,6 @@ fun CatalogItem.preferredCardImageUrl(): String {
     } else {
         imageUrl
     }
-    Log.d(TMDB_IMG_TAG, "preferredCardImageUrl stableId=${stableId.take(40)} kind=$kind isVod=${isVodContent()} result=${result.take(120)}")
     return result
 }
 

@@ -61,6 +61,8 @@ import com.example.walactv.R
 import com.example.walactv.data.model.CatalogItem
 import com.example.walactv.data.model.ContentKind
 import com.example.walactv.data.model.preferredCardImageUrl
+import com.example.walactv.data.model.preferredVodPosterUrl
+import com.example.walactv.data.model.displayYearLabel
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.ui.fragment.ComposeMainFragment
 import com.example.walactv.ui.theme.IptvAccent
@@ -211,10 +213,13 @@ internal fun EventVsCard(
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                maxLines = if (isFocused) 1 else 2,
+                softWrap = !isFocused,
+                overflow = if (isFocused) TextOverflow.Visible else TextOverflow.Ellipsis,
                 lineHeight = 16.sp,
-                modifier = if (displaySubtitle.isBlank()) Modifier.padding(end = 56.dp) else Modifier
+                modifier = (if (isFocused) Modifier.basicMarquee() else Modifier).then(
+                    if (displaySubtitle.isBlank()) Modifier.padding(end = 56.dp) else Modifier,
+                ),
             )
             if (displaySubtitle.isNotBlank()) {
                 Text(
@@ -256,6 +261,7 @@ internal fun MediaCard(
     modifier: Modifier = Modifier,
     debugTag: String = "",
     narrowCard: Boolean = false,
+    posterStyle: Boolean = false,
     onFocused: () -> Unit,
     onClick: () -> Unit,
     onMenuRequest: ((CatalogItem) -> Unit)? = null,
@@ -269,15 +275,17 @@ internal fun MediaCard(
     val cardWidth = when {
         isEvent -> EVENT_CARD_WIDTH
         isChannel -> CH_CARD_WIDTH
+        posterStyle -> HOME_POSTER_CARD_WIDTH
         else -> VOD_CARD_WIDTH
     }
     val imageHeight = when {
         isEvent -> EVENT_IMAGE_HEIGHT
         isChannel -> CH_IMAGE_HEIGHT
+        posterStyle -> HOME_POSTER_IMAGE_HEIGHT
         else -> VOD_IMAGE_HEIGHT
     }
     val textAreaHeight = when {
-        isVod -> VOD_TEXT_AREA_HEIGHT
+        posterStyle -> HOME_POSTER_TEXT_AREA_HEIGHT
         isEvent -> EVENT_TEXT_AREA_HEIGHT
         else -> CH_TEXT_AREA_HEIGHT
     }
@@ -329,11 +337,14 @@ internal fun MediaCard(
 
     val baseModifier = modifier
         .then(vodModifier)
-        .clip(RoundedCornerShape(10.dp))
-        .border(
-            width = if (isFocused) 2.dp else if (isVod && narrowCard) 0.dp else 1.dp,
-            color  = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
-            shape  = RoundedCornerShape(10.dp),
+        .then(
+            if (posterStyle) Modifier.clip(RoundedCornerShape(8.dp)) else Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .border(
+                    width = if (isFocused) 2.dp else if (isVod && narrowCard) 0.dp else 1.dp,
+                    color  = if (isFocused) IptvFocusBorder else IptvSurfaceVariant,
+                    shape  = RoundedCornerShape(10.dp),
+                ),
         )
         .onFocusChanged {
             isFocused = it.isFocused
@@ -343,29 +354,29 @@ internal fun MediaCard(
 
     if (isVod) {
         Column(
-            modifier = baseModifier.background(IptvCard),
+            modifier = baseModifier.background(if (posterStyle) Color.Transparent else IptvCard),
         ) {
-            val cardImgUrl = item.preferredCardImageUrl()
-            Log.d("TMDB_IMG", "MediaCard vod stableId=${item.stableId.take(40)} kind=${item.kind} url=${cardImgUrl.take(120)}")
+            val cardImgUrl = if (posterStyle) item.preferredVodPosterUrl() else item.preferredCardImageUrl()
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(if (narrowCard) Modifier.aspectRatio(16f / 9f) else Modifier.height(imageHeight))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(IptvSurfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
                 if (cardImgUrl.isNotBlank()) {
                     RemoteImage(
                         url = cardImgUrl,
-                        width = 520,
-                        height = 293,
+                        width = if (posterStyle) 342 else 520,
+                        height = if (posterStyle) 513 else 293,
                         scaleType = CENTER_CROP,
                     )
                 } else {
                     PlaceholderIcon(kind = item.kind)
                 }
 
-                item.badgeText.takeIf { it.isNotBlank() && it !in REDUNDANT_BADGES }?.let { badge ->
+                item.badgeText.takeIf { !posterStyle && it.isNotBlank() && it !in REDUNDANT_BADGES }?.let { badge ->
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -383,7 +394,7 @@ internal fun MediaCard(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .border(2.dp, IptvFocusBorder, RoundedCornerShape(10.dp)),
+                            .border(2.dp, IptvFocusBorder, RoundedCornerShape(8.dp)),
                     )
                 }
             }
@@ -392,29 +403,35 @@ internal fun MediaCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(textAreaHeight)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.Center,
+                    .then(
+                        if (posterStyle) Modifier.padding(top = 6.dp)
+                        else Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    ),
+                verticalArrangement = if (posterStyle) Arrangement.Top else Arrangement.Center,
             ) {
                 Text(
                     text = item.resolveDisplayTitle(),
                     color = IptvTextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = if (isFocused) 1 else 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 16.sp,
+                    fontSize = if (posterStyle) 11.sp else 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = if (posterStyle || isFocused) 1 else 2,
+                    softWrap = !posterStyle && !isFocused,
+                    overflow = if (isFocused) TextOverflow.Visible else TextOverflow.Ellipsis,
+                    lineHeight = if (posterStyle) 13.sp else 16.sp,
                     modifier = if (isFocused) Modifier.basicMarquee() else Modifier,
                 )
-                item.year?.toString()?.takeIf { it.isNotBlank() }?.let { year ->
+                item.displayYearLabel()?.let { year ->
                     Text(
                         text = year,
                         color = IptvTextMuted,
-                        fontSize = 11.sp,
+                        fontSize = if (posterStyle) 11.sp else 12.sp,
+                        lineHeight = if (posterStyle) 13.sp else 16.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
+
         }
     } else {
         Column(
@@ -464,9 +481,11 @@ internal fun MediaCard(
                     color = IptvTextPrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    maxLines = if (isFocused) 1 else 2,
+                    softWrap = !isFocused,
+                    overflow = if (isFocused) TextOverflow.Visible else TextOverflow.Ellipsis,
                     lineHeight = 17.sp,
+                    modifier = if (isFocused) Modifier.basicMarquee() else Modifier,
                 )
                 val rawSub = item.subtitle
                 val displaySub = if (item.badgeText.isNotBlank() && rawSub.contains(item.badgeText))
@@ -567,9 +586,11 @@ internal fun UfcCard(
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                maxLines = if (isFocused) 1 else 2,
+                softWrap = !isFocused,
+                overflow = if (isFocused) TextOverflow.Visible else TextOverflow.Ellipsis,
                 lineHeight = 15.sp,
+                modifier = if (isFocused) Modifier.basicMarquee() else Modifier,
             )
             if (item.subtitle.isNotBlank()) {
                 Text(
@@ -609,8 +630,8 @@ internal fun ContinueWatchingCard(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val isChannelOrEvent = item.kind == ContentKind.CHANNEL || item.kind == ContentKind.EVENT
-    val cardWidth   = if (isChannelOrEvent) CH_CARD_WIDTH  else VOD_CARD_WIDTH
-    val imageHeight = if (isChannelOrEvent) CH_IMAGE_HEIGHT else VOD_IMAGE_HEIGHT
+    val cardWidth   = if (isChannelOrEvent) CH_CARD_WIDTH  else CONTINUE_VOD_CARD_WIDTH
+    val imageHeight = if (isChannelOrEvent) CH_IMAGE_HEIGHT else CONTINUE_VOD_IMAGE_HEIGHT
     var keyDownMillis by remember { mutableLongStateOf(0L) }
     var consumeClick by remember { mutableStateOf(false) }
 
@@ -849,7 +870,7 @@ internal fun ContinueWatchingOptionsMenu(
                         displayTitle,
                         color = IptvTextMuted,
                         fontSize = 14.sp,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (episodeLabel.isNotBlank()) {
@@ -974,7 +995,7 @@ internal fun VodOptionsMenu(
                         item.title,
                         color = IptvTextMuted,
                         fontSize = 14.sp,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(8.dp))

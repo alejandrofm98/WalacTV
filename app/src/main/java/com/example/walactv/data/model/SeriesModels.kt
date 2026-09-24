@@ -88,7 +88,9 @@ fun buildSeriesGridItems(items: List<CatalogItem>): List<CatalogItem> {
                 tmdbPosterUrl = firstEpisode.tmdbPosterUrl,
                 tagline = firstEpisode.tagline,
                 releaseDate = firstEpisode.releaseDate,
+                lastAirDate = firstEpisode.lastAirDate,
                 year = firstEpisode.year,
+                status = firstEpisode.status,
                 tmdbTitle = firstEpisode.tmdbTitle,
             )
         }

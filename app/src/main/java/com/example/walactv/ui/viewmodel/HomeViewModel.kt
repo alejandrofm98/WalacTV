@@ -19,6 +19,7 @@ import com.example.walactv.ui.compose.buildEpisodeLabel
 import com.example.walactv.ui.compose.buildTmdbImageUrl
 import com.example.walactv.ui.compose.cleanDisplayText
 import com.example.walactv.ui.compose.matchesByProviderId
+import com.example.walactv.ui.compose.preferredDescription
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -168,37 +169,28 @@ class HomeViewModel @Inject constructor(
                 loadContinueWatching()
             }
 
-            val needsChannels = contentCacheManager.needsSyncChannels(token)
-
-            if (!needsChannels) {
+            if (!repository.hasIptvProvider()) {
                 _contentSyncState.value = ContentSyncState.READY
-                loadChannelFilters()
             } else {
-                _contentSyncState.value = ContentSyncState.SYNCING
-                _currentSyncLabel.value = ""
-                _currentSyncCount.value = 0
-                _overallSyncProgress.value = 0f
-
-                val results = mutableListOf<Result<*>>()
-                val totalSteps = 1
-
-                _currentSyncLabel.value = "Sincronizando canales"
-                val r = contentCacheManager.syncChannels(token)
-                results.add(r)
-                _overallSyncProgress.value = 1f / totalSteps
-                _currentSyncCount.value = r.getOrNull() as? Int ?: 0
-
-                if (results.any { it.isFailure }) {
-                    _contentSyncState.value = ContentSyncState.ERROR
-                    _contentSyncError.value = "Error al sincronizar contenido"
-                    if (!_isLoaded.value) _errorMessage.value = "Error al sincronizar contenido"
-                    return@launch
-                } else {
-                    _currentSyncLabel.value = "Sincronización completada"
-                    _currentSyncCount.value = 0
-                    _overallSyncProgress.value = 1f
-                    _contentSyncState.value = ContentSyncState.READY
-                    loadChannelFilters()
+                viewModelScope.launch {
+                    try {
+                        if (contentCacheManager.needsSyncChannels(token)) {
+                            _contentSyncState.value = ContentSyncState.SYNCING
+                            _currentSyncLabel.value = "Sincronizando canales"
+                            _currentSyncCount.value = 0
+                            _overallSyncProgress.value = 0f
+                            val result = contentCacheManager.syncChannels(token)
+                            result.getOrThrow()
+                            _currentSyncCount.value = result.getOrNull() as? Int ?: 0
+                            _overallSyncProgress.value = 1f
+                        }
+                        _contentSyncState.value = ContentSyncState.READY
+                        loadChannelFilters()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Channel synchronization failed", e)
+                        _contentSyncState.value = ContentSyncState.ERROR
+                        _contentSyncError.value = "Error al sincronizar canales"
+                    }
                 }
             }
 
@@ -433,7 +425,7 @@ class HomeViewModel @Inject constructor(
             title = fallbackTitle,
             normalizedTitle = null,
             subtitle = subtitle,
-            description = matched.description.cleanDisplayText().ifBlank { wp.title.orEmpty() },
+            description = wp.preferredDescription(matched.description),
             imageUrl = matched.imageUrl
                 .takeUnless { it.contains("/logo/", ignoreCase = true) }
                 ?.takeIf { it.isNotBlank() }
@@ -470,7 +462,7 @@ class HomeViewModel @Inject constructor(
             title = title,
             normalizedTitle = null,
             subtitle = subtitle,
-            description = overview.cleanDisplayText().ifBlank { this.title.orEmpty() },
+            description = preferredDescription(),
             imageUrl = imageUrl.ifBlank { tmdbPosterUrl.orEmpty() },
             kind = kind,
             group = "Continuar viendo",

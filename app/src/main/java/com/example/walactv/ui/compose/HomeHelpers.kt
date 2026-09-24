@@ -38,13 +38,19 @@ import com.example.walactv.ui.theme.IptvWatchedCheck
 // Mantener pulsado (long-press) para abrir el menu contextual de una card
 internal const val LONG_PRESS_THRESHOLD_MS = 800L
 
-// Cards VOD apaisadas, en línea con la presentación de Nuvio.
+// Cards apaisadas de "Continuar viendo".
 internal val VOD_CARD_WIDTH        = 260.dp
 internal val VOD_IMAGE_HEIGHT       = 146.dp
-internal val VOD_TEXT_AREA_HEIGHT = 58.dp
+internal val CONTINUE_VOD_CARD_WIDTH = 190.dp
+internal val CONTINUE_VOD_IMAGE_HEIGHT = 107.dp
+
+// Pósteres verticales para descubrir películas y series en Home.
+internal val HOME_POSTER_CARD_WIDTH = 104.dp
+internal val HOME_POSTER_IMAGE_HEIGHT = 156.dp
+internal val HOME_POSTER_TEXT_AREA_HEIGHT = 40.dp
 
 // Hero inmersivo — ocupa ~55% de la pantalla (el backdrop es fillMaxSize)
-internal val HOME_HERO_FRACTION    = 0.56f
+internal val HOME_HERO_FRACTION    = 0.50f
 
 // Cards canal / evento — mantienen su texto
 internal val CH_CARD_WIDTH       = 180.dp

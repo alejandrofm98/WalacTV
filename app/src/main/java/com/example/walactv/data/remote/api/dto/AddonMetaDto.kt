@@ -23,6 +23,8 @@ data class AddonEpisodeDto(
     val episode: Int? = null,
     val title: String? = null,
     val overview: String? = null,
+    @SerializedName("overview_es") val overviewEs: String? = null,
+    @SerializedName("overview_en") val overviewEn: String? = null,
     val thumbnail: String? = null,
     val released: String? = null,
 )
