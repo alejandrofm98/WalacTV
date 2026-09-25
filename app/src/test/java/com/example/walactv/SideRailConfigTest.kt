@@ -22,8 +22,15 @@ class SideRailConfigTest {
         val items = buildDefaultSideRailEntries(includeIptv = false)
 
         assertEquals(
-            listOf(SideRailDestination.SEARCH, SideRailDestination.HOME, SideRailDestination.DISCOVER),
+            listOf(
+                SideRailDestination.SEARCH,
+                SideRailDestination.HOME,
+                SideRailDestination.MY_LIST,
+                SideRailDestination.DISCOVER,
+            ),
             items.map { it.destination },
         )
+        assertEquals("Mi lista", items[2].label)
+        assertEquals("Descubrir", items.last().label)
     }
 }

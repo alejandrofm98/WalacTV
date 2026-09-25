@@ -69,8 +69,20 @@
     <string name="details_show_more">Ver más</string>
     <string name="details_show_less">Ver menos</string>
     <string name="vod_menu_mark_watched">Marcar como vista</string>
+    <string name="vod_menu_add_to_list">Añadir a Mi lista</string>
+    <string name="vod_menu_remove_from_list">Quitar de Mi lista</string>
+    <string name="my_list_title">Mi lista</string>
+    <string name="my_list_loading">Cargando tu lista…</string>
+    <string name="my_list_load_error">No se pudo cargar tu lista. Comprueba la conexión e inténtalo de nuevo.</string>
+    <string name="my_list_empty">Todavía no has guardado películas ni series.</string>
+    <string name="my_list_explore">Explorar catálogo</string>
+    <string name="my_list_retry">Reintentar</string>
     <string name="episode_menu_choose_source">Ver fuentes</string>
     <string name="episode_menu_mark_this">Marcar este capítulo como visto</string>
     <string name="episode_menu_mark_season">Marcar toda la temporada como vista</string>
     <string name="episode_menu_mark_previous">Marcar capítulos anteriores como vistos</string>
+    <plurals name="my_list_count">
+        <item quantity="one">%d título guardado</item>
+        <item quantity="other">%d títulos guardados</item>
+    </plurals>
 </resources>

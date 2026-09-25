@@ -360,7 +360,13 @@ internal fun MediaCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (narrowCard) Modifier.aspectRatio(16f / 9f) else Modifier.height(imageHeight))
+                    .then(
+                        if (narrowCard) {
+                            Modifier.aspectRatio(if (posterStyle) 2f / 3f else 16f / 9f)
+                        } else {
+                            Modifier.height(imageHeight)
+                        },
+                    )
                     .clip(RoundedCornerShape(8.dp))
                     .background(IptvSurfaceVariant),
                 contentAlignment = Alignment.Center,
@@ -371,6 +377,7 @@ internal fun MediaCard(
                         width = if (posterStyle) 342 else 520,
                         height = if (posterStyle) 513 else 293,
                         scaleType = CENTER_CROP,
+                        placeholderKind = item.kind,
                     )
                 } else {
                     PlaceholderIcon(kind = item.kind)
@@ -449,6 +456,7 @@ internal fun MediaCard(
                     item.preferredCardImageUrl().isNotBlank() -> RemoteImage(
                         url = item.preferredCardImageUrl(), width = 300, height = 200,
                         scaleType = FIT_CENTER,
+                        placeholderKind = item.kind,
                     )
                     else -> PlaceholderIcon(kind = item.kind)
                 }
@@ -540,6 +548,7 @@ internal fun UfcCard(
                 width = 300,
                 height = 450,
                 scaleType = CENTER_CROP,
+                placeholderKind = item.kind,
             )
         } else {
             EventSportPlaceholder(item)
@@ -695,6 +704,7 @@ internal fun ContinueWatchingCard(
             if (imageUrl.isNotBlank()) RemoteImage(
                 url = imageUrl, width = 300, height = 450,
                 scaleType = if (isChannelOrEvent) FIT_CENTER else CENTER_CROP,
+                placeholderKind = item.kind,
             )
             else PlaceholderIcon(kind = item.kind)
 
@@ -928,10 +938,23 @@ internal fun VodOptionsMenu(
     item: CatalogItem,
     onDismiss: () -> Unit,
 ) {
-    val options = listOf(
-        stringResource(R.string.cw_menu_go_to_details),
-        stringResource(R.string.vod_menu_mark_watched),
-    )
+    val isVod = item.kind == ContentKind.MOVIE || item.kind == ContentKind.SERIES
+    val removeFromList = fragment.currentMode == ComposeMainFragment.MainMode.MyList
+    val options = buildList {
+        add(stringResource(R.string.cw_menu_go_to_details))
+        if (isVod) {
+            add(stringResource(if (removeFromList) R.string.vod_menu_remove_from_list else R.string.vod_menu_add_to_list))
+        }
+        add(stringResource(R.string.vod_menu_mark_watched))
+    }
+
+    fun performSelectedOption(index: Int) {
+        when {
+            index == 0 -> fragment.handleCardClick(item)
+            isVod && index == 1 -> fragment.viewModel.setVodFavorite(item, isSaved = !removeFromList)
+            else -> fragment.markCatalogItemAsWatched(item)
+        }
+    }
 
     var selectedIndex by remember { mutableIntStateOf(0) }
     val focusRequester = remember { FocusRequester() }
@@ -963,10 +986,7 @@ internal fun VodOptionsMenu(
                         }
                         Key.DirectionCenter,
                         Key.Enter -> {
-                            when (selectedIndex) {
-                                0 -> fragment.handleCardClick(item)
-                                1 -> fragment.markCatalogItemAsWatched(item)
-                            }
+                            performSelectedOption(selectedIndex)
                             onDismiss()
                             true
                         }
@@ -1012,10 +1032,7 @@ internal fun VodOptionsMenu(
                                     shape = RoundedCornerShape(8.dp),
                                 )
                                 .tvClickable {
-                                    when (index) {
-                                        0 -> fragment.handleCardClick(item)
-                                        1 -> fragment.markCatalogItemAsWatched(item)
-                                    }
+                                    performSelectedOption(index)
                                     onDismiss()
                                 }
                                 .padding(horizontal = 16.dp, vertical = 12.dp),

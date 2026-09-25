@@ -654,7 +654,13 @@ private fun ChannelListItem(
             contentAlignment = Alignment.Center
         ) {
             if (item.imageUrl.isNotBlank()) {
-                RemoteImage(url = item.imageUrl, width = 80, height = 80, scaleType = FIT_CENTER)
+                RemoteImage(
+                    url = item.imageUrl,
+                    width = 80,
+                    height = 80,
+                    scaleType = FIT_CENTER,
+                    placeholderKind = item.kind,
+                )
             } else {
                 Icon(Icons.Outlined.LiveTv, contentDescription = null, tint = IptvTextMuted.copy(alpha = 0.4f), modifier = Modifier.size(18.dp))
             }

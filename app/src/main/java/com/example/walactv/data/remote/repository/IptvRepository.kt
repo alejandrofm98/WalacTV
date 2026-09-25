@@ -17,6 +17,7 @@ import com.example.walactv.data.remote.api.dto.ReplayDto
 import com.example.walactv.data.remote.api.dto.ReplayListResponse
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceUpdateBody
+import com.example.walactv.data.remote.api.dto.VodFavoriteBody
 import com.example.walactv.data.remote.api.dto.SearchResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -640,6 +641,44 @@ class IptvRepository @Inject constructor(context: Context) {
         val dto = response.body() ?: return@withContext null
         val item = dto.toCatalogItem(kind)
         resolveStreamTemplates(listOf(item)).firstOrNull()
+    }
+
+    suspend fun loadVodFavorites(): List<CatalogItem> = withContext(Dispatchers.IO) {
+        val response = apiService.getVodFavorites()
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+        response.body()?.items.orEmpty().mapNotNull { favorite ->
+            val expectedKind = when (favorite.contentType) {
+                "movies" -> ContentKind.MOVIE
+                "series" -> ContentKind.SERIES
+                else -> null
+            }
+            favorite.item?.takeIf { expectedKind != null }?.toCatalogItem(expectedKind)
+        }.distinctBy(CatalogItem::stableId)
+    }
+
+    suspend fun addVodFavorite(item: CatalogItem) = withContext(Dispatchers.IO) {
+        val (contentType, contentId) = item.vodFavoriteIdentity()
+        val response = apiService.addVodFavorite(VodFavoriteBody(contentType, contentId))
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+    }
+
+    suspend fun removeVodFavorite(item: CatalogItem) = withContext(Dispatchers.IO) {
+        val (contentType, contentId) = item.vodFavoriteIdentity()
+        val response = apiService.removeVodFavorite(contentType, contentId)
+        if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code()}")
+    }
+
+    private fun CatalogItem.vodFavoriteIdentity(): Pair<String, String> {
+        val contentType = when (kind) {
+            ContentKind.MOVIE -> "movies"
+            ContentKind.SERIES -> "series"
+            else -> throw IllegalArgumentException("Solo se pueden guardar películas o series")
+        }
+        val contentId = catalogId?.takeIf { it.isNotBlank() }
+            ?: providerId?.takeIf { it.isNotBlank() }
+            ?: imdbId?.takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("El contenido no tiene un identificador de catálogo")
+        return contentType to contentId
     }
 
     // ── Series / episodios ────────────────────────────────────────────────────

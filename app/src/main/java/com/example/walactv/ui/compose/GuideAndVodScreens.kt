@@ -4,12 +4,14 @@ import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,8 +25,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
+import com.example.walactv.R
 import com.example.walactv.data.model.CatalogFilters
 import android.widget.ImageView.ScaleType.FIT_CENTER
 import com.example.walactv.data.remote.api.dto.FilterOptionDto
@@ -402,7 +407,8 @@ internal fun EpgChannelCard(
                 url = item.imageUrl,
                 width = 80,
                 height = 80,
-                scaleType = FIT_CENTER
+                scaleType = FIT_CENTER,
+                placeholderKind = item.kind,
             )
             else Icon(
                 Icons.Outlined.LiveTv,
@@ -930,7 +936,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
             .padding(horizontal = 24.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        ScreenHeader(title = "Discover", subtitle = "")
+        ScreenHeader(title = "Descubrir", subtitle = "")
 
         FilterTopBarDiscover(
             selectedTipo = typeOptions.firstOrNull { it.value == selectedTab.name }?.label ?: "Peliculas",
@@ -1016,6 +1022,7 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
                             item = itemWithWatched,
                             modifier = Modifier.focusRequester(itemFocusRequesters[index]),
                             narrowCard = true,
+                            posterStyle = true,
                             onFocused = {
                                 if (!fragment.discoverFocusLocked) {
                                     fragment.discoverFocusedItemStableId = item.stableId
@@ -1076,6 +1083,142 @@ internal fun DiscoverContent(fragment: ComposeMainFragment) {
         selectedOption = selectedGenre,
         onOptionSelected = { selectedGenre = it.value; showGenreDialog = false },
         onDismiss = { showGenreDialog = false })
+}
+
+@Composable
+internal fun MyListContent(fragment: ComposeMainFragment) {
+    val state by fragment.viewModel.vodFavorites.collectAsState()
+    val gridColumns = 5
+    val gridState = rememberLazyGridState()
+    val retryFocusRequester = remember { FocusRequester() }
+    val statusFocusRequester = remember { FocusRequester() }
+    val emptyActionFocusRequester = remember { FocusRequester() }
+    var retryFocused by remember { mutableStateOf(false) }
+    var emptyActionFocused by remember { mutableStateOf(false) }
+    val itemFocusRequesters = remember(state.items.size) {
+        List(state.items.size) { FocusRequester() }
+    }
+
+    LaunchedEffect(Unit) {
+        fragment.viewModel.loadVodFavorites(forceRefresh = true)
+    }
+
+    LaunchedEffect(fragment.contentFocusTrigger, state.items.size, state.error, state.isLoading) {
+        if (fragment.contentFocusTrigger == 0) return@LaunchedEffect
+        if (state.items.isNotEmpty()) {
+            delay(100.milliseconds)
+            itemFocusRequesters.firstOrNull()?.requestFocus()
+        } else if (state.error != null) {
+            fragment.contentFocusCanOpenRail = true
+            delay(100.milliseconds)
+            retryFocusRequester.requestFocus()
+        } else if (state.isLoading) {
+            fragment.contentFocusCanOpenRail = true
+            delay(100.milliseconds)
+            statusFocusRequester.requestFocus()
+        } else {
+            fragment.contentFocusCanOpenRail = true
+            delay(100.milliseconds)
+            emptyActionFocusRequester.requestFocus()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        ScreenHeader(
+            title = stringResource(R.string.my_list_title),
+            subtitle = pluralStringResource(R.plurals.my_list_count, state.items.size, state.items.size),
+        )
+
+        when {
+            state.isLoading && state.items.isEmpty() -> {
+                Box(
+                    Modifier.fillMaxSize().focusRequester(statusFocusRequester).focusable(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(stringResource(R.string.my_list_loading), color = IptvTextMuted, fontSize = 18.sp)
+                }
+            }
+            state.error != null && state.items.isEmpty() -> {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(stringResource(R.string.my_list_load_error), color = IptvTextMuted, fontSize = 18.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .focusRequester(retryFocusRequester)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(IptvSurfaceVariant)
+                            .onFocusChanged { retryFocused = it.isFocused }
+                            .tvClickable { fragment.viewModel.loadVodFavorites(forceRefresh = true) }
+                            .focusable()
+                            .border(2.dp, if (retryFocused) IptvFocusBorder else Color.Transparent, RoundedCornerShape(10.dp))
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                    ) {
+                        Text(stringResource(R.string.my_list_retry), color = IptvTextPrimary, fontSize = 16.sp)
+                    }
+                }
+            }
+            state.items.isEmpty() -> {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(stringResource(R.string.my_list_empty), color = IptvTextMuted, fontSize = 20.sp, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .focusRequester(emptyActionFocusRequester)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(IptvSurfaceVariant)
+                            .onFocusChanged { emptyActionFocused = it.isFocused }
+                            .tvClickable {
+                                fragment.changeMode(ComposeMainFragment.MainMode.Discover)
+                                fragment.contentFocusTrigger++
+                            }
+                            .focusable()
+                            .border(2.dp, if (emptyActionFocused) IptvFocusBorder else Color.Transparent, RoundedCornerShape(10.dp))
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                    ) {
+                        Text(stringResource(R.string.my_list_explore), color = IptvTextPrimary, fontSize = 16.sp)
+                    }
+                }
+            }
+            else -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(gridColumns),
+                    state = gridState,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    itemsIndexed(state.items, key = { _, item -> item.stableId }) { index, item ->
+                        MediaCard(
+                            item = item,
+                            modifier = Modifier.focusRequester(itemFocusRequesters[index]),
+                            narrowCard = true,
+                            posterStyle = true,
+                            onFocused = {
+                                fragment.contentFocusCanOpenRail = index % gridColumns == 0
+                                fragment.selectedHero = item
+                            },
+                            onClick = { fragment.handleCardClick(item, state.items) },
+                            onMenuRequest = { fragment.catalogItemMenuItem = it },
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

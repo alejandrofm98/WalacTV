@@ -3,8 +3,6 @@ package com.example.walactv.ui.compose
 import android.util.Log
 import android.widget.ImageView.ScaleType.CENTER_CROP
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -58,7 +56,6 @@ import kotlin.time.Duration.Companion.milliseconds
 
 // Anchos del rail lateral (deben coincidir con SideRail.kt)
 private val SIDE_RAIL_COLLAPSED_WIDTH = 78.dp
-private val SIDE_RAIL_EXPANDED_WIDTH  = 248.dp
 
 // ── Home screen ────────────────────────────────────────────────────────────
 
@@ -122,7 +119,6 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
         HomeBackdrop(
             item = heroItem,
             usePilotEventImage = usePilotEventBackdrop,
-            isRailExpanded = fragment.isRailExpanded,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -207,16 +203,9 @@ internal fun HomeContent(fragment: ComposeMainFragment) {
 private fun HomeBackdrop(
     item: CatalogItem?,
     usePilotEventImage: Boolean,
-    isRailExpanded: Boolean,          // ← NUEVO: controla el padding dinámico
     modifier: Modifier = Modifier,
 ) {
-    // El padding izquierdo se anima con la misma duración y easing que el rail lateral,
-    // evitando la franja visible durante la transición de apertura/cierre.
-    val backdropStartPadding by animateDpAsState(
-        targetValue = if (isRailExpanded) SIDE_RAIL_EXPANDED_WIDTH else SIDE_RAIL_COLLAPSED_WIDTH,
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "backdropStartPaddingAnim",
-    )
+    val backdropStartPadding = SIDE_RAIL_COLLAPSED_WIDTH
 
     Box(modifier = modifier.background(IptvBackground)) {
         val eventImageUrl = item?.takeIf { it.kind == ContentKind.EVENT }?.imageUrl?.takeIf { it.isNotBlank() }
@@ -235,6 +224,7 @@ private fun HomeBackdrop(
                     height = 1080,
                     scaleType = CENTER_CROP,
                     disableCache = true,
+                    placeholderKind = item?.kind ?: ContentKind.EVENT,
                 )
             }
             usePilotEventImage -> Box(
@@ -254,6 +244,7 @@ private fun HomeBackdrop(
                     width = 1920,
                     height = 1080,
                     scaleType = CENTER_CROP,
+                    placeholderKind = item?.kind ?: ContentKind.MOVIE,
                 )
             }
             posterUrl.isNotBlank() -> {
@@ -267,6 +258,7 @@ private fun HomeBackdrop(
                         width = 600,
                         height = 900,
                         scaleType = CENTER_CROP,
+                        placeholderKind = item?.kind,
                     )
                 }
             }

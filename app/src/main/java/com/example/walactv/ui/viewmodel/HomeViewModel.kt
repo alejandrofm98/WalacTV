@@ -42,6 +42,13 @@ class HomeViewModel @Inject constructor(
     private val channelStateStore: ChannelStateStore,
 ) : ViewModel() {
 
+    data class VodFavoritesState(
+        val items: List<CatalogItem> = emptyList(),
+        val isLoading: Boolean = false,
+        val hasLoaded: Boolean = false,
+        val error: String? = null,
+    )
+
     companion object {
         private const val TAG = "HomeViewModel"
     }
@@ -68,7 +75,7 @@ class HomeViewModel @Inject constructor(
         val base = catalog?.sections.orEmpty()
         val eventSection = base.find { it.title == "Eventos de hoy" || it.items.firstOrNull()?.kind == ContentKind.EVENT }
         val rest = if (eventSection != null) base - eventSection else base
-        return listOfNotNull(eventSection, cwSection) + rest
+        return listOfNotNull(cwSection, eventSection) + rest
     }
 
     private val _continueWatchingEntries = MutableStateFlow<Map<String, WatchProgressDto>>(emptyMap())
@@ -76,6 +83,13 @@ class HomeViewModel @Inject constructor(
 
     private val _searchableItems = MutableStateFlow<List<CatalogItem>>(emptyList())
     val searchableItems: StateFlow<List<CatalogItem>> = _searchableItems.asStateFlow()
+
+    private val _vodFavorites = MutableStateFlow(VodFavoritesState())
+    val vodFavorites: StateFlow<VodFavoritesState> = _vodFavorites.asStateFlow()
+
+    fun resetVodFavorites() {
+        _vodFavorites.value = VodFavoritesState()
+    }
 
     private val _channelLineup = MutableStateFlow<List<CatalogItem>>(emptyList())
     val channelLineup: StateFlow<List<CatalogItem>> = _channelLineup.asStateFlow()
@@ -147,6 +161,47 @@ class HomeViewModel @Inject constructor(
             .format(Instant.now())
 
     // ── Loading ────────────────────────────────────────────────────────────
+
+    fun loadVodFavorites(forceRefresh: Boolean = false) {
+        if (_vodFavorites.value.isLoading || (_vodFavorites.value.hasLoaded && !forceRefresh)) return
+        viewModelScope.launch {
+            _vodFavorites.value = _vodFavorites.value.copy(isLoading = true, error = null)
+            runCatching { repository.loadVodFavorites() }
+                .onSuccess { items ->
+                    _vodFavorites.value = VodFavoritesState(items = items, hasLoaded = true)
+                }
+                .onFailure { error ->
+                    Log.w(TAG, "No se pudo cargar Mi lista", error)
+                    _vodFavorites.value = _vodFavorites.value.copy(
+                        isLoading = false,
+                        hasLoaded = true,
+                        error = error.message ?: "No se pudo cargar Mi lista",
+                    )
+                }
+        }
+    }
+
+    fun setVodFavorite(item: CatalogItem, isSaved: Boolean) {
+        if (_vodFavorites.value.isLoading) return
+        viewModelScope.launch {
+            _vodFavorites.value = _vodFavorites.value.copy(isLoading = true, error = null)
+            runCatching {
+                if (isSaved) repository.addVodFavorite(item) else repository.removeVodFavorite(item)
+                repository.loadVodFavorites()
+            }
+                .onSuccess { items ->
+                    _vodFavorites.value = VodFavoritesState(items = items, hasLoaded = true)
+                }
+                .onFailure { error ->
+                    Log.w(TAG, "No se pudo actualizar Mi lista para ${item.stableId}", error)
+                    _vodFavorites.value = _vodFavorites.value.copy(
+                        isLoading = false,
+                        hasLoaded = true,
+                        error = error.message ?: "No se pudo actualizar Mi lista",
+                    )
+                }
+        }
+    }
 
     fun startLoad(forceRefresh: Boolean = false) {
         if (_homeCatalog.value != null && !forceRefresh) {
@@ -425,7 +480,7 @@ class HomeViewModel @Inject constructor(
             title = fallbackTitle,
             normalizedTitle = null,
             subtitle = subtitle,
-            description = wp.preferredDescription(matched.description),
+            description = wp.preferredDescription(matched),
             imageUrl = matched.imageUrl
                 .takeUnless { it.contains("/logo/", ignoreCase = true) }
                 ?.takeIf { it.isNotBlank() }

@@ -47,10 +47,10 @@ internal val CONTINUE_VOD_IMAGE_HEIGHT = 107.dp
 // Pósteres verticales para descubrir películas y series en Home.
 internal val HOME_POSTER_CARD_WIDTH = 104.dp
 internal val HOME_POSTER_IMAGE_HEIGHT = 156.dp
-internal val HOME_POSTER_TEXT_AREA_HEIGHT = 40.dp
+internal val HOME_POSTER_TEXT_AREA_HEIGHT = 52.dp
 
-// Hero inmersivo — ocupa ~55% de la pantalla (el backdrop es fillMaxSize)
-internal val HOME_HERO_FRACTION    = 0.50f
+// Hero compacto: deja más catálogo visible sin renunciar al backdrop inmersivo.
+internal val HOME_HERO_FRACTION    = 0.34f
 
 // Cards canal / evento — mantienen su texto
 internal val CH_CARD_WIDTH       = 180.dp

@@ -20,6 +20,9 @@ import com.example.walactv.data.remote.api.dto.SeriesEpisodesResponse
 
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
 import com.example.walactv.data.remote.api.dto.WatchProgressListResponse
+import com.example.walactv.data.remote.api.dto.VodFavoriteMutationResponse
+import com.example.walactv.data.remote.api.dto.VodFavoriteBody
+import com.example.walactv.data.remote.api.dto.VodFavoritesResponse
 import com.example.walactv.data.remote.repository.WatchProgressRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -198,6 +201,9 @@ class WatchProgressRepositoryTest {
         override suspend fun getFavorites(): Response<List<CatalogItemDto>> = todo()
         override suspend fun addFavorite(channelId: String): Response<Unit> = todo()
         override suspend fun removeFavorite(channelId: String): Response<Unit> = todo()
+        override suspend fun getVodFavorites(): Response<VodFavoritesResponse> = todo()
+        override suspend fun addVodFavorite(body: VodFavoriteBody): Response<VodFavoriteMutationResponse> = todo()
+        override suspend fun removeVodFavorite(contentType: String, contentId: String): Response<VodFavoriteMutationResponse> = todo()
         override suspend fun getWatchProgress(limit: Int): Response<WatchProgressListResponse> {
             continueWatchingCalls++
             return continueWatchingResult

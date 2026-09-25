@@ -15,6 +15,9 @@ import com.example.walactv.data.remote.api.dto.ContentStatsResponse
 import com.example.walactv.data.remote.api.dto.ReplayListResponse
 import com.example.walactv.data.remote.api.dto.WatchProgressListResponse
 import com.example.walactv.data.remote.api.dto.WatchProgressDto
+import com.example.walactv.data.remote.api.dto.VodFavoriteBody
+import com.example.walactv.data.remote.api.dto.VodFavoriteMutationResponse
+import com.example.walactv.data.remote.api.dto.VodFavoritesResponse
 import com.example.walactv.data.remote.api.dto.SaveWatchProgressBody
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceDto
 import com.example.walactv.data.remote.api.dto.PlaybackPreferenceUpdateBody
@@ -153,6 +156,20 @@ interface IptvApiService {
     suspend fun removeFavorite(
         @Path("channelId") channelId: String,
     ): Response<Unit>
+
+    @GET("api/vod-favorites")
+    suspend fun getVodFavorites(): Response<VodFavoritesResponse>
+
+    @POST("api/vod-favorites")
+    suspend fun addVodFavorite(
+        @Body body: VodFavoriteBody,
+    ): Response<VodFavoriteMutationResponse>
+
+    @DELETE("api/vod-favorites/{contentType}/{contentId}")
+    suspend fun removeVodFavorite(
+        @Path("contentType") contentType: String,
+        @Path("contentId") contentId: String,
+    ): Response<VodFavoriteMutationResponse>
 
     // Watch Progress
     @GET("api/watch-progress")

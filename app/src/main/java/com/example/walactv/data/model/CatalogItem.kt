@@ -67,7 +67,8 @@ fun CatalogItem.preferredVodPosterUrl(): String {
 }
 
 fun CatalogItem.displaySynopsis(): String {
-    return description.takeIf { it.isNotBlank() && it != group }
+    return overviewEs?.takeIf { it.isNotBlank() && it != group }
+        ?: description.takeIf { it.isNotBlank() && it != group }
         ?: overviewEn?.takeIf { it.isNotBlank() && it != group }
         ?: ""
 }
@@ -77,9 +78,10 @@ fun CatalogItem.displayYearLabel(): String? {
     if (kind != ContentKind.SERIES) return startYear.toString()
 
     val endYear = lastAirDate?.take(4)?.toIntOrNull()
-    val isEnded = status?.equals("Ended", ignoreCase = true) == true ||
-        status?.equals("Canceled", ignoreCase = true) == true ||
-        status?.equals("Cancelled", ignoreCase = true) == true
+    val normalizedStatus = status?.trim()?.lowercase()
+    val isEnded = normalizedStatus in setOf(
+        "ended", "canceled", "cancelled", "finalizada", "finalizado", "cancelada", "cancelado",
+    )
 
     return when {
         !isEnded && !status.isNullOrBlank() -> "$startYear -"

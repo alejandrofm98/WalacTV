@@ -53,6 +53,17 @@ class CatalogModelsTest {
     }
 
     @Test
+    fun `prefers Spanish synopsis over stale English description`() {
+        val item = createItem("Drama").copy(
+            description = "English synopsis from old cache",
+            overviewEs = "Sinopsis española actualizada",
+            overviewEn = "English synopsis",
+        )
+
+        assertEquals("Sinopsis española actualizada", item.displaySynopsis())
+    }
+
+    @Test
     fun `continue watching prefers Spanish then persisted English`() {
         val progress = WatchProgressDto(
             title = "Series",
@@ -60,8 +71,19 @@ class CatalogModelsTest {
             overviewEn = "English synopsis",
         )
 
-        assertEquals("Sinopsis española", progress.preferredDescription("Another synopsis"))
+        assertEquals("Sinopsis española", progress.preferredDescription(createItem("Drama")))
         assertEquals("English synopsis", progress.copy(overviewEs = null).preferredDescription())
+    }
+
+    @Test
+    fun `continue watching prefers Spanish metadata on matched catalog item`() {
+        val progress = WatchProgressDto(overview = "English legacy overview")
+        val matched = createItem("Drama").copy(
+            description = "English from legacy cache",
+            overviewEs = "Sinopsis española del catálogo",
+        )
+
+        assertEquals("Sinopsis española del catálogo", progress.preferredDescription(matched))
     }
 
     @Test
@@ -74,6 +96,7 @@ class CatalogModelsTest {
             series.copy(lastAirDate = "2025-06-01", status = "Returning Series").displayYearLabel(),
         )
         assertEquals("2004", series.copy(status = "Ended").displayYearLabel())
+        assertEquals("2004 - 2011", series.copy(lastAirDate = "2011-09-24", status = "Finalizada").displayYearLabel())
     }
 
     @Test

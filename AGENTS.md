@@ -68,12 +68,16 @@ Este cliente consume los siguientes endpoints (ver `iptv-api/AGENTS.md` seccion 
 - `GET /api/home?country=...` — home catalog
 - `GET /api/calendar/{date}` — eventos de calendario (EVENT content)
 - `GET /api/channel-favorites` — favoritos
+- `GET /api/vod-favorites` — Mi lista de películas y series de la cuenta
+- `POST /api/vod-favorites` / `DELETE /api/vod-favorites/{content_type}/{content_id}` — modificar Mi lista
 - `GET /live/{username}/{password}/{channelId}` — stream en vivo
 - `GET /movie/{username}/{password}/{providerId}` — stream VOD
 
 **Importante**: los endpoints usan `content_type` en **plural** (`movies`,
 `series`, `channels`). El servicio backend en `content_service.py`
 acepta tanto singular como plural thanks a un fix reciente.
+`vod-favorites` es una excepción: admite `movies` y `series` y no requiere
+tener IPTV contratado.
 
 ## 1. Contexto rapido
 

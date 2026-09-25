@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -118,6 +119,7 @@ internal fun MainShell(fragment: ComposeMainFragment) {
                     MainMode.TV       -> GuideContent(fragment, ContentKind.CHANNEL)
                     MainMode.Events   -> GuideContent(fragment, ContentKind.EVENT)
                     MainMode.Discover -> DiscoverContent(fragment)
+                    MainMode.MyList   -> MyListContent(fragment)
                     MainMode.Settings -> SettingsContent(fragment)
                 }
             }
@@ -179,81 +181,102 @@ internal fun SideRail(
     )
     var focusedRailIndex by remember { mutableStateOf(-1) }
 
-    Column(
+    Box(
         modifier = Modifier
-            .width(railWidth)
+            .width(SIDE_RAIL_COLLAPSED_WIDTH)
             .fillMaxHeight()
-            .background(IptvSidebarBg)
-            .onFocusChanged { state ->
-                fragment.isRailExpanded = state.hasFocus
-                if (BuildConfig.DEBUG) Log.d(TAG, "rail focus hasFocus=${state.hasFocus} mode=${fragment.currentMode}")
-            }
-            .onPreviewKeyEvent { keyEvent ->
-                if (keyEvent.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN)
-                    return@onPreviewKeyEvent false
-
-                when (keyEvent.nativeKeyEvent.keyCode) {
-                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                        Log.d(TAG, "DPAD_RIGHT rail mode=${fragment.currentMode} expanded=${fragment.isRailExpanded}")
-                        fragment.isRailExpanded = false
-                        if (fragment.currentMode == MainMode.Home) {
-                            val restored = fragment.requestHomeFocusRestoreFromRail()
-                            Log.d(TAG, "home explicit restore requested restored=$restored")
-                            return@onPreviewKeyEvent true
-                        }
-
-                        fragment.contentFocusTrigger++
-                        Log.d(TAG, "content focus trigger=${fragment.contentFocusTrigger} mode=${fragment.currentMode}")
-                        true
-                    }
-                    android.view.KeyEvent.KEYCODE_DPAD_UP,
-                    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
-                        val currentIndex = focusedRailIndex
-                        if (currentIndex < 0) return@onPreviewKeyEvent false
-                        val delta = if (keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) -1 else 1
-                        val targetIndex = currentIndex + delta
-                        if (targetIndex !in focusRequesters.indices) return@onPreviewKeyEvent false
-                        Log.d(TAG, "DPAD_VERTICAL rail $currentIndex -> $targetIndex mode=${fragment.currentMode}")
-                        runCatching { focusRequesters[targetIndex].requestFocus() }
-                        true
-                    }
-                    else -> false
-                }
-            },
+            .zIndex(1f),
     ) {
-        RailHeader(expanded = fragment.isRailExpanded)
         Column(
             modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .requiredWidth(railWidth)
+                .fillMaxHeight()
+                .background(IptvSidebarBg)
+                .onFocusChanged { state ->
+                    fragment.isRailExpanded = state.hasFocus
+                    if (BuildConfig.DEBUG) Log.d(TAG, "rail focus hasFocus=${state.hasFocus} mode=${fragment.currentMode}")
+                }
+                .onPreviewKeyEvent { keyEvent ->
+                    if (keyEvent.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN)
+                        return@onPreviewKeyEvent false
+
+                    when (keyEvent.nativeKeyEvent.keyCode) {
+                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            Log.d(TAG, "DPAD_RIGHT rail mode=${fragment.currentMode} expanded=${fragment.isRailExpanded}")
+                            fragment.isRailExpanded = false
+                            if (fragment.currentMode == MainMode.Home) {
+                                val restored = fragment.requestHomeFocusRestoreFromRail()
+                                Log.d(TAG, "home explicit restore requested restored=$restored")
+                                return@onPreviewKeyEvent true
+                            }
+
+                            fragment.contentFocusTrigger++
+                            Log.d(TAG, "content focus trigger=${fragment.contentFocusTrigger} mode=${fragment.currentMode}")
+                            true
+                        }
+                        android.view.KeyEvent.KEYCODE_DPAD_UP,
+                        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                            val currentIndex = focusedRailIndex
+                            if (currentIndex < 0) return@onPreviewKeyEvent false
+                            val delta = if (keyEvent.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) -1 else 1
+                            val targetIndex = currentIndex + delta
+                            if (targetIndex !in focusRequesters.indices) return@onPreviewKeyEvent false
+                            Log.d(TAG, "DPAD_VERTICAL rail $currentIndex -> $targetIndex mode=${fragment.currentMode}")
+                            runCatching { focusRequesters[targetIndex].requestFocus() }
+                            true
+                        }
+                        else -> false
+                    }
+                },
         ) {
-            railItems.forEachIndexed { index, item ->
-                NavigationItem(
-                    icon = item.icon,
-                    label = item.label,
-                    selected = item.mode != null && fragment.currentMode == item.mode,
-                    expanded = fragment.isRailExpanded,
-                    modifier = Modifier.focusRequester(focusRequesters[index]),
-                onFocusChanged = { focused ->
-                    if (focused) focusedRailIndex = index
-                    if (BuildConfig.DEBUG) Log.d(TAG, "rail item focus label=${item.label} focused=$focused mode=${fragment.currentMode}")
+            RailHeader(expanded = fragment.isRailExpanded)
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                railItems.forEachIndexed { index, item ->
+                    NavigationItem(
+                        icon = item.icon,
+                        label = item.label,
+                        selected = item.mode != null && fragment.currentMode == item.mode,
+                        expanded = fragment.isRailExpanded,
+                        modifier = Modifier.focusRequester(focusRequesters[index]),
+                        onFocusChanged = { focused ->
+                            if (focused) focusedRailIndex = index
+                            if (BuildConfig.DEBUG) {
+                                Log.d(TAG, "rail item focus label=${item.label} focused=$focused mode=${fragment.currentMode}")
+                            }
+                        },
+                    ) {
+                        fragment.isRailExpanded = false
+                        item.onClick?.invoke() ?: item.mode?.let(fragment::changeMode)
+                        when (item.mode) {
+                            MainMode.Home -> fragment.requestHomeFocusRestoreFromRail()
+                            null -> Unit
+                            else -> fragment.contentFocusTrigger++
+                        }
+                    }
                 }
-                ) { item.onClick?.invoke() ?: item.mode?.let(fragment::changeMode) }
             }
-        }
-        Box(modifier = Modifier.padding(6.dp)) {
-            NavigationItem(
-                icon = Icons.Outlined.Settings,
-                label = "Ajustes",
-                selected = fragment.currentMode == MainMode.Settings,
-                expanded = fragment.isRailExpanded,
-                modifier = Modifier.focusRequester(focusRequesters.last()),
-                onFocusChanged = { focused ->
-                    if (focused) focusedRailIndex = focusRequesters.lastIndex
-                    if (BuildConfig.DEBUG) Log.d(TAG, "rail item focus label=Ajustes focused=$focused mode=${fragment.currentMode}")
+            Box(modifier = Modifier.padding(6.dp)) {
+                NavigationItem(
+                    icon = Icons.Outlined.Settings,
+                    label = "Ajustes",
+                    selected = fragment.currentMode == MainMode.Settings,
+                    expanded = fragment.isRailExpanded,
+                    modifier = Modifier.focusRequester(focusRequesters.last()),
+                    onFocusChanged = { focused ->
+                        if (focused) focusedRailIndex = focusRequesters.lastIndex
+                        if (BuildConfig.DEBUG) Log.d(TAG, "rail item focus label=Ajustes focused=$focused mode=${fragment.currentMode}")
+                    }
+                ) {
+                    fragment.isRailExpanded = false
+                    fragment.changeMode(MainMode.Settings)
+                    fragment.contentFocusTrigger++
                 }
-            ) { fragment.changeMode(MainMode.Settings) }
+            }
         }
     }
 }
@@ -283,6 +306,7 @@ internal fun ComposeMainFragment.toNavItem(entry: SideRailEntry): ComposeMainFra
         SideRailDestination.EVENTS   -> ComposeMainFragment.NavItem(Icons.Outlined.Event, entry.label, MainMode.Events)
         SideRailDestination.TV       -> ComposeMainFragment.NavItem(Icons.Outlined.LiveTv, entry.label, MainMode.TV)
         SideRailDestination.DISCOVER -> ComposeMainFragment.NavItem(Icons.Outlined.Explore, entry.label, MainMode.Discover)
+        SideRailDestination.MY_LIST  -> ComposeMainFragment.NavItem(Icons.Outlined.Bookmarks, entry.label, MainMode.MyList)
     }
 }
 

@@ -103,7 +103,7 @@ internal fun ComposeMainFragment.buildContinueWatchingItem(
         tmdbTitle = displayTitle,
         normalizedTitle = null,
         subtitle = subtitle,
-        description = wp.preferredDescription(matched.description),
+        description = wp.preferredDescription(matched),
         imageUrl = matched.imageUrl.ifBlank { wp.imageUrl.orEmpty() },
         seriesName = matched.seriesName.cleanDisplayText().ifBlank { wp.seriesName.orEmpty() }.ifBlank { null },
     ) ?: wp.toCatalogItemFallback(
@@ -168,11 +168,13 @@ internal fun buildTmdbImageUrl(path: String?, size: String): String? {
 internal fun String?.cleanDisplayText(): String =
     this?.takeUnless { it.equals("null", ignoreCase = true) }?.trim().orEmpty()
 
-internal fun WatchProgressDto.preferredDescription(matchedDescription: String? = null): String =
+internal fun WatchProgressDto.preferredDescription(matchedItem: CatalogItem? = null): String =
     overviewEs.cleanDisplayText()
-        .ifBlank { matchedDescription.cleanDisplayText() }
+        .ifBlank { matchedItem?.overviewEs.cleanDisplayText() }
         .ifBlank { overview.cleanDisplayText() }
+        .ifBlank { matchedItem?.description.cleanDisplayText() }
         .ifBlank { overviewEn.cleanDisplayText() }
+        .ifBlank { matchedItem?.overviewEn.cleanDisplayText() }
         .ifBlank { title.cleanDisplayText() }
 
 internal fun CatalogItem.matchesByProviderId(contentId: String): Boolean {
@@ -253,7 +255,13 @@ internal fun ComposeMainFragment.performSignIn() {
     isSigningIn = true
     scope.launch {
         viewModel.signIn(loginUsername, loginPassword)
-            .onSuccess { resetCatalogState(); isSignedIn = true; isSigningIn = false; startLoad() }
+            .onSuccess {
+                resetCatalogState()
+                viewModel.resetVodFavorites()
+                isSignedIn = true
+                isSigningIn = false
+                startLoad()
+            }
             .onFailure { isSigningIn = false; loginError = it.message ?: "No se pudo iniciar sesion" }
     }
 }
@@ -261,6 +269,7 @@ internal fun ComposeMainFragment.performSignIn() {
 internal fun ComposeMainFragment.performSignOut() {
     repository.signOut()
     resetCatalogState()
+    viewModel.resetVodFavorites()
     isSignedIn = false; loginUsername = ""; loginPassword = ""; loginError = null
 }
 
@@ -305,6 +314,7 @@ internal fun ComposeMainFragment.defaultItemForMode(
     ComposeMainFragment.MainMode.TV       -> searchableItems.firstOrNull { it.kind == ContentKind.CHANNEL }
     ComposeMainFragment.MainMode.Events   -> searchableItems.firstOrNull { it.kind == ContentKind.EVENT }
     ComposeMainFragment.MainMode.Discover -> searchableItems.firstOrNull { it.kind == ContentKind.MOVIE || it.kind == ContentKind.SERIES }
+    ComposeMainFragment.MainMode.MyList   -> null
     ComposeMainFragment.MainMode.Settings -> null
 }
 

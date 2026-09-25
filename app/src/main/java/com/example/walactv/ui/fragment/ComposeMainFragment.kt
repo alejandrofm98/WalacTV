@@ -407,7 +407,7 @@ class ComposeMainFragment : Fragment() {
 
     // ── Inner types ────────────────────────────────────────────────────────
 
-    internal enum class MainMode { Home, TV, Discover, Events, Settings }
+    internal enum class MainMode { Home, TV, Discover, Events, MyList, Settings }
 
     internal data class NavItem(
         val icon: androidx.compose.ui.graphics.vector.ImageVector,

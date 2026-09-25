@@ -2,14 +2,17 @@ package com.example.walactv.ui.compose
 
 import android.util.Log
 import android.widget.ImageView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.*
@@ -34,7 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.walactv.data.model.AppUpdateAvailability
@@ -74,6 +78,7 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
         modifier = Modifier
             .fillMaxSize()
             .padding(32.dp)
+            .verticalScroll(rememberScrollState())
             .onFocusChanged { fragment.contentFocusCanOpenRail = it.hasFocus },
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
@@ -94,10 +99,32 @@ internal fun SettingsContent(fragment: ComposeMainFragment) {
                 value = playbackSourceMode.displayLabel,
             ) { showSourceModeDialog = true }
             SettingsRow("Version de la app", installedVersionLabel)
-            val channelsCount by produceState(initialValue = -1) {
-                value = fragment.contentCacheManager.getChannelsTotalCount(null, null)
+            val hasIptvProvider = fragment.repository.hasIptvProvider()
+            SettingsRow(
+                "Servicio IPTV",
+                if (hasIptvProvider) "Acceso habilitado" else "No incluido en esta cuenta",
+            )
+            if (hasIptvProvider) {
+                val channelsCount by produceState(initialValue = -1) {
+                    value = fragment.contentCacheManager.getChannelsTotalCount(null, null)
+                }
+                SettingsRow(
+                    "Canales guardados",
+                    when {
+                        channelsCount < 0 -> "Comprobando…"
+                        channelsCount == 0 -> "Aún no hay canales sincronizados"
+                        else -> channelsCount.toString()
+                    },
+                )
+            } else {
+                Text(
+                    "El catálogo de películas y series sigue disponible sin una suscripción IPTV.",
+                    color = IptvTextMuted,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.focusable(),
+                )
             }
-            SettingsRow("Canales cargados", if (channelsCount >= 0) channelsCount.toString() else "...")
             fragment.updateErrorMessage?.let { Text(it, color = IptvLive, fontSize = 14.sp, modifier = Modifier.focusable()) }
             val update = fragment.availableUpdate
             val statusText = when {
@@ -232,6 +259,7 @@ internal fun RemoteImage(
     scaleType: ImageView.ScaleType,
     disableCache: Boolean = false,
     adjustViewBounds: Boolean = false,
+    placeholderKind: ContentKind? = null,
 ) {
     val contentScale = when (scaleType) {
         ImageView.ScaleType.CENTER_CROP -> ContentScale.Crop
@@ -240,8 +268,9 @@ internal fun RemoteImage(
         else -> ContentScale.Crop
     }
 
-    AsyncImage(
-        model = ImageRequest.Builder(LocalContext.current)
+    val context = LocalContext.current
+    val request = remember(context, url, width, height, disableCache) {
+        ImageRequest.Builder(context)
             .data(url)
             .size(width.coerceAtLeast(1), height.coerceAtLeast(1))
             .crossfade(true)
@@ -251,11 +280,30 @@ internal fun RemoteImage(
                     diskCachePolicy(CachePolicy.DISABLED)
                 }
             }
-            .build(),
-        contentDescription = null,
-        contentScale = contentScale,
-        modifier = if (adjustViewBounds) Modifier.fillMaxHeight() else Modifier.fillMaxSize(),
-    )
+            .build()
+    }
+    val imageModifier = if (adjustViewBounds) Modifier.fillMaxHeight() else Modifier.fillMaxSize()
+    val painter = rememberAsyncImagePainter(model = request)
+    if (painter.state is AsyncImagePainter.State.Success) {
+        Image(
+            painter = painter,
+            contentDescription = null,
+            contentScale = contentScale,
+            modifier = imageModifier,
+        )
+    } else {
+        ImageFallback(placeholderKind ?: ContentKind.MOVIE)
+    }
+}
+
+@Composable
+private fun ImageFallback(kind: ContentKind) {
+    Box(
+        modifier = Modifier.fillMaxSize().background(IptvSurfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        PlaceholderIcon(kind = kind, size = 38.dp)
+    }
 }
 
 // ── Filter top bar ─────────────────────────────────────────────────────────
